@@ -1,6 +1,11 @@
 import type { InboxItem } from '@/lib/domain/types'
 import PlatformBadge from './PlatformBadge'
 
+/** Normalise a social handle by stripping any leading '@'. */
+function cleanHandle(handle: string): string {
+  return handle.startsWith('@') ? handle.slice(1) : handle
+}
+
 interface InboxItemCardProps {
   item: InboxItem
   onMarkRead?: (id: string) => void
@@ -35,7 +40,7 @@ export default function InboxItemCard({ item, onMarkRead, onStar, onOpenNote }: 
             {item.isStarred && <span className="text-yellow-500 text-sm">★</span>}
           </div>
 
-          <p className="text-sm font-medium text-gray-800">@{item.authorHandle.replace('@', '')}</p>
+          <p className="text-sm font-medium text-gray-800">@{cleanHandle(item.authorHandle)}</p>
           <p className="text-sm text-gray-600 mt-0.5 line-clamp-2">{item.text}</p>
 
           {item.aiSummary && (

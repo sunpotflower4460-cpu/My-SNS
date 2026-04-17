@@ -613,7 +613,7 @@ export const MOCK_AUDIT_LOGS: AuditLog[] = [
     action: 'workspace_settings_updated',
     targetType: 'workspace',
     targetId: 'ws-1',
-    metadata: { field: 'name', from: 'My Workspace', to: 'Sunrise Creative' },
+    metadata: { field: 'name', from: 'Sunrise Studio', to: 'Sunrise Creative' },
     createdAt: '2024-01-15T00:00:00Z',
     actor: MOCK_USERS[0],
   },

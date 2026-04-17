@@ -24,7 +24,7 @@ export default function DashboardPage() {
     <div>
       <PageHeader
         title="Dashboard"
-        description="Welcome back — here is what is happening in your workspace."
+        description="Welcome back — here's what's happening in your workspace."
       />
 
       {/* Stat Cards */}

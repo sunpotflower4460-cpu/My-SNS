@@ -57,6 +57,7 @@ export class MockSocialConnectorAdapter implements SocialConnectorAdapter {
       youtube: `https://youtube.com/@${cleanHandle}`,
       instagram: `https://instagram.com/${cleanHandle}`,
       threads: `https://threads.net/@${cleanHandle}`,
+      // x.com format — legacy twitter.com URLs redirect here automatically
       x: `https://x.com/${cleanHandle}`,
       tiktok: `https://tiktok.com/@${cleanHandle}`,
       facebook: `https://facebook.com/${cleanHandle}`,
