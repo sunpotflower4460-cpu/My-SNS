@@ -1,31 +1,36 @@
-import { notFound } from 'next/navigation'
-import Link from 'next/link'
-import PageHeader from '@/components/ui/PageHeader'
-import StatusBadge from '@/components/ui/StatusBadge'
-import PlatformBadge from '@/components/ui/PlatformBadge'
-import {
-  MOCK_CONTENTS,
-  MOCK_ASSETS,
-  MOCK_SOCIAL_DRAFTS,
-  MOCK_PUBLISH_JOBS,
-  MOCK_AUDIT_LOGS,
-  MOCK_INBOX_ITEMS,
-} from '@/lib/mock/seed'
+'use client'
 
-interface ContentDetailPageProps {
-  params: Promise<{ id: string }>
+import Link from 'next/link'
+import { useParams } from 'next/navigation'
+import PageHeader from '@/components/ui/PageHeader'
+import EmptyState from '@/components/ui/EmptyState'
+import PlatformBadge from '@/components/ui/PlatformBadge'
+import StatusBadge from '@/components/ui/StatusBadge'
+import { useMockApp } from '@/lib/mock/store/provider'
+
+function formatBytes(size: number) {
+  return size >= 1024 * 1024 ? `${(size / (1024 * 1024)).toFixed(1)} MB` : `${Math.round(size / 1024)} KB`
 }
 
-export default async function ContentDetailPage({ params }: ContentDetailPageProps) {
-  const { id } = await params
-  const content = MOCK_CONTENTS.find((c) => c.id === id)
-  if (!content) notFound()
+export default function ContentDetailPage() {
+  const params = useParams<{ id: string }>()
+  const { getContentDetail } = useMockApp()
+  const detail = getContentDetail(params.id)
 
-  const assets = MOCK_ASSETS.filter((a) => a.contentId === content.id)
-  const drafts = MOCK_SOCIAL_DRAFTS.filter((d) => d.contentId === content.id)
-  const jobs = MOCK_PUBLISH_JOBS.filter((j) => j.contentId === content.id)
-  const logs = MOCK_AUDIT_LOGS.filter((l) => l.targetId === content.id).slice(0, 5)
-  const reactions = MOCK_INBOX_ITEMS.filter((i) => i.contentId === content.id)
+  if (!detail.content) {
+    return (
+      <div>
+        <PageHeader title="Content not found" description="This entry is missing from the current workspace." />
+        <EmptyState
+          title="No content found"
+          description="Try switching workspaces or go back to the library to create something new."
+          action={<Link href="/app/content" className="rounded-2xl bg-violet-600 px-4 py-2 text-sm font-medium text-white hover:bg-violet-700">Back to content</Link>}
+        />
+      </div>
+    )
+  }
+
+  const { content, assets, drafts, jobs, inboxItems, auditLogs } = detail
 
   return (
     <div>
@@ -34,142 +39,148 @@ export default async function ContentDetailPage({ params }: ContentDetailPagePro
         description={`${content.type} · ${content.status}`}
         actions={
           <div className="flex items-center gap-2">
-            <Link
-              href="/app/content"
-              className="text-sm text-gray-500 hover:text-gray-700"
-            >
-              ← Back
-            </Link>
+            <Link href="/app/content" className="text-sm text-gray-500 hover:text-gray-700">← Back</Link>
             <StatusBadge status={content.status} />
           </div>
         }
       />
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Main Details */}
-        <div className="lg:col-span-2 space-y-5">
-          {/* Metadata */}
-          <div className="bg-white border border-gray-200 rounded-xl p-5">
-            <h2 className="text-sm font-semibold text-gray-900 mb-4">Metadata</h2>
-            <div className="space-y-3 text-sm">
+      <div className="grid gap-6 xl:grid-cols-[minmax(0,1.7fr)_minmax(320px,0.95fr)]">
+        <section className="space-y-6">
+          <div className="rounded-[2rem] border border-stone-200 bg-white p-6 shadow-sm shadow-stone-100/80">
+            <h2 className="mb-4 text-sm font-semibold uppercase tracking-[0.2em] text-gray-400">Overview</h2>
+            <dl className="space-y-4 text-sm">
               <div>
-                <span className="text-gray-500 w-20 inline-block">Title</span>
-                <span className="text-gray-900 font-medium">{content.title}</span>
+                <dt className="text-gray-500">Body</dt>
+                <dd className="mt-1 leading-6 text-gray-700">{content.body ?? '—'}</dd>
+              </div>
+              <div className="grid gap-4 sm:grid-cols-2">
+                <div>
+                  <dt className="text-gray-500">Author</dt>
+                  <dd className="mt-1 text-gray-900">{content.author?.name ?? '—'}</dd>
+                </div>
+                <div>
+                  <dt className="text-gray-500">Updated</dt>
+                  <dd className="mt-1 text-gray-900">{new Date(content.updatedAt).toLocaleString()}</dd>
+                </div>
               </div>
               <div>
-                <span className="text-gray-500 w-20 inline-block">Body</span>
-                <span className="text-gray-700">{content.body ?? '—'}</span>
+                <dt className="text-gray-500">Tags</dt>
+                <dd className="mt-2 flex flex-wrap gap-2">
+                  {content.tags.map((tag) => (
+                    <span key={tag} className="rounded-full border border-stone-200 bg-stone-50 px-2.5 py-1 text-xs text-gray-500">#{tag}</span>
+                  ))}
+                </dd>
               </div>
-              <div>
-                <span className="text-gray-500 w-20 inline-block">Author</span>
-                <span className="text-gray-700">{content.author?.name ?? '—'}</span>
-              </div>
-              <div>
-                <span className="text-gray-500 w-20 inline-block">Tags</span>
-                <span className="text-gray-700">{content.tags.join(', ')}</span>
-              </div>
-              <div>
-                <span className="text-gray-500 w-20 inline-block">Updated</span>
-                <span className="text-gray-700">{new Date(content.updatedAt).toLocaleString()}</span>
-              </div>
+            </dl>
+          </div>
+
+          <div className="rounded-[2rem] border border-stone-200 bg-white p-6 shadow-sm shadow-stone-100/80">
+            <div className="mb-4 flex items-center justify-between gap-3">
+              <h2 className="text-base font-semibold text-gray-900">Attached assets</h2>
+              <span className="rounded-full border border-stone-200 bg-stone-50 px-2.5 py-1 text-xs text-gray-500">{assets.length}</span>
             </div>
-          </div>
-
-          {/* Assets */}
-          <div className="bg-white border border-gray-200 rounded-xl p-5">
-            <h2 className="text-sm font-semibold text-gray-900 mb-3">Assets</h2>
             {assets.length === 0 ? (
-              <p className="text-sm text-gray-400">No assets attached.</p>
-            ) : (
-              <div className="space-y-2">
-                {assets.map((a) => (
-                  <div key={a.id} className="flex items-center gap-3 p-3 border border-gray-100 rounded-lg">
-                    <span className="text-base">📎</span>
-                    <span className="flex-1 text-sm text-gray-700">{a.name}</span>
-                    <span className="text-xs text-gray-400">{(a.size / 1024).toFixed(0)} KB</span>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-
-          {/* Social Drafts */}
-          <div className="bg-white border border-gray-200 rounded-xl p-5">
-            <h2 className="text-sm font-semibold text-gray-900 mb-3">Social Drafts</h2>
-            {drafts.length === 0 ? (
-              <p className="text-sm text-gray-400">No drafts created yet.</p>
+              <p className="text-sm text-gray-500">No assets attached yet.</p>
             ) : (
               <div className="space-y-3">
-                {drafts.map((d) => (
-                  <div key={d.id} className="p-3 border border-gray-100 rounded-lg">
-                    <div className="flex items-center gap-2 mb-2">
-                      <PlatformBadge platform={d.platform} />
-                      <StatusBadge status={d.status} />
+                {assets.map((asset) => (
+                  <div key={asset.id} className="flex items-center gap-4 rounded-2xl border border-stone-100 bg-stone-50 px-4 py-3">
+                    {asset.type === 'image' && asset.url ? (
+                      <div
+                        aria-label={asset.name}
+                        className="h-14 w-14 rounded-2xl bg-cover bg-center"
+                        style={{ backgroundImage: `url(${asset.url})` }}
+                      />
+                    ) : (
+                      <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-white text-2xl">📎</div>
+                    )}
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate text-sm font-medium text-gray-900">{asset.name}</p>
+                      <p className="text-xs text-gray-500">{asset.type} · {formatBytes(asset.size)}</p>
                     </div>
-                    <p className="text-sm text-gray-600 line-clamp-2">{d.draftText}</p>
                   </div>
                 ))}
               </div>
             )}
           </div>
-        </div>
 
-        {/* Sidebar info */}
-        <div className="space-y-5">
-          {/* Publish Queue */}
-          <div className="bg-white border border-gray-200 rounded-xl p-5">
-            <h2 className="text-sm font-semibold text-gray-900 mb-3">Publish Queue</h2>
+          <div className="rounded-[2rem] border border-stone-200 bg-white p-6 shadow-sm shadow-stone-100/80">
+            <h2 className="mb-4 text-base font-semibold text-gray-900">Related drafts</h2>
+            {drafts.length === 0 ? (
+              <p className="text-sm text-gray-500">No drafts saved for this content yet.</p>
+            ) : (
+              <div className="space-y-3">
+                {drafts.map((draft) => (
+                  <div key={draft.id} className="rounded-2xl border border-stone-100 bg-stone-50 p-4">
+                    <div className="mb-2 flex items-center gap-2">
+                      <PlatformBadge platform={draft.platform} />
+                      <StatusBadge status={draft.status} />
+                    </div>
+                    <p className="text-sm leading-6 text-gray-600">{draft.draftText}</p>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </section>
+
+        <aside className="space-y-6">
+          <div className="rounded-[2rem] border border-stone-200 bg-white p-6 shadow-sm shadow-stone-100/80">
+            <h2 className="mb-4 text-base font-semibold text-gray-900">Queue snippets</h2>
             {jobs.length === 0 ? (
-              <p className="text-sm text-gray-400">No jobs queued.</p>
+              <p className="text-sm text-gray-500">No jobs queued.</p>
             ) : (
-              <div className="space-y-2">
-                {jobs.map((j) => (
-                  <div key={j.id} className="flex items-center gap-2">
-                    <PlatformBadge platform={j.platform} />
-                    <StatusBadge status={j.status} />
+              <div className="space-y-3">
+                {jobs.map((job) => (
+                  <div key={job.id} className="rounded-2xl border border-stone-100 bg-stone-50 p-4">
+                    <div className="mb-2 flex items-center gap-2">
+                      <PlatformBadge platform={job.platform} />
+                      <StatusBadge status={job.status} />
+                    </div>
+                    <p className="text-xs text-gray-500">{job.scheduledAt ? `Scheduled ${new Date(job.scheduledAt).toLocaleString()}` : 'Awaiting scheduling'}</p>
+                    {job.errorMessage && <p className="mt-2 text-xs text-red-500">{job.errorMessage}</p>}
                   </div>
                 ))}
               </div>
             )}
           </div>
 
-          {/* Inbox Reactions */}
-          <div className="bg-white border border-gray-200 rounded-xl p-5">
-            <h2 className="text-sm font-semibold text-gray-900 mb-3">Inbox Reactions</h2>
-            {reactions.length === 0 ? (
-              <p className="text-sm text-gray-400">No reactions yet.</p>
+          <div className="rounded-[2rem] border border-stone-200 bg-white p-6 shadow-sm shadow-stone-100/80">
+            <h2 className="mb-4 text-base font-semibold text-gray-900">Inbox reactions</h2>
+            {inboxItems.length === 0 ? (
+              <p className="text-sm text-gray-500">No related inbox activity yet.</p>
             ) : (
-              <div className="space-y-2">
-                {reactions.map((r) => (
-                  <div key={r.id} className="text-sm">
-                    <span className="font-medium text-gray-700">{r.authorHandle}</span>
-                    <p className="text-gray-500 text-xs line-clamp-1">{r.text}</p>
+              <div className="space-y-3">
+                {inboxItems.map((item) => (
+                  <div key={item.id} className="rounded-2xl border border-stone-100 bg-stone-50 p-4">
+                    <p className="text-sm font-medium text-gray-900">{item.authorHandle}</p>
+                    <p className="mt-1 text-sm leading-6 text-gray-600">{item.text}</p>
                   </div>
                 ))}
               </div>
             )}
           </div>
 
-          {/* Audit Trail */}
-          <div className="bg-white border border-gray-200 rounded-xl p-5">
-            <h2 className="text-sm font-semibold text-gray-900 mb-3">Audit Trail</h2>
-            {logs.length === 0 ? (
-              <p className="text-sm text-gray-400">No log entries.</p>
+          <div className="rounded-[2rem] border border-stone-200 bg-white p-6 shadow-sm shadow-stone-100/80">
+            <h2 className="mb-4 text-base font-semibold text-gray-900">Recent audit trail</h2>
+            {auditLogs.length === 0 ? (
+              <p className="text-sm text-gray-500">No log entries yet.</p>
             ) : (
-              <div className="space-y-2">
-                {logs.map((l) => (
-                  <div key={l.id}>
-                    <p className="text-xs text-gray-600">
-                      <span className="font-medium">{l.actor?.name}</span>{' '}
-                      {l.action.replace(/_/g, ' ')}
+              <div className="space-y-3">
+                {auditLogs.map((log) => (
+                  <div key={log.id} className="rounded-2xl border border-stone-100 bg-stone-50 p-4">
+                    <p className="text-sm text-gray-700">
+                      <span className="font-medium text-gray-900">{log.actor?.name ?? 'Unknown'}</span>{' '}
+                      {log.action.replace(/_/g, ' ')}
                     </p>
-                    <p className="text-xs text-gray-400">{new Date(l.createdAt).toLocaleString()}</p>
+                    <p className="mt-1 text-xs text-gray-400">{new Date(log.createdAt).toLocaleString()}</p>
                   </div>
                 ))}
               </div>
             )}
           </div>
-        </div>
+        </aside>
       </div>
     </div>
   )

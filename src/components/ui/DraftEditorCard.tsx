@@ -27,7 +27,7 @@ export default function DraftEditorCard({ draft, onEdit, onApprove, onRegenerate
   }
 
   return (
-    <div className="bg-white border border-gray-200 rounded-xl p-5">
+    <div className="rounded-3xl border border-stone-200 bg-white p-5 shadow-sm shadow-stone-100/70">
       <div className="flex items-center gap-2 mb-3 flex-wrap">
         <PlatformBadge platform={draft.platform} />
         <StatusBadge status={draft.status} />
@@ -40,14 +40,14 @@ export default function DraftEditorCard({ draft, onEdit, onApprove, onRegenerate
         value={text}
         onChange={(e) => handleChange(e.target.value)}
         rows={4}
-        className="w-full text-sm text-gray-700 border border-gray-200 rounded-lg p-3 resize-none focus:outline-none focus:ring-2 focus:ring-violet-300"
+        className="w-full rounded-2xl border border-stone-200 p-3 text-sm text-gray-700 resize-none focus:outline-none focus:ring-2 focus:ring-violet-300"
       />
 
       <div className="flex items-center gap-2 mt-3">
         {isDirty && onEdit && (
           <button
             onClick={handleSave}
-            className="text-xs bg-gray-900 text-white px-3 py-1.5 rounded-lg hover:bg-gray-700"
+            className="rounded-xl bg-gray-900 px-3 py-1.5 text-xs text-white hover:bg-gray-700"
           >
             Save
           </button>
@@ -55,7 +55,7 @@ export default function DraftEditorCard({ draft, onEdit, onApprove, onRegenerate
         {onApprove && draft.status === 'draft' && (
           <button
             onClick={() => onApprove(draft.id)}
-            className="text-xs bg-green-600 text-white px-3 py-1.5 rounded-lg hover:bg-green-700"
+            className="rounded-xl bg-green-600 px-3 py-1.5 text-xs text-white hover:bg-green-700"
           >
             Approve
           </button>
@@ -63,7 +63,7 @@ export default function DraftEditorCard({ draft, onEdit, onApprove, onRegenerate
         {onRegenerate && (
           <button
             onClick={() => onRegenerate(draft.id)}
-            className="text-xs text-gray-500 border border-gray-200 px-3 py-1.5 rounded-lg hover:bg-gray-50"
+            className="rounded-xl border border-stone-200 px-3 py-1.5 text-xs text-gray-500 hover:bg-stone-50"
           >
             Regenerate
           </button>

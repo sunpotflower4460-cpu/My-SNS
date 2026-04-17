@@ -30,29 +30,32 @@ export default function Sidebar({ workspace, user }: SidebarProps) {
   const pathname = usePathname()
 
   return (
-    <aside className="w-60 flex flex-col bg-white border-r border-gray-200 shrink-0">
+    <aside className="hidden w-72 shrink-0 border-r border-stone-200 bg-white/90 backdrop-blur xl:flex xl:flex-col">
       {/* Logo / Workspace Name */}
-      <div className="px-5 py-5 border-b border-gray-200">
+      <div className="border-b border-stone-200 px-6 py-6">
         <div className="flex items-center gap-3">
-          <div className="w-8 h-8 rounded-lg bg-violet-600 flex items-center justify-center text-white text-sm font-bold">
+          <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-violet-600 text-sm font-bold text-white shadow-sm shadow-violet-200">
             {workspace.name.charAt(0)}
           </div>
-          <span className="font-semibold text-gray-900 text-sm truncate">{workspace.name}</span>
+          <div className="min-w-0">
+            <p className="truncate text-sm font-semibold text-gray-900">{workspace.name}</p>
+            <p className="text-xs text-gray-500">Quiet creator workspace</p>
+          </div>
         </div>
       </div>
 
       {/* Navigation */}
-      <nav className="flex-1 px-3 py-4 space-y-0.5 overflow-y-auto">
+      <nav className="flex-1 space-y-1 overflow-y-auto px-4 py-5">
         {NAV_ITEMS.map((item) => {
           const isActive = pathname.startsWith(item.href)
           return (
             <Link
               key={item.href}
               href={item.href}
-              className={`flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
+              className={`flex items-center gap-3 rounded-2xl px-4 py-3 text-sm font-medium transition-all ${
                 isActive
-                  ? 'bg-violet-50 text-violet-700'
-                  : 'text-gray-600 hover:bg-gray-100 hover:text-gray-900'
+                  ? 'border border-violet-200 bg-violet-50 text-violet-700 shadow-sm'
+                  : 'border border-transparent text-gray-600 hover:border-stone-200 hover:bg-stone-50 hover:text-gray-900'
               }`}
             >
               <span className="text-base leading-none">{item.icon}</span>
@@ -63,9 +66,9 @@ export default function Sidebar({ workspace, user }: SidebarProps) {
       </nav>
 
       {/* Current User */}
-      <div className="px-4 py-4 border-t border-gray-200">
-        <div className="flex items-center gap-3">
-          <div className="w-8 h-8 rounded-full bg-gray-200 flex items-center justify-center text-gray-600 text-xs font-medium shrink-0">
+      <div className="border-t border-stone-200 px-5 py-5">
+        <div className="flex items-center gap-3 rounded-2xl border border-stone-200 bg-stone-50 px-3 py-3">
+          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-stone-200 text-xs font-medium text-gray-700">
             {user.name.charAt(0)}
           </div>
           <div className="flex-1 min-w-0">

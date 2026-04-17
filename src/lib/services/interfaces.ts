@@ -7,6 +7,11 @@ export interface AiDraftGeneratorService {
     platforms: SocialPlatform[],
     tone: string,
     length: 'short' | 'medium' | 'long',
+    context?: {
+      workspaceName?: string
+      createdBy?: string
+      variationSeed?: number
+    },
   ): Promise<SocialDraft[]>
 }
 
