@@ -46,7 +46,7 @@ export default function NewContentPage() {
           : undefined
 
         return {
-          id: `${file.name}-${file.size}-${Date.now()}`,
+          id: `${file.name}-${file.size}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
           name: file.name,
           size: file.size,
           type: inferAssetType(file.name, file.type),

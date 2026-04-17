@@ -97,7 +97,7 @@ interface MockAppContextValue {
 const MockAppContext = createContext<MockAppContextValue | null>(null)
 
 function assertDefined<T>(value: T | null | undefined, message: string): NonNullable<T> {
-  if (value == null) {
+  if (value === null || value === undefined) {
     throw new Error(message)
   }
 

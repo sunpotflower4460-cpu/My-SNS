@@ -116,7 +116,7 @@ export default function LoginPage() {
           </div>
           {currentUser && (
             <div className="mt-6 rounded-3xl border border-violet-200 bg-violet-50 p-4 text-sm text-violet-800">
-              Signed in as {currentUser.name}. Redirecting to your workspace…
+              Signed in as {currentUser.name}. Redirecting to your workspace...
             </div>
           )}
         </aside>
