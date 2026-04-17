@@ -13,11 +13,12 @@ import {
 } from '@/lib/mock/seed'
 
 interface ContentDetailPageProps {
-  params: { id: string }
+  params: Promise<{ id: string }>
 }
 
-export default function ContentDetailPage({ params }: ContentDetailPageProps) {
-  const content = MOCK_CONTENTS.find((c) => c.id === params.id)
+export default async function ContentDetailPage({ params }: ContentDetailPageProps) {
+  const { id } = await params
+  const content = MOCK_CONTENTS.find((c) => c.id === id)
   if (!content) notFound()
 
   const assets = MOCK_ASSETS.filter((a) => a.contentId === content.id)
