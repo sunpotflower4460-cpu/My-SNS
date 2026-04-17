@@ -144,7 +144,7 @@ export default function DraftsPage() {
                       entry.id === id
                         ? {
                             ...entry,
-                            draftText: regenerateDraftText(entry, selectedContent, variationSeed + (targetIndex === -1 ? index : targetIndex) + 1),
+                            draftText: regenerateDraftText(entry, selectedContent, variationSeed + targetIndex + 1),
                             updatedAt: new Date().toISOString(),
                           }
                         : entry,

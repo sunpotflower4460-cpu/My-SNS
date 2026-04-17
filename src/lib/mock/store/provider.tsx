@@ -331,9 +331,13 @@ export function MockAppProvider({ children }: { children: React.ReactNode }) {
             targetId: changed.member.id,
             metadata: { userId, role },
           })
+          const relatedUser = prev.users.find((user) => user.id === changed.member.userId)
+          if (!relatedUser) {
+            throw new Error('Updated member user record is missing.')
+          }
           nextMember = {
             ...changed.member,
-            user: prev.users.find((user) => user.id === changed.member.userId),
+            user: relatedUser,
           }
           return withAudit.state
         })

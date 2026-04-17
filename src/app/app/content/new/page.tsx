@@ -1,6 +1,6 @@
 'use client'
 
-import { useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import PageHeader from '@/components/ui/PageHeader'
 import EmptyState from '@/components/ui/EmptyState'
@@ -20,6 +20,7 @@ interface PendingAsset {
 export default function NewContentPage() {
   const router = useRouter()
   const fileInputRef = useRef<HTMLInputElement | null>(null)
+  const isMountedRef = useRef(true)
   const { createContentItem, currentWorkspace } = useMockApp()
   const [title, setTitle] = useState('')
   const [body, setBody] = useState('')
@@ -30,6 +31,12 @@ export default function NewContentPage() {
   const [previewWarning, setPreviewWarning] = useState('')
 
   const normalizedTags = useMemo(() => normalizeTags(tags), [tags])
+
+  useEffect(() => {
+    return () => {
+      isMountedRef.current = false
+    }
+  }, [])
 
   const handleFiles = async (files: FileList | null) => {
     if (!files?.length) return
@@ -43,7 +50,9 @@ export default function NewContentPage() {
               const reader = new FileReader()
               reader.onload = () => resolve(typeof reader.result === 'string' ? reader.result : '')
               reader.onerror = () => {
-                setPreviewWarning('One or more image previews could not be generated, but the files were still attached.')
+                if (isMountedRef.current) {
+                  setPreviewWarning('One or more image previews could not be generated, but the files were still attached.')
+                }
                 resolve('')
               }
               reader.readAsDataURL(file)

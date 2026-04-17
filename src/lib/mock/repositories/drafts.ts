@@ -10,7 +10,8 @@ function createDraftVariation(text: string, seed: number): string {
     'New spin: keep the energy calm but a touch more urgent.',
   ]
 
-  return `${text}\n\n${suffixes[seed % suffixes.length]}`
+  const sanitized = text.replace(/\n\n(?:Fresh angle:|Variation:|Alternate take:|New spin:)[\s\S]*/, '')
+  return `${sanitized}\n\n${suffixes[seed % suffixes.length]}`
 }
 
 export function listWorkspaceDrafts(state: MockAppDataState, workspaceId: string): SocialDraft[] {
