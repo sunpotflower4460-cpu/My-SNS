@@ -66,11 +66,15 @@ export function withAuditRelations(log: AuditLog, users: User[]): AuditLog {
 }
 
 export function sortByNewest<T extends { createdAt?: string; updatedAt?: string; receivedAt?: string }>(items: T[]): T[] {
-  return [...items].sort((left, right) => {
-    const leftDate = left.updatedAt ?? left.receivedAt ?? left.createdAt ?? '1970-01-01T00:00:00.000Z'
-    const rightDate = right.updatedAt ?? right.receivedAt ?? right.createdAt ?? '1970-01-01T00:00:00.000Z'
-    return new Date(rightDate).getTime() - new Date(leftDate).getTime()
-  })
+  return items
+    .map((item) => ({
+      item,
+      timestamp: Date.parse(
+        item.updatedAt ?? item.receivedAt ?? item.createdAt ?? '1970-01-01T00:00:00.000Z',
+      ),
+    }))
+    .sort((left, right) => right.timestamp - left.timestamp)
+    .map(({ item }) => item)
 }
 
 export function getUserById(state: MockAppDataState, userId: string | null | undefined) {

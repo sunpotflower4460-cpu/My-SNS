@@ -27,11 +27,13 @@ export default function NewContentPage() {
   const [tags, setTags] = useState('')
   const [status, setStatus] = useState<ContentStatus>('draft')
   const [assets, setAssets] = useState<PendingAsset[]>([])
+  const [previewWarning, setPreviewWarning] = useState('')
 
   const normalizedTags = useMemo(() => normalizeTags(tags), [tags])
 
   const handleFiles = async (files: FileList | null) => {
     if (!files?.length) return
+    setPreviewWarning('')
 
     const nextAssets = await Promise.all(
       Array.from(files).map(async (file) => {
@@ -40,7 +42,10 @@ export default function NewContentPage() {
           ? await new Promise<string>((resolve) => {
               const reader = new FileReader()
               reader.onload = () => resolve(typeof reader.result === 'string' ? reader.result : '')
-              reader.onerror = () => resolve('')
+              reader.onerror = () => {
+                setPreviewWarning('One or more image previews could not be generated, but the files were still attached.')
+                resolve('')
+              }
               reader.readAsDataURL(file)
             })
           : undefined
@@ -86,6 +91,12 @@ export default function NewContentPage() {
         description={`Create a new entry for ${currentWorkspace?.name ?? 'this workspace'} and attach lightweight local assets.`}
         actions={<button onClick={() => router.back()} className="text-sm text-gray-500 hover:text-gray-700">← Back</button>}
       />
+
+      {previewWarning && (
+        <div className="mb-5 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+          {previewWarning}
+        </div>
+      )}
 
       <div className="grid gap-6 xl:grid-cols-[minmax(0,1.6fr)_minmax(320px,0.9fr)]">
         <section className="space-y-5 rounded-[2rem] border border-stone-200 bg-white p-6 shadow-sm shadow-stone-100/80">

@@ -868,8 +868,3 @@ export const MOCK_AUDIT_LOGS: AuditLog[] = [
 
 export const DEFAULT_USER_ID = MOCK_USERS[0].id
 export const DEFAULT_WORKSPACE_ID = MOCK_WORKSPACES[0].id
-
-export const MOCK_WORKSPACE = MOCK_WORKSPACES[0]
-export const CURRENT_USER: User = MOCK_USERS[0]
-export const CURRENT_WORKSPACE: Workspace = MOCK_WORKSPACES[0]
-export const CURRENT_MEMBER: WorkspaceMember = MOCK_MEMBERS[0]
