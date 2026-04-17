@@ -439,7 +439,7 @@ export function MockAppProvider({ children }: { children: React.ReactNode }) {
           const withAudit = appendAuditLog(updated.state, {
             workspaceId: scope.currentWorkspace.id,
             actorId: scope.currentUserId,
-            action: 'content_updated',
+            action: 'inbox_item_needs_action',
             targetType: 'inbox_item',
             targetId: inboxItemId,
             metadata: { needsAction: updated.item.needsAction },
@@ -463,7 +463,7 @@ export function MockAppProvider({ children }: { children: React.ReactNode }) {
           const withAudit = appendAuditLog(created.state, {
             workspaceId: scope.currentWorkspace.id,
             actorId: scope.currentUserId,
-            action: 'content_updated',
+            action: 'inbox_note_added',
             targetType: 'inbox_item',
             targetId: inboxItemId,
             metadata: { noteAdded: true },

@@ -1,10 +1,6 @@
 import type { InboxItem, InboxNote } from '@/lib/domain/types'
 import PlatformBadge from './PlatformBadge'
 
-function cleanHandle(handle: string): string {
-  return handle.startsWith('@') ? handle.slice(1) : handle
-}
-
 interface InboxItemCardProps {
   item: InboxItem
   notes?: InboxNote[]
@@ -39,7 +35,7 @@ export default function InboxItemCard({ item, notes = [], noteDraft = '', onChan
             {item.isStarred && <span className="text-sm text-yellow-500">★</span>}
           </div>
 
-          <p className="text-sm font-medium text-gray-800">@{cleanHandle(item.authorHandle)}</p>
+          <p className="text-sm font-medium text-gray-800">{item.authorHandle}</p>
           <p className="mt-1 text-sm leading-6 text-gray-600">{item.text}</p>
           {item.aiSummary && <p className="mt-2 text-xs italic text-gray-400">AI: {item.aiSummary}</p>}
 

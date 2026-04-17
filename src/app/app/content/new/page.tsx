@@ -4,7 +4,7 @@ import { useMemo, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import PageHeader from '@/components/ui/PageHeader'
 import EmptyState from '@/components/ui/EmptyState'
-import { inferAssetType, normalizeTags } from '@/lib/mock/repositories/helpers'
+import { formatBytes, inferAssetType, normalizeTags } from '@/lib/mock/repositories/helpers'
 import { useMockApp } from '@/lib/mock/store/provider'
 import type { ContentStatus, ContentType } from '@/lib/domain/types'
 
@@ -15,11 +15,6 @@ interface PendingAsset {
   type: 'image' | 'video' | 'audio' | 'document'
   url?: string
   previewUrl?: string
-}
-
-function formatBytes(value: number) {
-  if (value >= 1024 * 1024) return `${(value / (1024 * 1024)).toFixed(1)} MB`
-  return `${Math.max(1, Math.round(value / 1024))} KB`
 }
 
 export default function NewContentPage() {

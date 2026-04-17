@@ -6,11 +6,8 @@ import PageHeader from '@/components/ui/PageHeader'
 import EmptyState from '@/components/ui/EmptyState'
 import PlatformBadge from '@/components/ui/PlatformBadge'
 import StatusBadge from '@/components/ui/StatusBadge'
+import { formatBytes } from '@/lib/mock/repositories/helpers'
 import { useMockApp } from '@/lib/mock/store/provider'
-
-function formatBytes(size: number) {
-  return size >= 1024 * 1024 ? `${(size / (1024 * 1024)).toFixed(1)} MB` : `${Math.round(size / 1024)} KB`
-}
 
 export default function ContentDetailPage() {
   const params = useParams<{ id: string }>()

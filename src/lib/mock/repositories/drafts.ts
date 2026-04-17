@@ -1,6 +1,17 @@
 import type { Content, SocialDraft, SocialPlatform } from '@/lib/domain/types'
 import type { MockAppDataState } from '@/lib/mock/store/types'
-import { createDraftVariation, createId, nowIso } from './helpers'
+import { createId, nowIso } from './helpers'
+
+function createDraftVariation(text: string, seed: number): string {
+  const suffixes = [
+    'Fresh angle: lead with the mood before the details.',
+    'Variation: make the call-to-action a little warmer.',
+    'Alternate take: spotlight the audience invitation first.',
+    'New spin: keep the energy calm but a touch more urgent.',
+  ]
+
+  return `${text}\n\n${suffixes[seed % suffixes.length]}`
+}
 
 export function listWorkspaceDrafts(state: MockAppDataState, workspaceId: string): SocialDraft[] {
   return state.socialDrafts.filter((draft) => draft.workspaceId === workspaceId)

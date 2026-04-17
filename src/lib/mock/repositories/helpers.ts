@@ -86,13 +86,7 @@ export function getAssetPreview(asset: Asset): string | null {
   return null
 }
 
-export function createDraftVariation(text: string, seed: number): string {
-  const suffixes = [
-    'Fresh angle: lead with the mood before the details.',
-    'Variation: make the call-to-action a little warmer.',
-    'Alternate take: spotlight the audience invitation first.',
-    'New spin: keep the energy calm but a touch more urgent.',
-  ]
-
-  return `${text}\n\n${suffixes[seed % suffixes.length]}`
+export function formatBytes(value: number): string {
+  if (value >= 1024 * 1024) return `${(value / (1024 * 1024)).toFixed(1)} MB`
+  return `${Math.max(1, Math.round(value / 1024))} KB`
 }

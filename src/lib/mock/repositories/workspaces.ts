@@ -95,7 +95,7 @@ export function updateWorkspaceMemberRole(
   }
 
   if (member.role === 'owner' && params.role !== 'owner') {
-    throw new Error('Transfer ownership before changing the owner role.')
+    throw new Error('Cannot change owner role. Transfer workspace ownership first to demote the current owner.')
   }
 
   if (member.userId === params.actorId && member.role === 'owner' && params.role !== 'owner') {

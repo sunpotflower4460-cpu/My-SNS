@@ -138,7 +138,18 @@ export default function DraftsPage() {
                 }}
                 onRegenerate={(id) => {
                   if (!selectedContent) return
-                  setGeneratedDrafts((prev) => prev.map((entry, index) => (entry.id === id ? { ...entry, draftText: regenerateDraftText(entry, selectedContent, variationSeed + index + 1), updatedAt: new Date().toISOString() } : entry)))
+                  setGeneratedDrafts((prev) => {
+                    const targetIndex = prev.findIndex((entry) => entry.id === id)
+                    return prev.map((entry, index) =>
+                      entry.id === id
+                        ? {
+                            ...entry,
+                            draftText: regenerateDraftText(entry, selectedContent, variationSeed + Math.max(targetIndex, index) + 1),
+                            updatedAt: new Date().toISOString(),
+                          }
+                        : entry,
+                    )
+                  })
                   setVariationSeed((prev) => prev + 1)
                 }}
               />
