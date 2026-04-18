@@ -1,6 +1,6 @@
 import type { Content, SocialDraft, SocialPlatform } from '@/lib/domain/types'
 import type { AiDraftGeneratorService } from './interfaces'
-import { CURRENT_USER, CURRENT_WORKSPACE } from '@/lib/mock/seed'
+import { DEFAULT_USER_ID } from '@/lib/mock/seed'
 
 const PLATFORM_TEMPLATES: Record<SocialPlatform, (content: Content, tone: string, length: 'short' | 'medium' | 'long') => string> = {
   instagram: (content, tone, length) => {
@@ -18,7 +18,7 @@ const PLATFORM_TEMPLATES: Record<SocialPlatform, (content: Content, tone: string
   youtube: (content, _tone, length) => {
     const desc = content.body ?? ''
     return length === 'long'
-      ? `${content.title}\n\n${desc}\n\nSubscribe for more content from ${CURRENT_WORKSPACE.name}! Don't forget to like and hit the bell icon 🔔`
+      ? `${content.title}\n\n${desc}\n\nSubscribe for more content from Creator Hub! Don't forget to like and hit the bell icon 🔔`
       : `${content.title}\n\n${desc}`
   },
   threads: (content, tone) => {
@@ -44,21 +44,32 @@ export class MockAiDraftGeneratorService implements AiDraftGeneratorService {
     platforms: SocialPlatform[],
     tone: string,
     length: 'short' | 'medium' | 'long',
+    context?: {
+      workspaceName?: string
+      createdBy?: string
+      variationSeed?: number
+    },
   ): Promise<SocialDraft[]> {
     // Simulate async delay
     await new Promise((resolve) => setTimeout(resolve, 600))
 
     const now = new Date().toISOString()
+    const workspaceName = context?.workspaceName ?? 'Creator Hub'
+    const variationSuffix = context?.variationSeed
+      ? `\n\nVariation ${context.variationSeed + 1}: shift the emphasis slightly.`
+      : ''
     return platforms.map((platform, index) => ({
       id: `generated-${Date.now()}-${index}`,
-      workspaceId: CURRENT_WORKSPACE.id,
+      workspaceId: content.workspaceId,
       contentId: content.id,
       platform,
-      draftText: PLATFORM_TEMPLATES[platform](content, tone, length),
+      draftText: PLATFORM_TEMPLATES[platform](content, tone, length)
+        .replace('Creator Hub', workspaceName)
+        .concat(variationSuffix),
       tone,
       length,
       status: 'draft' as const,
-      createdBy: CURRENT_USER.id,
+      createdBy: context?.createdBy ?? DEFAULT_USER_ID,
       createdAt: now,
       updatedAt: now,
     }))

@@ -171,6 +171,8 @@ export type AuditAction =
   | 'queue_item_cancelled'
   | 'inbox_item_read'
   | 'inbox_item_starred'
+  | 'inbox_item_needs_action'
+  | 'inbox_note_added'
   | 'workspace_settings_updated'
 
 export interface AuditLog {

@@ -12,7 +12,6 @@ import type {
   AuditLog,
 } from '@/lib/domain/types'
 
-// ─── Users ────────────────────────────────────────────────────────────────────
 export const MOCK_USERS: User[] = [
   {
     id: 'user-1',
@@ -37,17 +36,25 @@ export const MOCK_USERS: User[] = [
   },
 ]
 
-// ─── Workspace ────────────────────────────────────────────────────────────────
-export const MOCK_WORKSPACE: Workspace = {
-  id: 'ws-1',
-  name: 'Sunrise Creative',
-  slug: 'sunrise-creative',
-  ownerId: 'user-1',
-  createdAt: '2024-01-01T00:00:00Z',
-  updatedAt: '2024-03-15T00:00:00Z',
-}
+export const MOCK_WORKSPACES: Workspace[] = [
+  {
+    id: 'ws-1',
+    name: 'Sunrise Creative',
+    slug: 'sunrise-creative',
+    ownerId: 'user-1',
+    createdAt: '2024-01-01T00:00:00Z',
+    updatedAt: '2024-03-15T00:00:00Z',
+  },
+  {
+    id: 'ws-2',
+    name: 'North Star Studio',
+    slug: 'north-star-studio',
+    ownerId: 'user-2',
+    createdAt: '2024-02-02T00:00:00Z',
+    updatedAt: '2024-04-11T00:00:00Z',
+  },
+]
 
-// ─── Members ──────────────────────────────────────────────────────────────────
 export const MOCK_MEMBERS: WorkspaceMember[] = [
   {
     id: 'mem-1',
@@ -73,9 +80,32 @@ export const MOCK_MEMBERS: WorkspaceMember[] = [
     joinedAt: '2024-01-11T00:00:00Z',
     user: MOCK_USERS[2],
   },
+  {
+    id: 'mem-4',
+    workspaceId: 'ws-2',
+    userId: 'user-2',
+    role: 'owner',
+    joinedAt: '2024-02-02T00:00:00Z',
+    user: MOCK_USERS[1],
+  },
+  {
+    id: 'mem-5',
+    workspaceId: 'ws-2',
+    userId: 'user-1',
+    role: 'admin',
+    joinedAt: '2024-02-06T00:00:00Z',
+    user: MOCK_USERS[0],
+  },
+  {
+    id: 'mem-6',
+    workspaceId: 'ws-2',
+    userId: 'user-3',
+    role: 'viewer',
+    joinedAt: '2024-02-08T00:00:00Z',
+    user: MOCK_USERS[2],
+  },
 ]
 
-// ─── Invitations ──────────────────────────────────────────────────────────────
 export const MOCK_INVITATIONS: Invitation[] = [
   {
     id: 'inv-1',
@@ -87,9 +117,18 @@ export const MOCK_INVITATIONS: Invitation[] = [
     createdAt: '2024-04-01T00:00:00Z',
     expiresAt: '2024-04-08T00:00:00Z',
   },
+  {
+    id: 'inv-2',
+    workspaceId: 'ws-2',
+    email: 'ops@northstar.fm',
+    role: 'editor',
+    status: 'pending',
+    invitedBy: 'user-2',
+    createdAt: '2024-04-09T00:00:00Z',
+    expiresAt: '2024-04-16T00:00:00Z',
+  },
 ]
 
-// ─── Social Accounts ──────────────────────────────────────────────────────────
 export const MOCK_SOCIAL_ACCOUNTS: SocialAccount[] = [
   {
     id: 'sa-1',
@@ -129,9 +168,39 @@ export const MOCK_SOCIAL_ACCOUNTS: SocialAccount[] = [
     handle: '@sunrise.creative',
     connected: false,
   },
+  {
+    id: 'sa-6',
+    workspaceId: 'ws-2',
+    platform: 'instagram',
+    handle: '@northstarstudio',
+    connected: true,
+    connectedAt: '2024-02-10T00:00:00Z',
+  },
+  {
+    id: 'sa-7',
+    workspaceId: 'ws-2',
+    platform: 'youtube',
+    handle: '@NorthStarStudio',
+    connected: true,
+    connectedAt: '2024-02-13T00:00:00Z',
+  },
+  {
+    id: 'sa-8',
+    workspaceId: 'ws-2',
+    platform: 'x',
+    handle: '@northstarstudio',
+    connected: true,
+    connectedAt: '2024-02-14T00:00:00Z',
+  },
+  {
+    id: 'sa-9',
+    workspaceId: 'ws-2',
+    platform: 'threads',
+    handle: '@northstarstudio',
+    connected: false,
+  },
 ]
 
-// ─── Contents ─────────────────────────────────────────────────────────────────
 export const MOCK_CONTENTS: Content[] = [
   {
     id: 'cnt-1',
@@ -211,9 +280,47 @@ export const MOCK_CONTENTS: Content[] = [
     updatedAt: '2024-04-05T00:00:00Z',
     author: MOCK_USERS[0],
   },
+  {
+    id: 'cnt-7',
+    workspaceId: 'ws-2',
+    title: 'Acoustic Session Invite',
+    body: 'A cozy live-room session announcement for our Friday acoustic set.',
+    type: 'music',
+    status: 'ready',
+    tags: ['acoustic', 'session', 'live'],
+    authorId: 'user-2',
+    createdAt: '2024-04-07T00:00:00Z',
+    updatedAt: '2024-04-10T00:00:00Z',
+    author: MOCK_USERS[1],
+  },
+  {
+    id: 'cnt-8',
+    workspaceId: 'ws-2',
+    title: 'Studio Corner Notes',
+    body: 'A reflective written post about how we keep late-night sessions sustainable.',
+    type: 'text',
+    status: 'draft',
+    tags: ['journal', 'studio', 'notes'],
+    authorId: 'user-1',
+    createdAt: '2024-04-09T00:00:00Z',
+    updatedAt: '2024-04-11T00:00:00Z',
+    author: MOCK_USERS[0],
+  },
+  {
+    id: 'cnt-9',
+    workspaceId: 'ws-2',
+    title: 'Rehearsal Photo Set',
+    body: 'A quiet image set from rehearsal week.',
+    type: 'image',
+    status: 'published',
+    tags: ['photo', 'rehearsal', 'gallery'],
+    authorId: 'user-3',
+    createdAt: '2024-04-03T00:00:00Z',
+    updatedAt: '2024-04-08T00:00:00Z',
+    author: MOCK_USERS[2],
+  },
 ]
 
-// ─── Assets ───────────────────────────────────────────────────────────────────
 export const MOCK_ASSETS: Asset[] = [
   {
     id: 'ast-1',
@@ -259,9 +366,30 @@ export const MOCK_ASSETS: Asset[] = [
     uploadedBy: 'user-1',
     createdAt: '2024-03-02T00:00:00Z',
   },
+  {
+    id: 'ast-5',
+    workspaceId: 'ws-2',
+    contentId: 'cnt-7',
+    name: 'acoustic-set-cover.jpg',
+    url: 'https://picsum.photos/seed/acoustic/800/800',
+    type: 'image',
+    size: 184320,
+    uploadedBy: 'user-2',
+    createdAt: '2024-04-07T00:00:00Z',
+  },
+  {
+    id: 'ast-6',
+    workspaceId: 'ws-2',
+    contentId: 'cnt-9',
+    name: 'rehearsal-room.jpg',
+    url: 'https://picsum.photos/seed/rehearsal/800/800',
+    type: 'image',
+    size: 229376,
+    uploadedBy: 'user-3',
+    createdAt: '2024-04-04T00:00:00Z',
+  },
 ]
 
-// ─── Social Drafts ────────────────────────────────────────────────────────────
 export const MOCK_SOCIAL_DRAFTS: SocialDraft[] = [
   {
     id: 'sd-1',
@@ -341,9 +469,34 @@ export const MOCK_SOCIAL_DRAFTS: SocialDraft[] = [
     createdAt: '2024-04-04T00:00:00Z',
     updatedAt: '2024-04-05T00:00:00Z',
   },
+  {
+    id: 'sd-7',
+    workspaceId: 'ws-2',
+    contentId: 'cnt-7',
+    platform: 'instagram',
+    draftText: 'Warm room, soft lights, and one intimate acoustic set this Friday ✨ Join us live and bring a friend. #AcousticNight',
+    tone: 'casual',
+    length: 'short',
+    status: 'approved',
+    createdBy: 'user-2',
+    createdAt: '2024-04-07T00:00:00Z',
+    updatedAt: '2024-04-08T00:00:00Z',
+  },
+  {
+    id: 'sd-8',
+    workspaceId: 'ws-2',
+    contentId: 'cnt-8',
+    platform: 'threads',
+    draftText: 'Late-night sessions can stay gentle if the room does too. Sharing a few studio rituals that help us keep creative energy steady.',
+    tone: 'inspirational',
+    length: 'medium',
+    status: 'draft',
+    createdBy: 'user-1',
+    createdAt: '2024-04-10T00:00:00Z',
+    updatedAt: '2024-04-11T00:00:00Z',
+  },
 ]
 
-// ─── Publish Jobs ─────────────────────────────────────────────────────────────
 export const MOCK_PUBLISH_JOBS: PublishJob[] = [
   {
     id: 'pj-1',
@@ -413,9 +566,31 @@ export const MOCK_PUBLISH_JOBS: PublishJob[] = [
     createdBy: 'user-2',
     createdAt: '2024-03-29T00:00:00Z',
   },
+  {
+    id: 'pj-7',
+    workspaceId: 'ws-2',
+    contentId: 'cnt-7',
+    draftId: 'sd-7',
+    platform: 'instagram',
+    status: 'scheduled',
+    scheduledAt: '2024-04-18T19:30:00Z',
+    createdBy: 'user-2',
+    createdAt: '2024-04-11T00:00:00Z',
+  },
+  {
+    id: 'pj-8',
+    workspaceId: 'ws-2',
+    contentId: 'cnt-8',
+    draftId: 'sd-8',
+    platform: 'threads',
+    status: 'failed',
+    scheduledAt: '2024-04-14T08:30:00Z',
+    errorMessage: 'Thread publish window expired before approval.',
+    createdBy: 'user-1',
+    createdAt: '2024-04-11T00:00:00Z',
+  },
 ]
 
-// ─── Inbox Items ──────────────────────────────────────────────────────────────
 export const MOCK_INBOX_ITEMS: InboxItem[] = [
   {
     id: 'inbox-1',
@@ -525,9 +700,48 @@ export const MOCK_INBOX_ITEMS: InboxItem[] = [
     isStarred: true,
     aiSummary: 'Collaboration proposal from audio professional.',
   },
+  {
+    id: 'inbox-9',
+    workspaceId: 'ws-2',
+    platform: 'instagram',
+    kind: 'comment',
+    authorHandle: '@roomtoneclub',
+    text: 'The acoustic room vibe looks beautiful — are tickets limited?',
+    contentId: 'cnt-7',
+    receivedAt: '2024-04-12T09:45:00Z',
+    isRead: false,
+    needsAction: true,
+    isStarred: false,
+    aiSummary: 'Potential attendee asking about ticket availability.',
+  },
+  {
+    id: 'inbox-10',
+    workspaceId: 'ws-2',
+    platform: 'x',
+    kind: 'mention',
+    authorHandle: '@latenightloops',
+    text: 'North Star Studio keeps making calm posts that somehow make me want to create more.',
+    receivedAt: '2024-04-11T18:30:00Z',
+    isRead: true,
+    needsAction: false,
+    isStarred: true,
+    aiSummary: 'Positive brand mention about the studio tone.',
+  },
+  {
+    id: 'inbox-11',
+    workspaceId: 'ws-2',
+    platform: 'threads',
+    kind: 'reply',
+    authorHandle: '@quietproducer',
+    text: 'Would love a longer post on those studio rituals when you have time.',
+    contentId: 'cnt-8',
+    receivedAt: '2024-04-13T07:20:00Z',
+    isRead: false,
+    needsAction: false,
+    isStarred: false,
+  },
 ]
 
-// ─── Audit Logs ───────────────────────────────────────────────────────────────
 export const MOCK_AUDIT_LOGS: AuditLog[] = [
   {
     id: 'al-1',
@@ -617,9 +831,40 @@ export const MOCK_AUDIT_LOGS: AuditLog[] = [
     createdAt: '2024-01-15T00:00:00Z',
     actor: MOCK_USERS[0],
   },
+  {
+    id: 'al-9',
+    workspaceId: 'ws-2',
+    actorId: 'user-2',
+    action: 'content_created',
+    targetType: 'content',
+    targetId: 'cnt-7',
+    metadata: { title: 'Acoustic Session Invite' },
+    createdAt: '2024-04-07T00:00:00Z',
+    actor: MOCK_USERS[1],
+  },
+  {
+    id: 'al-10',
+    workspaceId: 'ws-2',
+    actorId: 'user-1',
+    action: 'content_updated',
+    targetType: 'content',
+    targetId: 'cnt-8',
+    metadata: { field: 'body' },
+    createdAt: '2024-04-11T00:00:00Z',
+    actor: MOCK_USERS[0],
+  },
+  {
+    id: 'al-11',
+    workspaceId: 'ws-2',
+    actorId: 'user-2',
+    action: 'queue_item_scheduled',
+    targetType: 'publish_job',
+    targetId: 'pj-7',
+    metadata: { platform: 'instagram', scheduledAt: '2024-04-18T19:30:00Z' },
+    createdAt: '2024-04-11T00:00:00Z',
+    actor: MOCK_USERS[1],
+  },
 ]
 
-// ─── Current Context ──────────────────────────────────────────────────────────
-export const CURRENT_USER: User = MOCK_USERS[0]
-export const CURRENT_WORKSPACE: Workspace = MOCK_WORKSPACE
-export const CURRENT_MEMBER: WorkspaceMember = MOCK_MEMBERS[0]
+export const DEFAULT_USER_ID = MOCK_USERS[0].id
+export const DEFAULT_WORKSPACE_ID = MOCK_WORKSPACES[0].id
