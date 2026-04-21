@@ -206,6 +206,12 @@ export function MockAppProvider({ children }: { children: React.ReactNode }) {
       }
     }
 
+    const commitState = <T,>(update: (currentState: MockAppDataState) => { state: MockAppDataState; result: T }) => {
+      const next = update(state)
+      setState(next.state)
+      return next.result
+    }
+
     return {
       isReady: isHydrated && sessionReady,
       currentWorkspace,
@@ -225,10 +231,8 @@ export function MockAppProvider({ children }: { children: React.ReactNode }) {
       },
       createContentItem: (input) => {
         const scope = assertScope()
-        let nextContent: Content | null = null
-
-        setState((prev) => {
-          const created = createContent(prev, {
+        return commitState((currentState) => {
+          const created = createContent(currentState, {
             workspaceId: scope.currentWorkspace.id,
             authorId: scope.currentUserId,
             ...input,
@@ -243,18 +247,16 @@ export function MockAppProvider({ children }: { children: React.ReactNode }) {
             metadata: { title: created.content.title, status: created.content.status },
           })
 
-          nextContent = created.content
-          return withContentLog.state
+          return {
+            state: withContentLog.state,
+            result: created.content,
+          }
         })
-
-        return assertDefined(nextContent, 'Unable to create content.')
       },
       updateContentItem: (contentId, patch) => {
         const scope = assertScope()
-        let nextContent: Content | null = null
-
-        setState((prev) => {
-          const updated = updateContent(prev, scope.currentWorkspace.id, contentId, patch)
+        return commitState((currentState) => {
+          const updated = updateContent(currentState, scope.currentWorkspace.id, contentId, patch)
           const withAudit = appendAuditLog(updated.state, {
             workspaceId: scope.currentWorkspace.id,
             actorId: scope.currentUserId,
@@ -263,11 +265,11 @@ export function MockAppProvider({ children }: { children: React.ReactNode }) {
             targetId: updated.content.id,
             metadata: patch,
           })
-          nextContent = updated.content
-          return withAudit.state
+          return {
+            state: withAudit.state,
+            result: updated.content,
+          }
         })
-
-        return assertDefined(nextContent, 'Unable to update content.')
       },
       getContentDetail: (contentId) => {
         if (!currentWorkspace) {
@@ -290,10 +292,8 @@ export function MockAppProvider({ children }: { children: React.ReactNode }) {
       },
       inviteMember: (email, role) => {
         const scope = assertScope()
-        let nextInvitation: Invitation | null = null
-
-        setState((prev) => {
-          const invited = inviteWorkspaceMember(prev, {
+        return commitState((currentState) => {
+          const invited = inviteWorkspaceMember(currentState, {
             workspaceId: scope.currentWorkspace.id,
             email,
             role,
@@ -307,18 +307,16 @@ export function MockAppProvider({ children }: { children: React.ReactNode }) {
             targetId: invited.invitation.id,
             metadata: { email: invited.invitation.email, role },
           })
-          nextInvitation = invited.invitation
-          return withAudit.state
+          return {
+            state: withAudit.state,
+            result: invited.invitation,
+          }
         })
-
-        return assertDefined(nextInvitation, 'Unable to create invitation.')
       },
       changeMemberRole: (userId, role) => {
         const scope = assertScope()
-        let nextMember: WorkspaceMember | null = null
-
-        setState((prev) => {
-          const changed = updateWorkspaceMemberRole(prev, {
+        return commitState((currentState) => {
+          const changed = updateWorkspaceMemberRole(currentState, {
             workspaceId: scope.currentWorkspace.id,
             userId,
             role,
@@ -332,43 +330,44 @@ export function MockAppProvider({ children }: { children: React.ReactNode }) {
             targetId: changed.member.id,
             metadata: { userId, role },
           })
-          const relatedUser = prev.users.find((user) => user.id === changed.member.userId)
+          const relatedUser = currentState.users.find((user) => user.id === changed.member.userId)
           if (!relatedUser) {
             throw new Error('Updated member user record is missing.')
           }
-          nextMember = {
-            ...changed.member,
-            user: relatedUser,
+          return {
+            state: withAudit.state,
+            result: {
+              ...changed.member,
+              user: relatedUser,
+            },
           }
-          return withAudit.state
         })
-
-        return assertDefined(nextMember, 'Unable to update member.')
       },
       removeMember: (userId) => {
         const scope = assertScope()
-        setState((prev) => {
-          const nextState = removeWorkspaceMember(prev, {
+        commitState((currentState) => {
+          const nextState = removeWorkspaceMember(currentState, {
             workspaceId: scope.currentWorkspace.id,
             userId,
             actorId: scope.currentUserId,
           })
-          return appendAuditLog(nextState, {
-            workspaceId: scope.currentWorkspace.id,
-            actorId: scope.currentUserId,
-            action: 'member_removed',
-            targetType: 'member',
-            targetId: userId,
-            metadata: { userId },
-          }).state
+          return {
+            state: appendAuditLog(nextState, {
+              workspaceId: scope.currentWorkspace.id,
+              actorId: scope.currentUserId,
+              action: 'member_removed',
+              targetType: 'member',
+              targetId: userId,
+              metadata: { userId },
+            }).state,
+            result: undefined,
+          }
         })
       },
       saveWorkspaceSettings: (name, slug) => {
         const scope = assertScope()
-        let nextWorkspace: Workspace | null = null
-
-        setState((prev) => {
-          const updated = updateWorkspaceDetails(prev, {
+        return commitState((currentState) => {
+          const updated = updateWorkspaceDetails(currentState, {
             workspaceId: scope.currentWorkspace.id,
             name,
             slug,
@@ -386,19 +385,17 @@ export function MockAppProvider({ children }: { children: React.ReactNode }) {
               nextSlug: updated.workspace.slug,
             },
           })
-          nextWorkspace = updated.workspace
-          return withAudit.state
+          return {
+            state: withAudit.state,
+            result: updated.workspace,
+          }
         })
-
-        return assertDefined(nextWorkspace, 'Unable to update workspace.')
       },
       toggleInboxRead: (inboxItemId) => {
         const scope = assertScope()
-        let nextItem: InboxItem | null = null
-
-        setState((prev) => {
-          const current = prev.inboxItems.find((item) => item.id === inboxItemId)
-          const updated = updateInboxItem(prev, scope.currentWorkspace.id, inboxItemId, {
+        return commitState((currentState) => {
+          const current = currentState.inboxItems.find((item) => item.id === inboxItemId)
+          const updated = updateInboxItem(currentState, scope.currentWorkspace.id, inboxItemId, {
             isRead: !current?.isRead,
           })
           const withAudit = appendAuditLog(updated.state, {
@@ -409,19 +406,17 @@ export function MockAppProvider({ children }: { children: React.ReactNode }) {
             targetId: inboxItemId,
             metadata: { isRead: updated.item.isRead },
           })
-          nextItem = updated.item
-          return withAudit.state
+          return {
+            state: withAudit.state,
+            result: updated.item,
+          }
         })
-
-        return assertDefined(nextItem, 'Unable to update inbox item.')
       },
       toggleInboxStar: (inboxItemId) => {
         const scope = assertScope()
-        let nextItem: InboxItem | null = null
-
-        setState((prev) => {
-          const current = prev.inboxItems.find((item) => item.id === inboxItemId)
-          const updated = updateInboxItem(prev, scope.currentWorkspace.id, inboxItemId, {
+        return commitState((currentState) => {
+          const current = currentState.inboxItems.find((item) => item.id === inboxItemId)
+          const updated = updateInboxItem(currentState, scope.currentWorkspace.id, inboxItemId, {
             isStarred: !current?.isStarred,
           })
           const withAudit = appendAuditLog(updated.state, {
@@ -432,19 +427,17 @@ export function MockAppProvider({ children }: { children: React.ReactNode }) {
             targetId: inboxItemId,
             metadata: { isStarred: updated.item.isStarred },
           })
-          nextItem = updated.item
-          return withAudit.state
+          return {
+            state: withAudit.state,
+            result: updated.item,
+          }
         })
-
-        return assertDefined(nextItem, 'Unable to update inbox item.')
       },
       toggleInboxNeedsAction: (inboxItemId) => {
         const scope = assertScope()
-        let nextItem: InboxItem | null = null
-
-        setState((prev) => {
-          const current = prev.inboxItems.find((item) => item.id === inboxItemId)
-          const updated = updateInboxItem(prev, scope.currentWorkspace.id, inboxItemId, {
+        return commitState((currentState) => {
+          const current = currentState.inboxItems.find((item) => item.id === inboxItemId)
+          const updated = updateInboxItem(currentState, scope.currentWorkspace.id, inboxItemId, {
             needsAction: !current?.needsAction,
           })
           const withAudit = appendAuditLog(updated.state, {
@@ -455,18 +448,16 @@ export function MockAppProvider({ children }: { children: React.ReactNode }) {
             targetId: inboxItemId,
             metadata: { needsAction: updated.item.needsAction },
           })
-          nextItem = updated.item
-          return withAudit.state
+          return {
+            state: withAudit.state,
+            result: updated.item,
+          }
         })
-
-        return assertDefined(nextItem, 'Unable to update inbox item.')
       },
       addInboxNote: (inboxItemId, text) => {
         const scope = assertScope()
-        let nextNote: InboxNote | null = null
-
-        setState((prev) => {
-          const created = addInboxNote(prev, {
+        return commitState((currentState) => {
+          const created = addInboxNote(currentState, {
             workspaceId: scope.currentWorkspace.id,
             inboxItemId,
             authorId: scope.currentUserId,
@@ -480,20 +471,18 @@ export function MockAppProvider({ children }: { children: React.ReactNode }) {
             targetId: inboxItemId,
             metadata: { noteAdded: true },
           })
-          nextNote = created.note
-          return withAudit.state
+          return {
+            state: withAudit.state,
+            result: created.note,
+          }
         })
-
-        return assertDefined(nextNote, 'Unable to save inbox note.')
       },
       getInboxNotes: (inboxItemId) =>
         currentWorkspace ? listInboxNotes(state, currentWorkspace.id, inboxItemId) : [],
       retryQueueJob: (jobId) => {
         const scope = assertScope()
-        let nextJob: PublishJob | null = null
-
-        setState((prev) => {
-          const retried = retryPublishJob(prev, scope.currentWorkspace.id, jobId)
+        return commitState((currentState) => {
+          const retried = retryPublishJob(currentState, scope.currentWorkspace.id, jobId)
           const withAudit = appendAuditLog(retried.state, {
             workspaceId: scope.currentWorkspace.id,
             actorId: scope.currentUserId,
@@ -502,18 +491,16 @@ export function MockAppProvider({ children }: { children: React.ReactNode }) {
             targetId: jobId,
             metadata: { retried: true, scheduledAt: retried.job.scheduledAt },
           })
-          nextJob = retried.job
-          return withAudit.state
+          return {
+            state: withAudit.state,
+            result: retried.job,
+          }
         })
-
-        return assertDefined(nextJob, 'Unable to retry queue job.')
       },
       cancelQueueJob: (jobId) => {
         const scope = assertScope()
-        let nextJob: PublishJob | null = null
-
-        setState((prev) => {
-          const cancelled = cancelPublishJob(prev, scope.currentWorkspace.id, jobId)
+        return commitState((currentState) => {
+          const cancelled = cancelPublishJob(currentState, scope.currentWorkspace.id, jobId)
           const withAudit = appendAuditLog(cancelled.state, {
             workspaceId: scope.currentWorkspace.id,
             actorId: scope.currentUserId,
@@ -522,18 +509,16 @@ export function MockAppProvider({ children }: { children: React.ReactNode }) {
             targetId: jobId,
             metadata: { status: cancelled.job.status },
           })
-          nextJob = cancelled.job
-          return withAudit.state
+          return {
+            state: withAudit.state,
+            result: cancelled.job,
+          }
         })
-
-        return assertDefined(nextJob, 'Unable to cancel queue job.')
       },
       saveDraft: (draft) => {
         const scope = assertScope()
-        let nextDraft: SocialDraft | null = null
-
-        setState((prev) => {
-          const saved = upsertSocialDraft(prev, scope.currentWorkspace.id, draft)
+        return commitState((currentState) => {
+          const saved = upsertSocialDraft(currentState, scope.currentWorkspace.id, draft)
           const withAudit = appendAuditLog(saved.state, {
             workspaceId: scope.currentWorkspace.id,
             actorId: scope.currentUserId,
@@ -542,39 +527,40 @@ export function MockAppProvider({ children }: { children: React.ReactNode }) {
             targetId: saved.draft.id,
             metadata: { platform: saved.draft.platform, status: saved.draft.status },
           })
-          nextDraft = saved.draft
-          return withAudit.state
+          return {
+            state: withAudit.state,
+            result: saved.draft,
+          }
         })
-
-        return assertDefined(nextDraft, 'Unable to save draft.')
       },
       approveDraft: (draftId) => {
         const scope = assertScope()
-        let nextDraft: SocialDraft | null = null
+        return assertDefined(
+          commitState((currentState) => {
+            const currentDraft = currentState.socialDrafts.find((draft) => draft.id === draftId)
+            if (!currentDraft) {
+              return { state: currentState, result: null }
+            }
 
-        setState((prev) => {
-          const currentDraft = prev.socialDrafts.find((draft) => draft.id === draftId)
-          if (!currentDraft) {
-            return prev
-          }
-
-          const saved = upsertSocialDraft(prev, scope.currentWorkspace.id, {
-            ...currentDraft,
-            status: 'approved',
-          })
-          const withAudit = appendAuditLog(saved.state, {
-            workspaceId: scope.currentWorkspace.id,
-            actorId: scope.currentUserId,
-            action: 'draft_edited',
-            targetType: 'social_draft',
-            targetId: saved.draft.id,
-            metadata: { approved: true, platform: saved.draft.platform },
-          })
-          nextDraft = saved.draft
-          return withAudit.state
-        })
-
-        return assertDefined(nextDraft, 'Unable to approve draft.')
+            const saved = upsertSocialDraft(currentState, scope.currentWorkspace.id, {
+              ...currentDraft,
+              status: 'approved',
+            })
+            const withAudit = appendAuditLog(saved.state, {
+              workspaceId: scope.currentWorkspace.id,
+              actorId: scope.currentUserId,
+              action: 'draft_edited',
+              targetType: 'social_draft',
+              targetId: saved.draft.id,
+              metadata: { approved: true, platform: saved.draft.platform },
+            })
+            return {
+              state: withAudit.state,
+              result: saved.draft,
+            }
+          }),
+          'Unable to approve draft.',
+        )
       },
       getDraftsForContent: (contentId) => (currentWorkspace ? listContentDrafts(state, currentWorkspace.id, contentId) : []),
     }

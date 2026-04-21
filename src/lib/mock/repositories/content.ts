@@ -49,11 +49,17 @@ export function createContent(
   input: CreateContentInput,
 ): { state: MockAppDataState; content: Content; assets: Asset[] } {
   const timestamp = nowIso()
+  const normalizedTitle = input.title.trim()
+
+  if (!normalizedTitle) {
+    throw new Error('Content title is required.')
+  }
+
   const content: Content = {
     id: createId('cnt'),
     workspaceId: input.workspaceId,
     authorId: input.authorId,
-    title: input.title.trim(),
+    title: normalizedTitle,
     body: input.body.trim(),
     type: input.type,
     status: input.status,
@@ -98,9 +104,13 @@ export function updateContent(
     throw new Error('Content not found.')
   }
 
+  if (patch.title !== undefined && !patch.title.trim()) {
+    throw new Error('Content title is required.')
+  }
+
   const nextContent: Content = {
     ...content,
-    ...(patch.title ? { title: patch.title.trim() } : {}),
+    ...(patch.title !== undefined ? { title: patch.title.trim() } : {}),
     ...(patch.body !== undefined ? { body: patch.body.trim() } : {}),
     ...(patch.status ? { status: patch.status } : {}),
     ...(patch.tags ? { tags: normalizeTags(patch.tags) } : {}),
