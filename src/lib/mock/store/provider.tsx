@@ -227,7 +227,7 @@ export function MockAppProvider({ children }: { children: React.ReactNode }) {
       auditLogs,
       drafts,
       setActiveWorkspaceId: (workspaceId) => {
-        setState(setActiveWorkspace(state, workspaceId))
+        setState((prev) => setActiveWorkspace(prev, workspaceId))
       },
       createContentItem: (input) => {
         const scope = assertScope()
@@ -345,21 +345,24 @@ export function MockAppProvider({ children }: { children: React.ReactNode }) {
       },
       removeMember: (userId) => {
         const scope = assertScope()
-        const nextState = removeWorkspaceMember(state, {
-          workspaceId: scope.currentWorkspace.id,
-          userId,
-          actorId: scope.currentUserId,
-        })
-        setState(
-          appendAuditLog(nextState, {
+        commitState((currentState) => {
+          const nextState = removeWorkspaceMember(currentState, {
             workspaceId: scope.currentWorkspace.id,
+            userId,
             actorId: scope.currentUserId,
-            action: 'member_removed',
-            targetType: 'member',
-            targetId: userId,
-            metadata: { userId },
-          }).state,
-        )
+          })
+          return {
+            state: appendAuditLog(nextState, {
+              workspaceId: scope.currentWorkspace.id,
+              actorId: scope.currentUserId,
+              action: 'member_removed',
+              targetType: 'member',
+              targetId: userId,
+              metadata: { userId },
+            }).state,
+            result: undefined,
+          }
+        })
       },
       saveWorkspaceSettings: (name, slug) => {
         const scope = assertScope()
