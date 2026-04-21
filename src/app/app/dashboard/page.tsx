@@ -6,7 +6,7 @@ import StatCard from '@/components/ui/StatCard'
 import ContentCard from '@/components/ui/ContentCard'
 import EmptyState from '@/components/ui/EmptyState'
 import { describeAuditLog, getAuditLogMeta } from '@/lib/audit/presenter'
-import { useMockApp } from '@/lib/mock/store/provider'
+import { useMockApp } from '@/lib/app/app-provider'
 
 export default function DashboardPage() {
   const { auditLogs, contents, currentWorkspace, inboxItems, publishJobs } = useMockApp()

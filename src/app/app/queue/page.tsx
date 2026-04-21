@@ -5,7 +5,7 @@ import PageHeader from '@/components/ui/PageHeader'
 import PlatformBadge from '@/components/ui/PlatformBadge'
 import StatusBadge from '@/components/ui/StatusBadge'
 import EmptyState from '@/components/ui/EmptyState'
-import { useMockApp } from '@/lib/mock/store/provider'
+import { useMockApp } from '@/lib/app/app-provider'
 import type { PublishJobStatus } from '@/lib/domain/types'
 
 const STATUS_FILTERS: Array<{ label: string; value: PublishJobStatus | 'all' }> = [

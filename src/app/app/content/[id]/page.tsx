@@ -9,7 +9,7 @@ import PlatformBadge from '@/components/ui/PlatformBadge'
 import StatusBadge from '@/components/ui/StatusBadge'
 import { describeAuditLog, getAuditLogMeta } from '@/lib/audit/presenter'
 import { formatBytes, normalizeTags } from '@/lib/mock/repositories/helpers'
-import { useMockApp } from '@/lib/mock/store/provider'
+import { useMockApp } from '@/lib/app/app-provider'
 import type { ContentStatus } from '@/lib/domain/types'
 
 export default function ContentDetailPage() {

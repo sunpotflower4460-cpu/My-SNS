@@ -7,7 +7,7 @@ import DraftEditorCard from '@/components/ui/DraftEditorCard'
 import EmptyState from '@/components/ui/EmptyState'
 import { useCurrentUser } from '@/hooks/useCurrentUser'
 import { regenerateDraftText } from '@/lib/mock/repositories/drafts'
-import { useMockApp } from '@/lib/mock/store/provider'
+import { useMockApp } from '@/lib/app/app-provider'
 import { MockAiDraftGeneratorService } from '@/lib/services/ai-draft'
 import type { SocialDraft, SocialPlatform } from '@/lib/domain/types'
 

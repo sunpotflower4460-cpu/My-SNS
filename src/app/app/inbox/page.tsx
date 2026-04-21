@@ -4,7 +4,7 @@ import { useMemo, useState } from 'react'
 import PageHeader from '@/components/ui/PageHeader'
 import InboxItemCard from '@/components/ui/InboxItemCard'
 import EmptyState from '@/components/ui/EmptyState'
-import { useMockApp } from '@/lib/mock/store/provider'
+import { useMockApp } from '@/lib/app/app-provider'
 import type { InboxItem, InboxKind } from '@/lib/domain/types'
 
 type FilterTab = 'all' | InboxKind | 'unread' | 'needs_action' | 'starred'

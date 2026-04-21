@@ -5,7 +5,7 @@ import PageHeader from '@/components/ui/PageHeader'
 import PermissionGate from '@/components/ui/PermissionGate'
 import RoleBadge from '@/components/ui/RoleBadge'
 import { useCurrentUser } from '@/hooks/useCurrentUser'
-import { useMockApp } from '@/lib/mock/store/provider'
+import { useMockApp } from '@/lib/app/app-provider'
 import type { SocialPlatform } from '@/lib/domain/types'
 
 const PLATFORM_ICONS: Record<SocialPlatform, string> = {

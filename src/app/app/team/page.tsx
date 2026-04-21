@@ -6,7 +6,7 @@ import EmptyState from '@/components/ui/EmptyState'
 import RoleBadge from '@/components/ui/RoleBadge'
 import StatusBadge from '@/components/ui/StatusBadge'
 import PermissionGate from '@/components/ui/PermissionGate'
-import { useMockApp } from '@/lib/mock/store/provider'
+import { useMockApp } from '@/lib/app/app-provider'
 import type { WorkspaceRole } from '@/lib/domain/types'
 
 export default function TeamPage() {
