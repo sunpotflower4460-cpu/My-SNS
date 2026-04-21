@@ -1,67 +1,85 @@
 # Creator Hub — My-SNS
 
-A workspace-centric creator home hub for managing content, social drafts, publishing queues, inbox activity, and team collaboration.
+A calm, workspace-centric creator home hub for content planning, draft generation, inbox triage, queue management, and lightweight team collaboration.
 
-## Current phase
+## What currently works
 
-This repo now delivers a stronger Phase 0 / Phase 1 prototype with:
+- Next.js App Router app shell with protected `/app/*` routes
+- mock sign-in flow with seeded users
+- multi-workspace switching with workspace-aware data
+- dashboard, content library, content detail editing, draft studio, queue, inbox, team, and settings flows
+- local persistence for session, active workspace, and prototype data changes
+- audit events for major local actions
+- lightweight asset attachment previews for new content
 
-- Next.js 15 App Router + React 19 + TypeScript + Tailwind CSS 3
-- a lightweight mock auth/session flow for `/app/*`
-- multi-workspace switching with local persistence
-- a mock repository/store layer backed by seed data
-- locally persistent updates for content, team, inbox, queue, drafts, and settings
-- audit logging for major mock actions
+## What is still mock
 
-The app is still mock-first and intentionally easy to swap to real Supabase-backed auth/data later.
+- authentication
+- database persistence
+- file uploads/storage
+- social platform connectors
+- invitation acceptance
+- background publishing jobs
 
-## What works today
+## Workspace switching
 
-### Mock auth-ready flow
+- Each seeded user belongs to one or more workspaces from `src/lib/mock/seed.ts`.
+- The workspace switcher changes the active prototype scope for content, inbox, queue, drafts, team, and settings.
+- The selected workspace is preserved in local state and safely reset if it becomes stale.
+- The switcher now shows the current user role per workspace.
 
-- `/app/*` is protected by a client-side mock session guard
-- `/login` lets you sign in as one of the seeded users or by entering a seeded email
-- mock session state is stored in localStorage
-- logout is available from the app shell
+## Mock auth
 
-### Multi-workspace flow
+- `/login` lets you choose a seeded user or sign in by seeded email.
+- The selected user ID is stored locally and restored client-side.
+- Invalid or stale saved session values are cleared safely.
+- The app shell redirects signed-out users back to `/login`.
 
-- seed data now includes multiple workspaces
-- the active workspace switcher is functional
-- workspace selection is persisted in localStorage
-- dashboard, content, inbox, queue, team, drafts, and settings all read from the active workspace
+## Local persistence
 
-### Mock repositories + local persistence
+- Prototype app data is stored in `localStorage`.
+- Session state is handled in `src/lib/session/*`.
+- Mock app persistence is handled in `src/lib/mock/store/persistence.ts`.
+- If stored prototype data is malformed, the app falls back to fresh seed data instead of crashing.
 
-Seed data still lives in `src/lib/mock/seed.ts`, but page components now read through the mock session/store layer instead of importing raw seed constants directly.
+## Architecture overview
 
-Key additions:
+```text
+src/
+  app/
+    providers.tsx
+    login/page.tsx
+    app/                         Protected app routes
+  components/
+    layout/                      Sidebar, top bar, workspace switcher
+    ui/                          Shared presentation components
+  hooks/
+    useCurrentUser.ts
+    useCurrentWorkspace.ts
+  lib/
+    audit/                       Audit log presentation helpers
+    domain/                      Shared domain types
+    mock/
+      repositories/             Mock repository implementations
+      seed.ts                   Seed data only
+      store/                    App-layer façade and persistence
+    session/                    Session abstraction + mock provider
+    storage/                    Prototype asset storage seam
+    services/                   AI draft + social connector seams
+```
 
-- `src/lib/session/mock-session.tsx`
-- `src/lib/mock/store/*`
-- `src/lib/mock/repositories/*`
-- `src/hooks/useCurrentUser.ts`
-- `src/hooks/useCurrentWorkspace.ts`
+## Phase 2 connection points
 
-### Interactive prototype behavior
+- Auth seam: `src/lib/session/interfaces.ts` and `src/hooks/useCurrentUser.ts`
+- Data seam: `src/lib/mock/store/provider.tsx` over `src/lib/mock/repositories/*`
+- Storage seam: `src/lib/storage/interfaces.ts`
+- Connector seam: `src/lib/services/interfaces.ts` and `src/lib/services/social-connector.ts`
 
-- Team invites create pending invitations in local mock state
-- Team role changes and removals update local state with owner/self protection in UI
-- New Content saves to the mock repository and routes to the new detail page
-- New Content supports lightweight local asset attachment with metadata previews
-- Content detail loads repository-backed content, assets, drafts, queue items, inbox items, and audit history
-- Inbox supports read/unread, star, needs-action, and internal note updates
-- Queue retry/cancel updates local job state
-- Draft Studio generation, regenerate, approve, and save all feel stateful
-- Workspace settings save into local mock state
+See also:
 
-## Tech stack
-
-- **Next.js 15.5.15**
-- **React 19**
-- **TypeScript 5**
-- **Tailwind CSS 3.4**
-- **ESLint CLI**
+- `docs/phase-2-plan.md`
+- `docs/backend-mapping.md`
+- `docs/migration-seams.md`
 
 ## Run locally
 
@@ -72,79 +90,17 @@ npm run dev
 
 Open http://localhost:3000
 
-Useful scripts:
+Useful commands:
 
 ```bash
-npm run dev
 npm run lint
 npm run build
 ```
 
-## Mock persistence notes
+## Known limitations
 
-This prototype stores its session and mock app data in browser localStorage so refreshes keep your current user, workspace, and mock edits.
-
-If you want a clean reset, clear localStorage for the app in your browser.
-
-## Project structure
-
-```text
-src/
-  app/
-    providers.tsx                Root client providers
-    login/page.tsx               Mock sign-in entry
-    app/                         Protected app area
-  components/
-    layout/                      App shell, top bar, sidebar, workspace switcher
-    ui/                          Shared UI primitives
-  hooks/
-    useCurrentUser.ts
-    useCurrentWorkspace.ts
-  lib/
-    domain/types.ts
-    permissions/index.ts
-    mock/
-      seed.ts                    Initial dataset only
-      repositories/             Mock data access + mutation helpers
-      store/                    Local persistent mock app state
-    session/
-      mock-session.tsx          Mock auth/session provider
-    services/
-      ai-draft.ts
-      social-connector.ts
-```
-
-## Current scope
-
-Included now:
-
-- workspace-aware creator dashboard
-- content library + dynamic detail views
-- content creation with lightweight asset attachment
-- AI draft studio with local draft persistence
-- publish queue controls
-- inbox triage and notes
-- team management interactions
-- settings saved in mock state
-- audit log surfaced in UI
-
-Still deferred:
-
-- real Supabase Auth
-- database-backed repositories
-- real social platform OAuth/API integration
-- webhook ingestion
-- real file upload/storage pipeline
-- background job scheduling
-- analytics and notifications
-
-## Phase 2 direction
-
-Planned next steps:
-
-1. Replace mock session with Supabase Auth
-2. Replace mock repositories with Supabase/Postgres implementations
-3. Add real storage-backed asset uploads
-4. Add platform OAuth + publish/inbox integrations
-5. Add server-side authorization and RLS
-6. Add background publishing workflows and notifications
+- Everything is client-side and mock-backed
+- Clearing browser storage resets prototype state
+- Social publishing and inbox syncing are simulated
+- File attachments only prepare local preview metadata
+- Permissions are UX-level only and not enforced by a real backend yet
