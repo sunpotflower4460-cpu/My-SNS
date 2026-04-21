@@ -89,22 +89,22 @@ export default function InboxPage() {
                 }
                 relatedContentHref={item.contentId ? `/app/content/${item.contentId}` : null}
                 onChangeNote={(value) => setDraftNotes((prev) => ({ ...prev, [item.id]: value }))}
-                onSaveNote={() => {
+                onSaveNote={async () => {
                   if (!draftNotes[item.id]?.trim()) return
-                  addInboxNote(item.id, draftNotes[item.id])
+                  await addInboxNote(item.id, draftNotes[item.id])
                   setDraftNotes((prev) => ({ ...prev, [item.id]: '' }))
                   setFeedback('Internal note saved to local workspace state.')
                 }}
-                onToggleRead={() => {
-                  toggleInboxRead(item.id)
+                onToggleRead={async () => {
+                  await toggleInboxRead(item.id)
                   setFeedback(item.isRead ? 'Marked as unread.' : 'Marked as read.')
                 }}
-                onToggleStar={() => {
-                  toggleInboxStar(item.id)
+                onToggleStar={async () => {
+                  await toggleInboxStar(item.id)
                   setFeedback(item.isStarred ? 'Removed star.' : 'Starred for follow-up.')
                 }}
-                onToggleNeedsAction={() => {
-                  toggleInboxNeedsAction(item.id)
+                onToggleNeedsAction={async () => {
+                  await toggleInboxNeedsAction(item.id)
                   setFeedback(item.needsAction ? 'Cleared needs action.' : 'Flagged for action.')
                 }}
               />

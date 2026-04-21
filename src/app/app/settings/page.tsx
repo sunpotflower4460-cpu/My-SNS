@@ -30,9 +30,9 @@ export default function SettingsPage() {
     setWorkspaceSlug(currentWorkspace?.slug ?? '')
   }, [currentWorkspace])
 
-  const handleSaveWorkspace = () => {
+  const handleSaveWorkspace = async () => {
     try {
-      saveWorkspaceSettings(workspaceName, workspaceSlug)
+      await saveWorkspaceSettings(workspaceName, workspaceSlug)
       setSaved(true)
       setError('')
       window.setTimeout(() => setSaved(false), 2500)

@@ -10,16 +10,23 @@ import { createClient } from '@/lib/supabase/client'
 export async function getUserWorkspaces(userId: string): Promise<Workspace[]> {
   const supabase = createClient()
 
+  // First get the workspace IDs for this user
+  const { data: memberships } = await supabase
+    .from('workspace_members')
+    .select('workspace_id')
+    .eq('user_id', userId)
+
+  if (!memberships || memberships.length === 0) {
+    return []
+  }
+
+  const workspaceIds = memberships.map(m => m.workspace_id)
+
+  // Then get the workspaces
   const { data, error } = await supabase
     .from('workspaces')
     .select('*')
-    .in(
-      'id',
-      supabase
-        .from('workspace_members')
-        .select('workspace_id')
-        .eq('user_id', userId)
-    )
+    .in('id', workspaceIds)
     .order('created_at', { ascending: false })
 
   if (error) {

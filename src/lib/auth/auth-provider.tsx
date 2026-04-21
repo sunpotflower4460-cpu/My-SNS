@@ -18,37 +18,10 @@ const AuthContext = createContext<AuthContextValue | null>(null)
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<AppUser | null>(null)
   const [isReady, setIsReady] = useState(false)
-  const supabase = createClient()
-
-  useEffect(() => {
-    // Get initial session
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      if (session?.user) {
-        loadUserProfile(session.user)
-      } else {
-        setIsReady(true)
-      }
-    })
-
-    // Listen for auth changes
-    const {
-      data: { subscription },
-    } = supabase.auth.onAuthStateChange((_event, session) => {
-      if (session?.user) {
-        loadUserProfile(session.user)
-      } else {
-        setUser(null)
-        setIsReady(true)
-      }
-    })
-
-    return () => {
-      subscription.unsubscribe()
-    }
-  }, [])
 
   async function loadUserProfile(authUser: User) {
     try {
+      const supabase = createClient()
       const { data: profile, error } = await supabase
         .from('profiles')
         .select('*')
@@ -75,7 +48,38 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   }
 
+  useEffect(() => {
+    const supabase = createClient()
+
+    // Get initial session
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      if (session?.user) {
+        loadUserProfile(session.user)
+      } else {
+        setIsReady(true)
+      }
+    })
+
+    // Listen for auth changes
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange((_event, session) => {
+      if (session?.user) {
+        loadUserProfile(session.user)
+      } else {
+        setUser(null)
+        setIsReady(true)
+      }
+    })
+
+    return () => {
+      subscription.unsubscribe()
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
   async function signOut() {
+    const supabase = createClient()
     await supabase.auth.signOut()
     setUser(null)
   }

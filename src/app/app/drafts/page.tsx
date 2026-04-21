@@ -63,8 +63,8 @@ export default function DraftsPage() {
     setLoading(false)
   }
 
-  const persistDraft = (draft: SocialDraft) =>
-    saveDraft({
+  const persistDraft = async (draft: SocialDraft) =>
+    await saveDraft({
       ...(draft.id.startsWith('generated-') ? {} : { id: draft.id }),
       workspaceId: draft.workspaceId,
       contentId: draft.contentId,

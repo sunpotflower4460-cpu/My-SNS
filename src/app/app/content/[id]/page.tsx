@@ -50,9 +50,9 @@ export default function ContentDetailPage() {
 
   const { content, assets, drafts, jobs, inboxItems, auditLogs } = detail
 
-  const handleSave = () => {
+  const handleSave = async () => {
     try {
-      updateContentItem(content.id, {
+      await updateContentItem(content.id, {
         title,
         body,
         status,

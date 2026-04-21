@@ -5,6 +5,8 @@ import { useRouter } from 'next/navigation'
 import { useAuth } from '@/lib/auth/auth-provider'
 import { createClient } from '@/lib/supabase/client'
 
+export const dynamic = 'force-dynamic'
+
 export default function LoginPage() {
   const router = useRouter()
   const { user, isAuthenticated, isReady } = useAuth()
@@ -12,7 +14,6 @@ export default function LoginPage() {
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState('')
   const [success, setSuccess] = useState('')
-  const supabase = createClient()
 
   useEffect(() => {
     if (isReady && isAuthenticated) {
@@ -38,6 +39,7 @@ export default function LoginPage() {
     }
 
     try {
+      const supabase = createClient()
       const { error } = await supabase.auth.signInWithOtp({
         email: normalizedEmail,
         options: {
@@ -69,7 +71,7 @@ export default function LoginPage() {
             </div>
             <h1 className="text-3xl font-semibold tracking-tight text-gray-900 sm:text-4xl">Creator Hub</h1>
             <p className="mt-3 text-sm leading-6 text-gray-500">
-              Sign in with your email to access your workspace. We'll send you a magic link to sign in securely.
+              Sign in with your email to access your workspace. We&apos;ll send you a magic link to sign in securely.
             </p>
           </div>
 

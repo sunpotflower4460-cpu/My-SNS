@@ -18,7 +18,7 @@ export default function TeamPage() {
 
   const pendingInvitations = useMemo(() => invitations.filter((invitation) => invitation.status === 'pending'), [invitations])
 
-  const handleInvite = () => {
+  const handleInvite = async () => {
     const normalizedEmail = inviteEmail.trim().toLowerCase()
 
     if (!normalizedEmail) {
@@ -41,16 +41,16 @@ export default function TeamPage() {
       return
     }
 
-    inviteMember(normalizedEmail, inviteRole)
+    await inviteMember(normalizedEmail, inviteRole)
     setInviteEmail('')
     setInviteRole('viewer')
     setError('')
     setFeedback('Invitation added to local mock state.')
   }
 
-  const handleRoleChange = (userId: string, role: WorkspaceRole) => {
+  const handleRoleChange = async (userId: string, role: WorkspaceRole) => {
     try {
-      changeMemberRole(userId, role)
+      await changeMemberRole(userId, role)
       setFeedback('Role updated.')
       setError('')
     } catch (cause) {
@@ -59,9 +59,9 @@ export default function TeamPage() {
     }
   }
 
-  const handleRemove = (userId: string) => {
+  const handleRemove = async (userId: string) => {
     try {
-      removeMember(userId)
+      await removeMember(userId)
       setFeedback('Member removed from the workspace.')
       setError('')
     } catch (cause) {

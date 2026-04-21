@@ -54,8 +54,8 @@ export default function NewContentPage() {
     setAssets((prev) => [...prev, ...nextAssets])
   }
 
-  const handleSave = (targetStatus: ContentStatus) => {
-    const content = createContentItem({
+  const handleSave = async (targetStatus: ContentStatus) => {
+    const content = await createContentItem({
       title,
       body,
       type,
