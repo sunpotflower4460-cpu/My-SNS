@@ -8,6 +8,8 @@ import type {
 import type { MockAppDataState } from '@/lib/mock/store/types'
 import { createId, nowIso, withMemberRelations } from './helpers'
 
+const WORKSPACE_SLUG_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)*$/
+
 export function getUserWorkspaces(state: MockAppDataState, userId: string): Workspace[] {
   const membershipWorkspaceIds = new Set(
     state.members.filter((member) => member.userId === userId).map((member) => member.workspaceId),
@@ -117,16 +119,31 @@ export function updateWorkspaceMemberRole(
   state: MockAppDataState,
   params: { workspaceId: string; userId: string; role: WorkspaceRole; actorId: string },
 ): { state: MockAppDataState; member: WorkspaceMember } {
+  const actor = state.members.find(
+    (entry) => entry.workspaceId === params.workspaceId && entry.userId === params.actorId,
+  )
   const member = state.members.find(
     (entry) => entry.workspaceId === params.workspaceId && entry.userId === params.userId,
   )
+
+  if (!actor) {
+    throw new Error('Acting member not found.')
+  }
 
   if (!member) {
     throw new Error('Member not found.')
   }
 
+  if (params.role === 'owner' && member.role !== 'owner') {
+    throw new Error('Workspace ownership transfer is not available in the mock workspace yet.')
+  }
+
   if (member.role === 'owner' && params.role !== 'owner') {
     throw new Error('Cannot change owner role. Transfer workspace ownership first to demote the current owner.')
+  }
+
+  if (params.role === 'owner' && actor.role !== 'owner') {
+    throw new Error('Only the current owner can transfer workspace ownership.')
   }
 
   if (member.userId === params.actorId && member.role === 'owner' && params.role !== 'owner') {
@@ -188,6 +205,18 @@ export function updateWorkspaceDetails(
 
   if (!normalizedSlug) {
     throw new Error('Workspace slug is required.')
+  }
+
+  if (!WORKSPACE_SLUG_PATTERN.test(normalizedSlug)) {
+    throw new Error('Workspace slug can only use lowercase letters, numbers, and single hyphens.')
+  }
+
+  if (
+    state.workspaces.some(
+      (entry) => entry.id !== workspace.id && entry.slug.toLowerCase() === normalizedSlug,
+    )
+  ) {
+    throw new Error('Workspace slug must be unique.')
   }
 
   const nextWorkspace: Workspace = {

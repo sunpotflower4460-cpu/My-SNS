@@ -32,6 +32,12 @@ function hasValidShape(value: unknown): value is Partial<MockAppDataState> {
   )
 }
 
+function clearStoredMockAppState() {
+  try {
+    window.localStorage.removeItem(MOCK_APP_STORAGE_KEY)
+  } catch {}
+}
+
 export function readStoredMockAppState(): MockAppDataState {
   const initialState = createInitialMockAppState()
 
@@ -43,7 +49,7 @@ export function readStoredMockAppState(): MockAppDataState {
 
     const parsed = JSON.parse(stored) as unknown
     if (!hasValidShape(parsed)) {
-      window.localStorage.removeItem(MOCK_APP_STORAGE_KEY)
+      clearStoredMockAppState()
       return initialState
     }
 
@@ -52,11 +58,13 @@ export function readStoredMockAppState(): MockAppDataState {
       ...parsed,
     }
   } catch {
-    window.localStorage.removeItem(MOCK_APP_STORAGE_KEY)
+    clearStoredMockAppState()
     return initialState
   }
 }
 
 export function writeStoredMockAppState(state: MockAppDataState) {
-  window.localStorage.setItem(MOCK_APP_STORAGE_KEY, JSON.stringify(state))
+  try {
+    window.localStorage.setItem(MOCK_APP_STORAGE_KEY, JSON.stringify(state))
+  } catch {}
 }

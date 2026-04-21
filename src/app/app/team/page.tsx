@@ -104,17 +104,17 @@ export default function TeamPage() {
                       <p className="truncate text-xs text-gray-500">{member.user?.email}</p>
                     </div>
                   </div>
-                    <div className="flex flex-wrap items-center gap-3 md:justify-end">
-                      <RoleBadge role={member.role} />
-                      {isSelf && <span className="rounded-full border border-stone-200 bg-stone-50 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.14em] text-gray-500">You</span>}
-                      <PermissionGate requiredPermission="change_roles" currentRole={currentMember?.role ?? 'viewer'}>
-                        <select
+                  <div className="flex flex-wrap items-center gap-3 md:justify-end">
+                    <RoleBadge role={member.role} />
+                    {isSelf && <span className="rounded-full border border-stone-200 bg-stone-50 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.14em] text-gray-500">You</span>}
+                    <PermissionGate requiredPermission="change_roles" currentRole={currentMember?.role ?? 'viewer'}>
+                      <select
                         value={member.role}
                         disabled={disableRoleChange}
                         onChange={(event) => handleRoleChange(member.userId, event.target.value as WorkspaceRole)}
                         className="rounded-2xl border border-stone-200 px-3 py-2 text-xs focus:outline-none focus:ring-2 focus:ring-violet-300 disabled:cursor-not-allowed disabled:bg-stone-100 disabled:text-gray-400"
                       >
-                        <option value="owner">Owner</option>
+                        {member.role === 'owner' && <option value="owner">Owner</option>}
                         <option value="admin">Admin</option>
                         <option value="editor">Editor</option>
                         <option value="contributor">Contributor</option>
