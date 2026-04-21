@@ -1,12 +1,12 @@
 'use client'
 
+import { AuthProvider } from '@/lib/auth/auth-provider'
 import { MockAppProvider } from '@/lib/mock/store/provider'
-import { MockSessionProvider } from '@/lib/session/mock-session'
 
 export default function Providers({ children }: { children: React.ReactNode }) {
   return (
-    <MockSessionProvider>
+    <AuthProvider>
       <MockAppProvider>{children}</MockAppProvider>
-    </MockSessionProvider>
+    </AuthProvider>
   )
 }

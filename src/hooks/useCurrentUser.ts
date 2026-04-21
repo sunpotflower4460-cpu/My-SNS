@@ -1,25 +1,19 @@
-import { useMockSession } from '@/lib/session/mock-session'
+import { useAuth } from '@/lib/auth/auth-provider'
 
 export function useCurrentUser() {
   const {
-    currentUser,
+    user: currentUser,
     currentUserId,
     isAuthenticated,
     isReady,
-    sessionNotice,
-    signInAs,
     signOut,
-    users,
-  } = useMockSession()
+  } = useAuth()
 
   return {
     currentUser,
     currentUserId,
     isAuthenticated,
     isReady,
-    sessionNotice,
-    signInAs,
     signOut,
-    users,
   }
 }
