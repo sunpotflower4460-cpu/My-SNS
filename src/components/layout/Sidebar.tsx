@@ -31,7 +31,6 @@ export default function Sidebar({ workspace, user }: SidebarProps) {
 
   return (
     <aside className="hidden w-72 shrink-0 border-r border-stone-200 bg-white/90 backdrop-blur xl:flex xl:flex-col">
-      {/* Logo / Workspace Name */}
       <div className="border-b border-stone-200 px-6 py-6">
         <div className="flex items-center gap-3">
           <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-violet-600 text-sm font-bold text-white shadow-sm shadow-violet-200">
@@ -44,7 +43,6 @@ export default function Sidebar({ workspace, user }: SidebarProps) {
         </div>
       </div>
 
-      {/* Navigation */}
       <nav className="flex-1 space-y-1 overflow-y-auto px-4 py-5">
         {NAV_ITEMS.map((item) => {
           const isActive = pathname.startsWith(item.href)
@@ -54,18 +52,18 @@ export default function Sidebar({ workspace, user }: SidebarProps) {
               href={item.href}
               className={`flex items-center gap-3 rounded-2xl px-4 py-3 text-sm font-medium transition-all ${
                 isActive
-                  ? 'border border-violet-200 bg-violet-50 text-violet-700 shadow-sm'
+                  ? 'border border-violet-200 bg-violet-50 text-violet-700 shadow-sm shadow-violet-100/40'
                   : 'border border-transparent text-gray-600 hover:border-stone-200 hover:bg-stone-50 hover:text-gray-900'
               }`}
             >
               <span className="text-base leading-none">{item.icon}</span>
-              {item.label}
+              <span className="flex-1">{item.label}</span>
+              {isActive && <span className="text-xs font-semibold uppercase tracking-[0.18em]">Now</span>}
             </Link>
           )
         })}
       </nav>
 
-      {/* Current User */}
       <div className="border-t border-stone-200 px-5 py-5">
         <div className="flex items-center gap-3 rounded-2xl border border-stone-200 bg-stone-50 px-3 py-3">
           <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-stone-200 text-xs font-medium text-gray-700">

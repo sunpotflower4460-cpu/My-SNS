@@ -23,6 +23,17 @@ export default function ContentPage() {
   const { contents, currentWorkspace } = useMockApp()
   const [activeType, setActiveType] = useState<ContentType | 'all'>('all')
   const [search, setSearch] = useState('')
+  const filterCounts = useMemo(
+    () =>
+      TYPE_FILTERS.reduce<Record<string, number>>((accumulator, filter) => {
+        accumulator[filter.value] =
+          filter.value === 'all'
+            ? contents.length
+            : contents.filter((content) => content.type === filter.value).length
+        return accumulator
+      }, {}),
+    [contents],
+  )
 
   const filtered = useMemo(
     () =>
@@ -64,7 +75,7 @@ export default function ContentPage() {
                   : 'border border-stone-200 bg-white text-gray-600 hover:bg-stone-50'
               }`}
             >
-              {filter.label}
+              {filter.label} <span className="text-xs opacity-80">{filterCounts[filter.value]}</span>
             </button>
           ))}
         </div>
@@ -80,7 +91,11 @@ export default function ContentPage() {
       {filtered.length === 0 ? (
         <EmptyState
           title="No content found"
-          description="Try adjusting the filters, switching workspaces, or starting a new entry."
+          description={
+            contents.length === 0
+              ? `This workspace is still sparse. Add the first piece to start building the library for ${currentWorkspace?.name ?? 'this workspace'}.`
+              : 'Try adjusting the filters, switching workspaces, or starting a new entry.'
+          }
           action={
             <Link href="/app/content/new" className="rounded-2xl bg-violet-600 px-4 py-2 text-sm font-medium text-white hover:bg-violet-700">
               Create content

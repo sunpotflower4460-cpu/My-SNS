@@ -1,3 +1,4 @@
+import Link from 'next/link'
 import type { InboxItem, InboxNote } from '@/lib/domain/types'
 import PlatformBadge from './PlatformBadge'
 
@@ -5,6 +6,8 @@ interface InboxItemCardProps {
   item: InboxItem
   notes?: InboxNote[]
   noteDraft?: string
+  relatedContentTitle?: string | null
+  relatedContentHref?: string | null
   onChangeNote?: (value: string) => void
   onSaveNote?: () => void
   onToggleRead?: () => void
@@ -19,7 +22,18 @@ const KIND_LABELS: Record<InboxItem['kind'], string> = {
   mention: '@ Mention',
 }
 
-export default function InboxItemCard({ item, notes = [], noteDraft = '', onChangeNote, onSaveNote, onToggleRead, onToggleStar, onToggleNeedsAction }: InboxItemCardProps) {
+export default function InboxItemCard({
+  item,
+  notes = [],
+  noteDraft = '',
+  relatedContentTitle,
+  relatedContentHref,
+  onChangeNote,
+  onSaveNote,
+  onToggleRead,
+  onToggleStar,
+  onToggleNeedsAction,
+}: InboxItemCardProps) {
   return (
     <div className={`rounded-[2rem] border p-5 shadow-sm shadow-stone-100/70 ${item.isRead ? 'border-stone-200 bg-white' : 'border-violet-200 bg-violet-50/40'}`}>
       <div className="flex items-start gap-3">
@@ -38,6 +52,17 @@ export default function InboxItemCard({ item, notes = [], noteDraft = '', onChan
           <p className="text-sm font-medium text-gray-800">{item.authorHandle}</p>
           <p className="mt-1 text-sm leading-6 text-gray-600">{item.text}</p>
           {item.aiSummary && <p className="mt-2 text-xs italic text-gray-400">AI: {item.aiSummary}</p>}
+          {relatedContentTitle && (
+            <div className="mt-3">
+              {relatedContentHref ? (
+                <Link href={relatedContentHref} className="text-xs font-medium text-violet-700 hover:text-violet-900">
+                  Related content: {relatedContentTitle} →
+                </Link>
+              ) : (
+                <p className="text-xs text-gray-500">Related content: {relatedContentTitle}</p>
+              )}
+            </div>
+          )}
 
           <div className="mt-3 flex flex-wrap items-center gap-2 text-xs">
             <span className="text-gray-400">{new Date(item.receivedAt).toLocaleString()}</span>

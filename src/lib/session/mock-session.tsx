@@ -1,46 +1,31 @@
 'use client'
 
 import { createContext, useContext, useEffect, useMemo, useState } from 'react'
-import type { User } from '@/lib/domain/types'
-import { DEFAULT_USER_ID, MOCK_USERS } from '@/lib/mock/seed'
-import { MOCK_SESSION_STORAGE_KEY } from '@/lib/mock/repositories/helpers'
+import { MOCK_USERS } from '@/lib/mock/seed'
+import type { SessionContextValue } from './interfaces'
+import { readStoredSessionUserId, type MockSessionStorageIssue, writeStoredSessionUserId } from './persistence'
 
-interface MockSessionContextValue {
-  users: User[]
-  currentUser: User | null
-  currentUserId: string | null
-  isAuthenticated: boolean
-  isReady: boolean
-  signInAs: (userId: string) => void
-  signOut: () => void
-}
-
-const MockSessionContext = createContext<MockSessionContextValue | null>(null)
+const MockSessionContext = createContext<SessionContextValue | null>(null)
 
 export function MockSessionProvider({ children }: { children: React.ReactNode }) {
   const [currentUserId, setCurrentUserId] = useState<string | null>(null)
   const [isReady, setIsReady] = useState(false)
+  const [storageIssue, setStorageIssue] = useState<MockSessionStorageIssue | null>(null)
 
   useEffect(() => {
-    const stored = window.localStorage.getItem(MOCK_SESSION_STORAGE_KEY)
-    if (stored) {
-      setCurrentUserId(stored)
-    }
+    const restored = readStoredSessionUserId(MOCK_USERS.map((user) => user.id))
+    setCurrentUserId(restored.userId)
+    setStorageIssue(restored.issue)
     setIsReady(true)
   }, [])
 
   useEffect(() => {
     if (!isReady) return
 
-    if (currentUserId) {
-      window.localStorage.setItem(MOCK_SESSION_STORAGE_KEY, currentUserId)
-      return
-    }
-
-    window.localStorage.removeItem(MOCK_SESSION_STORAGE_KEY)
+    writeStoredSessionUserId(currentUserId)
   }, [currentUserId, isReady])
 
-  const value = useMemo<MockSessionContextValue>(() => {
+  const value = useMemo<SessionContextValue>(() => {
     const currentUser = MOCK_USERS.find((user) => user.id === currentUserId) ?? null
 
     return {
@@ -49,13 +34,23 @@ export function MockSessionProvider({ children }: { children: React.ReactNode })
       currentUserId,
       isAuthenticated: !!currentUser,
       isReady,
+      sessionNotice:
+        storageIssue === 'empty_value'
+          ? 'Your last mock session was empty, so the app returned you to login.'
+          : storageIssue === 'invalid_user'
+            ? 'Your last mock session referenced a missing user, so it was cleared safely.'
+            : null,
       signInAs: (userId: string) => {
         const match = MOCK_USERS.find((user) => user.id === userId)
-        setCurrentUserId(match?.id ?? DEFAULT_USER_ID)
+        setCurrentUserId(match?.id ?? null)
+        setStorageIssue(match ? null : 'invalid_user')
       },
-      signOut: () => setCurrentUserId(null),
+      signOut: () => {
+        setCurrentUserId(null)
+        setStorageIssue(null)
+      },
     }
-  }, [currentUserId, isReady])
+  }, [currentUserId, isReady, storageIssue])
 
   return <MockSessionContext.Provider value={value}>{children}</MockSessionContext.Provider>
 }

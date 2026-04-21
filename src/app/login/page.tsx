@@ -6,7 +6,7 @@ import { useCurrentUser } from '@/hooks/useCurrentUser'
 
 export default function LoginPage() {
   const router = useRouter()
-  const { currentUser, isAuthenticated, isReady, signInAs, users } = useCurrentUser()
+  const { currentUser, isAuthenticated, isReady, sessionNotice, signInAs, users } = useCurrentUser()
   const [email, setEmail] = useState('')
   const [error, setError] = useState('')
 
@@ -56,6 +56,11 @@ export default function LoginPage() {
           </div>
 
           <form onSubmit={handleEmailSignIn} className="rounded-3xl border border-stone-200 bg-stone-50 p-5">
+            {sessionNotice && (
+              <div className="mb-4 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+                {sessionNotice}
+              </div>
+            )}
             <label htmlFor="email" className="mb-2 block text-sm font-medium text-gray-700">
               Quick sign-in by seeded email
             </label>
@@ -72,7 +77,7 @@ export default function LoginPage() {
                 type="submit"
                 className="rounded-2xl bg-violet-600 px-5 py-3 text-sm font-medium text-white transition hover:bg-violet-700"
               >
-                Enter workspace
+                Sign in
               </button>
             </div>
             {error && <p className="mt-3 text-sm text-red-600">{error}</p>}
@@ -100,6 +105,11 @@ export default function LoginPage() {
                   <span className="rounded-full border border-stone-200 bg-stone-50 px-2.5 py-1">
                     Seeded mock user
                   </span>
+                  {currentUser?.id === user.id && (
+                    <span className="rounded-full border border-violet-200 bg-violet-50 px-2.5 py-1 text-violet-700">
+                      Current session
+                    </span>
+                  )}
                 </div>
               </button>
             ))}

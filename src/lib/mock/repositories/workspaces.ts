@@ -38,6 +38,10 @@ export function getCurrentMember(
 }
 
 export function setActiveWorkspace(state: MockAppDataState, workspaceId: string): MockAppDataState {
+  if (!state.workspaces.some((workspace) => workspace.id === workspaceId)) {
+    return state
+  }
+
   return {
     ...state,
     activeWorkspaceId: workspaceId,
@@ -62,10 +66,37 @@ export function inviteWorkspaceMember(
   state: MockAppDataState,
   params: { workspaceId: string; email: string; role: WorkspaceRole; invitedBy: string },
 ): { state: MockAppDataState; invitation: Invitation } {
+  const normalizedEmail = params.email.trim().toLowerCase()
+
+  if (!normalizedEmail) {
+    throw new Error('Invitation email is required.')
+  }
+
+  const existingUser = state.users.find((user) => user.email.toLowerCase() === normalizedEmail)
+  if (
+    existingUser &&
+    state.members.some(
+      (member) => member.workspaceId === params.workspaceId && member.userId === existingUser.id,
+    )
+  ) {
+    throw new Error('That person is already a member of this workspace.')
+  }
+
+  if (
+    state.invitations.some(
+      (invitation) =>
+        invitation.workspaceId === params.workspaceId &&
+        invitation.email === normalizedEmail &&
+        invitation.status === 'pending',
+    )
+  ) {
+    throw new Error('That invitation is already pending.')
+  }
+
   const invitation: Invitation = {
     id: createId('inv'),
     workspaceId: params.workspaceId,
-    email: params.email.trim().toLowerCase(),
+    email: normalizedEmail,
     role: params.role,
     status: 'pending',
     invitedBy: params.invitedBy,
@@ -148,10 +179,21 @@ export function updateWorkspaceDetails(
     throw new Error('Workspace not found.')
   }
 
+  const normalizedName = params.name.trim()
+  const normalizedSlug = params.slug.trim().toLowerCase()
+
+  if (!normalizedName) {
+    throw new Error('Workspace name is required.')
+  }
+
+  if (!normalizedSlug) {
+    throw new Error('Workspace slug is required.')
+  }
+
   const nextWorkspace: Workspace = {
     ...workspace,
-    name: params.name.trim(),
-    slug: params.slug.trim().toLowerCase(),
+    name: normalizedName,
+    slug: normalizedSlug,
     updatedAt: nowIso(),
   }
 

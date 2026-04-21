@@ -17,11 +17,12 @@ export function listWorkspaceAuditLogs(
 
 export function listTargetAuditLogs(
   state: MockAppDataState,
+  workspaceId: string,
   targetId: string,
   limit?: number,
 ): AuditLog[] {
   const logs = state.auditLogs
-    .filter((log) => log.targetId === targetId)
+    .filter((log) => log.workspaceId === workspaceId && log.targetId === targetId)
     .map((log) => withAuditRelations(log, state.users))
 
   const sorted = sortByNewest(logs)

@@ -30,10 +30,17 @@ export function listContentDrafts(
 
 export function upsertSocialDraft(
   state: MockAppDataState,
+  workspaceId: string,
   draft: Omit<SocialDraft, 'id' | 'createdAt' | 'updatedAt'> & { id?: string },
 ): { state: MockAppDataState; draft: SocialDraft; isNew: boolean } {
-  const existing = draft.id ? state.socialDrafts.find((entry) => entry.id === draft.id) : null
+  const existing = draft.id
+    ? state.socialDrafts.find((entry) => entry.workspaceId === workspaceId && entry.id === draft.id)
+    : null
   const timestamp = nowIso()
+
+  if (draft.workspaceId !== workspaceId) {
+    throw new Error('Draft does not belong to the active workspace.')
+  }
 
   const nextDraft: SocialDraft = existing
     ? {

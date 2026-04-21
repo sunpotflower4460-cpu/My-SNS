@@ -36,9 +36,10 @@ function filterItems(items: InboxItem[], tab: FilterTab): InboxItem[] {
 }
 
 export default function InboxPage() {
-  const { addInboxNote, getInboxNotes, inboxItems, toggleInboxNeedsAction, toggleInboxRead, toggleInboxStar } = useMockApp()
+  const { addInboxNote, contents, getInboxNotes, inboxItems, toggleInboxNeedsAction, toggleInboxRead, toggleInboxStar } = useMockApp()
   const [activeTab, setActiveTab] = useState<FilterTab>('all')
   const [draftNotes, setDraftNotes] = useState<Record<string, string>>({})
+  const [feedback, setFeedback] = useState('')
 
   const filtered = useMemo(
     () => filterItems(inboxItems, activeTab).sort((left, right) => new Date(right.receivedAt).getTime() - new Date(left.receivedAt).getTime()),
@@ -50,6 +51,12 @@ export default function InboxPage() {
   return (
     <div>
       <PageHeader title="Inbox" description={`${unreadCount} unread conversation${unreadCount !== 1 ? 's' : ''} in the active workspace.`} />
+
+      {feedback && (
+        <div className="mb-5 rounded-2xl border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-700">
+          {feedback}
+        </div>
+      )}
 
       <div className="mb-5 flex flex-wrap items-center gap-2">
         {TABS.map((tab) => (
@@ -75,15 +82,31 @@ export default function InboxPage() {
                 item={item}
                 notes={notes}
                 noteDraft={draftNotes[item.id] ?? ''}
+                relatedContentTitle={
+                  item.contentId
+                    ? contents.find((content) => content.id === item.contentId)?.title ?? 'Linked content'
+                    : null
+                }
+                relatedContentHref={item.contentId ? `/app/content/${item.contentId}` : null}
                 onChangeNote={(value) => setDraftNotes((prev) => ({ ...prev, [item.id]: value }))}
                 onSaveNote={() => {
                   if (!draftNotes[item.id]?.trim()) return
                   addInboxNote(item.id, draftNotes[item.id])
                   setDraftNotes((prev) => ({ ...prev, [item.id]: '' }))
+                  setFeedback('Internal note saved to local workspace state.')
                 }}
-                onToggleRead={() => toggleInboxRead(item.id)}
-                onToggleStar={() => toggleInboxStar(item.id)}
-                onToggleNeedsAction={() => toggleInboxNeedsAction(item.id)}
+                onToggleRead={() => {
+                  toggleInboxRead(item.id)
+                  setFeedback(item.isRead ? 'Marked as unread.' : 'Marked as read.')
+                }}
+                onToggleStar={() => {
+                  toggleInboxStar(item.id)
+                  setFeedback(item.isStarred ? 'Removed star.' : 'Starred for follow-up.')
+                }}
+                onToggleNeedsAction={() => {
+                  toggleInboxNeedsAction(item.id)
+                  setFeedback(item.needsAction ? 'Cleared needs action.' : 'Flagged for action.')
+                }}
               />
             )
           })}

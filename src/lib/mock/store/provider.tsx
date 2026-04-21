@@ -21,7 +21,6 @@ import { appendAuditLog, listTargetAuditLogs, listWorkspaceAuditLogs } from '@/l
 import { createContent, getContentById, listContentAssets, listWorkspaceContent, updateContent } from '@/lib/mock/repositories/content'
 import { listContentDrafts, listWorkspaceDrafts, upsertSocialDraft } from '@/lib/mock/repositories/drafts'
 import { addInboxNote, listInboxNotes, listWorkspaceInbox, updateInboxItem } from '@/lib/mock/repositories/inbox'
-import { MOCK_APP_STORAGE_KEY } from '@/lib/mock/repositories/helpers'
 import { cancelPublishJob, listContentPublishJobs, listWorkspacePublishJobs, retryPublishJob } from '@/lib/mock/repositories/queue'
 import {
   getCurrentMember,
@@ -38,6 +37,7 @@ import {
 } from '@/lib/mock/repositories/workspaces'
 import { useMockSession } from '@/lib/session/mock-session'
 import { createInitialMockAppState } from './create-initial-state'
+import { readStoredMockAppState, writeStoredMockAppState } from './persistence'
 import type { MockAppDataState } from './types'
 
 interface AssetInput {
@@ -52,6 +52,7 @@ interface MockAppContextValue {
   currentWorkspace: Workspace | null
   currentMember: WorkspaceMember | null
   workspaces: Workspace[]
+  workspaceMemberships: WorkspaceMember[]
   members: WorkspaceMember[]
   invitations: Invitation[]
   socialAccounts: SocialAccount[]
@@ -104,32 +105,19 @@ function assertDefined<T>(value: T | null | undefined, message: string): NonNull
   return value as NonNullable<T>
 }
 
-function readStoredState(): MockAppDataState {
-  try {
-    const stored = window.localStorage.getItem(MOCK_APP_STORAGE_KEY)
-    if (!stored) return createInitialMockAppState()
-    return {
-      ...createInitialMockAppState(),
-      ...JSON.parse(stored),
-    }
-  } catch {
-    return createInitialMockAppState()
-  }
-}
-
 export function MockAppProvider({ children }: { children: React.ReactNode }) {
   const { currentUser, currentUserId, isReady: sessionReady } = useMockSession()
   const [state, setState] = useState<MockAppDataState>(createInitialMockAppState)
   const [isHydrated, setIsHydrated] = useState(false)
 
   useEffect(() => {
-    setState(readStoredState())
+    setState(readStoredMockAppState())
     setIsHydrated(true)
   }, [])
 
   useEffect(() => {
     if (!isHydrated) return
-    window.localStorage.setItem(MOCK_APP_STORAGE_KEY, JSON.stringify(state))
+    writeStoredMockAppState(state)
   }, [state, isHydrated])
 
   useEffect(() => {
@@ -146,6 +134,18 @@ export function MockAppProvider({ children }: { children: React.ReactNode }) {
   const workspaces = useMemo(
     () => (currentUserId ? getUserWorkspaces(state, currentUserId) : []),
     [currentUserId, state],
+  )
+  const workspaceMemberships = useMemo(
+    () =>
+      currentUserId
+        ? state.members
+            .filter((member) => member.userId === currentUserId)
+            .map((member) => ({
+              ...member,
+              user: state.users.find((user) => user.id === member.userId),
+            }))
+        : [],
+    [currentUserId, state.members, state.users],
   )
   const currentWorkspace = useMemo(
     () => (currentUserId ? getCurrentWorkspace(state, currentUserId) : null),
@@ -211,6 +211,7 @@ export function MockAppProvider({ children }: { children: React.ReactNode }) {
       currentWorkspace,
       currentMember,
       workspaces,
+      workspaceMemberships,
       members,
       invitations,
       socialAccounts,
@@ -253,7 +254,7 @@ export function MockAppProvider({ children }: { children: React.ReactNode }) {
         let nextContent: Content | null = null
 
         setState((prev) => {
-          const updated = updateContent(prev, contentId, patch)
+          const updated = updateContent(prev, scope.currentWorkspace.id, contentId, patch)
           const withAudit = appendAuditLog(updated.state, {
             workspaceId: scope.currentWorkspace.id,
             actorId: scope.currentUserId,
@@ -284,7 +285,7 @@ export function MockAppProvider({ children }: { children: React.ReactNode }) {
           drafts: listContentDrafts(state, currentWorkspace.id, contentId),
           jobs: listContentPublishJobs(state, currentWorkspace.id, contentId),
           inboxItems: inboxItems.filter((item) => item.contentId === contentId),
-          auditLogs: listTargetAuditLogs(state, contentId, 6),
+          auditLogs: listTargetAuditLogs(state, currentWorkspace.id, contentId, 6),
         }
       },
       inviteMember: (email, role) => {
@@ -397,7 +398,9 @@ export function MockAppProvider({ children }: { children: React.ReactNode }) {
 
         setState((prev) => {
           const current = prev.inboxItems.find((item) => item.id === inboxItemId)
-          const updated = updateInboxItem(prev, inboxItemId, { isRead: !current?.isRead })
+          const updated = updateInboxItem(prev, scope.currentWorkspace.id, inboxItemId, {
+            isRead: !current?.isRead,
+          })
           const withAudit = appendAuditLog(updated.state, {
             workspaceId: scope.currentWorkspace.id,
             actorId: scope.currentUserId,
@@ -418,7 +421,9 @@ export function MockAppProvider({ children }: { children: React.ReactNode }) {
 
         setState((prev) => {
           const current = prev.inboxItems.find((item) => item.id === inboxItemId)
-          const updated = updateInboxItem(prev, inboxItemId, { isStarred: !current?.isStarred })
+          const updated = updateInboxItem(prev, scope.currentWorkspace.id, inboxItemId, {
+            isStarred: !current?.isStarred,
+          })
           const withAudit = appendAuditLog(updated.state, {
             workspaceId: scope.currentWorkspace.id,
             actorId: scope.currentUserId,
@@ -439,7 +444,9 @@ export function MockAppProvider({ children }: { children: React.ReactNode }) {
 
         setState((prev) => {
           const current = prev.inboxItems.find((item) => item.id === inboxItemId)
-          const updated = updateInboxItem(prev, inboxItemId, { needsAction: !current?.needsAction })
+          const updated = updateInboxItem(prev, scope.currentWorkspace.id, inboxItemId, {
+            needsAction: !current?.needsAction,
+          })
           const withAudit = appendAuditLog(updated.state, {
             workspaceId: scope.currentWorkspace.id,
             actorId: scope.currentUserId,
@@ -460,6 +467,7 @@ export function MockAppProvider({ children }: { children: React.ReactNode }) {
 
         setState((prev) => {
           const created = addInboxNote(prev, {
+            workspaceId: scope.currentWorkspace.id,
             inboxItemId,
             authorId: scope.currentUserId,
             text,
@@ -478,13 +486,14 @@ export function MockAppProvider({ children }: { children: React.ReactNode }) {
 
         return assertDefined(nextNote, 'Unable to save inbox note.')
       },
-      getInboxNotes: (inboxItemId) => listInboxNotes(state, inboxItemId),
+      getInboxNotes: (inboxItemId) =>
+        currentWorkspace ? listInboxNotes(state, currentWorkspace.id, inboxItemId) : [],
       retryQueueJob: (jobId) => {
         const scope = assertScope()
         let nextJob: PublishJob | null = null
 
         setState((prev) => {
-          const retried = retryPublishJob(prev, jobId)
+          const retried = retryPublishJob(prev, scope.currentWorkspace.id, jobId)
           const withAudit = appendAuditLog(retried.state, {
             workspaceId: scope.currentWorkspace.id,
             actorId: scope.currentUserId,
@@ -504,7 +513,7 @@ export function MockAppProvider({ children }: { children: React.ReactNode }) {
         let nextJob: PublishJob | null = null
 
         setState((prev) => {
-          const cancelled = cancelPublishJob(prev, jobId)
+          const cancelled = cancelPublishJob(prev, scope.currentWorkspace.id, jobId)
           const withAudit = appendAuditLog(cancelled.state, {
             workspaceId: scope.currentWorkspace.id,
             actorId: scope.currentUserId,
@@ -524,7 +533,7 @@ export function MockAppProvider({ children }: { children: React.ReactNode }) {
         let nextDraft: SocialDraft | null = null
 
         setState((prev) => {
-          const saved = upsertSocialDraft(prev, draft)
+          const saved = upsertSocialDraft(prev, scope.currentWorkspace.id, draft)
           const withAudit = appendAuditLog(saved.state, {
             workspaceId: scope.currentWorkspace.id,
             actorId: scope.currentUserId,
@@ -549,7 +558,10 @@ export function MockAppProvider({ children }: { children: React.ReactNode }) {
             return prev
           }
 
-          const saved = upsertSocialDraft(prev, { ...currentDraft, status: 'approved' })
+          const saved = upsertSocialDraft(prev, scope.currentWorkspace.id, {
+            ...currentDraft,
+            status: 'approved',
+          })
           const withAudit = appendAuditLog(saved.state, {
             workspaceId: scope.currentWorkspace.id,
             actorId: scope.currentUserId,
@@ -583,6 +595,7 @@ export function MockAppProvider({ children }: { children: React.ReactNode }) {
     socialAccounts,
     state,
     workspaces,
+    workspaceMemberships,
   ])
 
   return <MockAppContext.Provider value={value}>{children}</MockAppContext.Provider>

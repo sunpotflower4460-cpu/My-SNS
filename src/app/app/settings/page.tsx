@@ -3,6 +3,8 @@
 import { useEffect, useState } from 'react'
 import PageHeader from '@/components/ui/PageHeader'
 import PermissionGate from '@/components/ui/PermissionGate'
+import RoleBadge from '@/components/ui/RoleBadge'
+import { useCurrentUser } from '@/hooks/useCurrentUser'
 import { useMockApp } from '@/lib/mock/store/provider'
 import type { SocialPlatform } from '@/lib/domain/types'
 
@@ -17,9 +19,11 @@ const PLATFORM_ICONS: Record<SocialPlatform, string> = {
 
 export default function SettingsPage() {
   const { currentMember, currentWorkspace, saveWorkspaceSettings, socialAccounts } = useMockApp()
+  const { currentUser } = useCurrentUser()
   const [workspaceName, setWorkspaceName] = useState(currentWorkspace?.name ?? '')
   const [workspaceSlug, setWorkspaceSlug] = useState(currentWorkspace?.slug ?? '')
   const [saved, setSaved] = useState(false)
+  const [error, setError] = useState('')
 
   useEffect(() => {
     setWorkspaceName(currentWorkspace?.name ?? '')
@@ -27,9 +31,15 @@ export default function SettingsPage() {
   }, [currentWorkspace])
 
   const handleSaveWorkspace = () => {
-    saveWorkspaceSettings(workspaceName, workspaceSlug)
-    setSaved(true)
-    window.setTimeout(() => setSaved(false), 2500)
+    try {
+      saveWorkspaceSettings(workspaceName, workspaceSlug)
+      setSaved(true)
+      setError('')
+      window.setTimeout(() => setSaved(false), 2500)
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'Unable to save workspace settings.')
+      setSaved(false)
+    }
   }
 
   return (
@@ -38,8 +48,23 @@ export default function SettingsPage() {
 
       <div className="max-w-4xl space-y-6">
         <div className="rounded-[2rem] border border-stone-200 bg-white p-6 shadow-sm shadow-stone-100/80">
+          <h2 className="mb-4 text-base font-semibold text-gray-900">Signed-in user</h2>
+          <div className="flex flex-wrap items-center gap-4 rounded-[1.5rem] border border-stone-100 bg-stone-50 p-4">
+            <div className="flex h-12 w-12 items-center justify-center rounded-full bg-violet-100 text-sm font-semibold text-violet-700">
+              {currentUser?.name.charAt(0) ?? 'U'}
+            </div>
+            <div className="min-w-0 flex-1">
+              <p className="text-sm font-medium text-gray-900">{currentUser?.name ?? 'No user selected'}</p>
+              <p className="truncate text-xs text-gray-500">{currentUser?.email ?? 'Missing email'}</p>
+            </div>
+            <RoleBadge role={currentMember?.role ?? 'viewer'} />
+          </div>
+        </div>
+
+        <div className="rounded-[2rem] border border-stone-200 bg-white p-6 shadow-sm shadow-stone-100/80">
           <h2 className="mb-4 text-base font-semibold text-gray-900">Workspace</h2>
           {saved && <div className="mb-4 rounded-2xl border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-700">Changes saved.</div>}
+          {error && <div className="mb-4 rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div>}
           <div className="grid gap-4 md:grid-cols-2">
             <div>
               <label className="mb-2 block text-sm font-medium text-gray-700">Name</label>

@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import type { SocialDraft } from '@/lib/domain/types'
 import PlatformBadge from './PlatformBadge'
 import StatusBadge from './StatusBadge'
@@ -15,6 +15,11 @@ interface DraftEditorCardProps {
 export default function DraftEditorCard({ draft, onEdit, onApprove, onRegenerate }: DraftEditorCardProps) {
   const [text, setText] = useState(draft.draftText)
   const [isDirty, setIsDirty] = useState(false)
+
+  useEffect(() => {
+    setText(draft.draftText)
+    setIsDirty(false)
+  }, [draft.draftText, draft.id])
 
   const handleChange = (val: string) => {
     setText(val)
@@ -44,6 +49,7 @@ export default function DraftEditorCard({ draft, onEdit, onApprove, onRegenerate
       />
 
       <div className="flex items-center gap-2 mt-3">
+        {isDirty && <span className="rounded-full border border-amber-200 bg-amber-50 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.14em] text-amber-700">Unsaved</span>}
         {isDirty && onEdit && (
           <button
             onClick={handleSave}
