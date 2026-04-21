@@ -4,18 +4,15 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import PageHeader from '@/components/ui/PageHeader'
 import EmptyState from '@/components/ui/EmptyState'
-import { formatBytes, inferAssetType, normalizeTags } from '@/lib/mock/repositories/helpers'
+import { formatBytes, normalizeTags } from '@/lib/mock/repositories/helpers'
 import { useMockApp } from '@/lib/mock/store/provider'
 import type { ContentStatus, ContentType } from '@/lib/domain/types'
+import { MockAssetStorageAdapter } from '@/lib/storage/mock-asset-storage'
+import type { PreparedAssetUpload } from '@/lib/storage/interfaces'
 
-interface PendingAsset {
-  id: string
-  name: string
-  size: number
-  type: 'image' | 'video' | 'audio' | 'document'
-  url?: string
-  previewUrl?: string
-}
+type PendingAsset = PreparedAssetUpload & { id: string }
+
+const assetStorage = new MockAssetStorageAdapter()
 
 export default function NewContentPage() {
   const router = useRouter()
@@ -42,33 +39,17 @@ export default function NewContentPage() {
     if (!files?.length) return
     setPreviewWarning('')
 
-    const nextAssets = await Promise.all(
-      Array.from(files).map(async (file) => {
-        const isImage = file.type.startsWith('image/')
-        const previewUrl = isImage
-          ? await new Promise<string>((resolve) => {
-              const reader = new FileReader()
-              reader.onload = () => resolve(typeof reader.result === 'string' ? reader.result : '')
-              reader.onerror = () => {
-                if (isMountedRef.current) {
-                  setPreviewWarning('One or more image previews could not be generated, but the files were still attached.')
-                }
-                resolve('')
-              }
-              reader.readAsDataURL(file)
-            })
-          : undefined
-
-        return {
-          id: `${file.name}-${file.size}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-          name: file.name,
-          size: file.size,
-          type: inferAssetType(file.name, file.type),
-          url: previewUrl,
-          previewUrl,
-        } satisfies PendingAsset
-      }),
+    const preparedAssets = await assetStorage.prepareFiles(
+      Array.from(files).map((file) => ({ file })),
     )
+    const nextAssets = preparedAssets.map((asset) => ({
+      ...asset,
+      id: `${asset.name}-${asset.size}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+    }))
+
+    if (isMountedRef.current && preparedAssets.some((asset) => asset.type === 'image' && !asset.previewUrl)) {
+      setPreviewWarning('One or more image previews could not be generated, but the files were still attached.')
+    }
 
     setAssets((prev) => [...prev, ...nextAssets])
   }
@@ -98,7 +79,11 @@ export default function NewContentPage() {
       <PageHeader
         title="New Content"
         description={`Create a new entry for ${currentWorkspace?.name ?? 'this workspace'} and attach lightweight local assets.`}
-        actions={<button onClick={() => router.back()} className="text-sm text-gray-500 hover:text-gray-700">← Back</button>}
+        actions={
+          <button onClick={() => router.back()} className="text-sm text-gray-500 hover:text-gray-700">
+            ← Back
+          </button>
+        }
       />
 
       {previewWarning && (
@@ -157,6 +142,11 @@ export default function NewContentPage() {
                 <option value="draft">Draft</option>
                 <option value="ready">Ready</option>
               </select>
+              <p className="mt-2 text-xs text-gray-500">
+                {status === 'draft'
+                  ? 'Draft keeps this item in progress for later edits.'
+                  : 'Ready marks the item as prepared for draft generation or scheduling.'}
+              </p>
             </div>
           </div>
 
@@ -245,6 +235,7 @@ export default function NewContentPage() {
             >
               Save & Mark Ready
             </button>
+            <span className="text-xs text-gray-500">Saved items stay attached to {currentWorkspace?.name ?? 'this workspace'}.</span>
           </div>
         </section>
 

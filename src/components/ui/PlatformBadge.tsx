@@ -16,7 +16,7 @@ const PLATFORM_STYLES: Record<SocialPlatform, { label: string; cls: string }> = 
 export default function PlatformBadge({ platform }: PlatformBadgeProps) {
   const { label, cls } = PLATFORM_STYLES[platform]
   return (
-    <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium border ${cls}`}>
+    <span className={`inline-flex items-center rounded-full border px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.14em] ${cls}`}>
       {label}
     </span>
   )

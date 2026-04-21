@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useMemo, useState } from 'react'
+import Link from 'next/link'
 import PageHeader from '@/components/ui/PageHeader'
 import DraftEditorCard from '@/components/ui/DraftEditorCard'
 import EmptyState from '@/components/ui/EmptyState'
@@ -24,6 +25,7 @@ export default function DraftsPage() {
   const [generatedDrafts, setGeneratedDrafts] = useState<SocialDraft[]>([])
   const [loading, setLoading] = useState(false)
   const [variationSeed, setVariationSeed] = useState(0)
+  const [feedback, setFeedback] = useState('')
 
   useEffect(() => {
     if (contents.length > 0 && !contents.some((content) => content.id === contentId)) {
@@ -33,6 +35,14 @@ export default function DraftsPage() {
 
   const selectedContent = useMemo(() => contents.find((content) => content.id === contentId) ?? null, [contentId, contents])
   const existingDrafts = useMemo(() => (contentId ? getDraftsForContent(contentId) : drafts), [contentId, drafts, getDraftsForContent])
+  const draftsByPlatform = useMemo(
+    () =>
+      existingDrafts.reduce<Record<string, SocialDraft[]>>((accumulator, draft) => {
+        accumulator[draft.platform] = [...(accumulator[draft.platform] ?? []), draft]
+        return accumulator
+      }, {}),
+    [existingDrafts],
+  )
 
   const togglePlatform = (platform: SocialPlatform) => {
     setSelectedPlatforms((prev) => (prev.includes(platform) ? prev.filter((value) => value !== platform) : [...prev, platform]))
@@ -49,6 +59,7 @@ export default function DraftsPage() {
     })
     setGeneratedDrafts(nextDrafts)
     setVariationSeed(seed)
+    setFeedback(`Generated ${nextDrafts.length} draft variations for ${currentWorkspace?.name ?? 'this workspace'}.`)
     setLoading(false)
   }
 
@@ -69,7 +80,27 @@ export default function DraftsPage() {
     <div>
       <PageHeader title="AI Draft Studio" description="Generate, tweak, regenerate, and save platform-specific copy into the mock repository." />
 
-      <div className="mb-6 rounded-[2rem] border border-stone-200 bg-white p-6 shadow-sm shadow-stone-100/80">
+      {feedback && (
+        <div className="mb-5 rounded-2xl border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-700">
+          {feedback}
+        </div>
+      )}
+
+      {contents.length === 0 && (
+        <EmptyState
+          title="No content ready for draft work"
+          description="Create content in this workspace first, then come back to generate platform drafts."
+          action={
+            <Link href="/app/content/new" className="rounded-2xl bg-violet-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-violet-700">
+              Create content
+            </Link>
+          }
+          icon="✍️"
+        />
+      )}
+
+      {contents.length > 0 && (
+        <div className="mb-6 rounded-[2rem] border border-stone-200 bg-white p-6 shadow-sm shadow-stone-100/80">
         <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_200px_200px]">
           <div>
             <label className="mb-2 block text-sm font-medium text-gray-700">Source Content</label>
@@ -115,7 +146,8 @@ export default function DraftsPage() {
         <button onClick={handleGenerate} disabled={loading || selectedPlatforms.length === 0 || !selectedContent} className="mt-5 rounded-2xl bg-violet-600 px-5 py-2.5 text-sm font-medium text-white transition hover:bg-violet-700 disabled:cursor-not-allowed disabled:opacity-50">
           {loading ? 'Generating…' : '✨ Generate Drafts'}
         </button>
-      </div>
+        </div>
+      )}
 
       {generatedDrafts.length > 0 && (
         <section className="mb-8">
@@ -125,19 +157,27 @@ export default function DraftsPage() {
               <DraftEditorCard
                 key={draft.id}
                 draft={draft}
-                onEdit={(id, text) => {
-                  setGeneratedDrafts((prev) => prev.map((entry) => (entry.id === id ? { ...entry, draftText: text, updatedAt: new Date().toISOString() } : entry)))
-                  const target = generatedDrafts.find((entry) => entry.id === id)
-                  if (target) persistDraft({ ...target, draftText: text })
-                }}
-                onApprove={(id) => {
-                  const target = generatedDrafts.find((entry) => entry.id === id)
-                  if (!target) return
-                  persistDraft({ ...target, status: 'approved' })
-                  setGeneratedDrafts((prev) => prev.map((entry) => (entry.id === id ? { ...entry, status: 'approved' } : entry)))
-                }}
-                onRegenerate={(id) => {
-                  if (!selectedContent) return
+                  onEdit={(id, text) => {
+                    setGeneratedDrafts((prev) =>
+                      prev.map((entry) =>
+                        entry.id === id ? { ...entry, draftText: text, updatedAt: new Date().toISOString() } : entry,
+                      ),
+                    )
+                    const target = generatedDrafts.find((entry) => entry.id === id)
+                    if (target) {
+                      persistDraft({ ...target, draftText: text })
+                      setFeedback(`Saved ${target.platform} draft changes locally.`)
+                    }
+                  }}
+                  onApprove={(id) => {
+                    const target = generatedDrafts.find((entry) => entry.id === id)
+                    if (!target) return
+                    persistDraft({ ...target, status: 'approved' })
+                    setGeneratedDrafts((prev) => prev.map((entry) => (entry.id === id ? { ...entry, status: 'approved' } : entry)))
+                    setFeedback(`Approved ${target.platform} draft.`)
+                  }}
+                  onRegenerate={(id) => {
+                    if (!selectedContent) return
                   setGeneratedDrafts((prev) => {
                     const targetIndex = prev.findIndex((entry) => entry.id === id)
                     return prev.map((entry, index) =>
@@ -149,11 +189,12 @@ export default function DraftsPage() {
                           }
                         : entry,
                     )
-                  })
-                  setVariationSeed((prev) => prev + 1)
-                }}
-              />
-            ))}
+                    })
+                    setVariationSeed((prev) => prev + 1)
+                    setFeedback('Generated a fresh variation for that platform.')
+                  }}
+                />
+              ))}
           </div>
         </section>
       )}
@@ -166,25 +207,40 @@ export default function DraftsPage() {
         {existingDrafts.length === 0 ? (
           <EmptyState title="No drafts yet" description="Generate your first set above and save the ones you want to keep." />
         ) : (
-          <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
-            {existingDrafts.map((draft) => (
-              <DraftEditorCard
-                key={draft.id}
-                draft={draft}
-                onEdit={(id, text) => {
-                  const target = existingDrafts.find((entry) => entry.id === id)
-                  if (!target) return
-                  persistDraft({ ...target, draftText: text })
-                }}
-                onApprove={(id) => approveDraft(id)}
-                onRegenerate={(id) => {
-                  if (!selectedContent) return
-                  const target = existingDrafts.find((entry) => entry.id === id)
-                  if (!target) return
-                  persistDraft({ ...target, draftText: regenerateDraftText(target, selectedContent, variationSeed + 1) })
-                  setVariationSeed((prev) => prev + 1)
-                }}
-              />
+          <div className="space-y-6">
+            {Object.entries(draftsByPlatform).map(([platform, platformDrafts]) => (
+              <section key={platform}>
+                <div className="mb-3 flex items-center justify-between gap-3">
+                  <h3 className="text-sm font-semibold uppercase tracking-[0.18em] text-gray-500">{platform}</h3>
+                  <span className="text-xs text-gray-400">{platformDrafts.length} saved</span>
+                </div>
+                <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
+                  {platformDrafts.map((draft) => (
+                    <DraftEditorCard
+                      key={draft.id}
+                      draft={draft}
+                      onEdit={(id, text) => {
+                        const target = existingDrafts.find((entry) => entry.id === id)
+                        if (!target) return
+                        persistDraft({ ...target, draftText: text })
+                        setFeedback(`Saved ${target.platform} draft changes locally.`)
+                      }}
+                      onApprove={(id) => {
+                        approveDraft(id)
+                        setFeedback('Draft approved.')
+                      }}
+                      onRegenerate={(id) => {
+                        if (!selectedContent) return
+                        const target = existingDrafts.find((entry) => entry.id === id)
+                        if (!target) return
+                        persistDraft({ ...target, draftText: regenerateDraftText(target, selectedContent, variationSeed + 1) })
+                        setVariationSeed((prev) => prev + 1)
+                        setFeedback('Generated a fresh variation for that saved draft.')
+                      }}
+                    />
+                  ))}
+                </div>
+              </section>
             ))}
           </div>
         )}

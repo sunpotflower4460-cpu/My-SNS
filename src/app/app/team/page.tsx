@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from 'react'
 import PageHeader from '@/components/ui/PageHeader'
+import EmptyState from '@/components/ui/EmptyState'
 import RoleBadge from '@/components/ui/RoleBadge'
 import StatusBadge from '@/components/ui/StatusBadge'
 import PermissionGate from '@/components/ui/PermissionGate'
@@ -9,7 +10,7 @@ import { useMockApp } from '@/lib/mock/store/provider'
 import type { WorkspaceRole } from '@/lib/domain/types'
 
 export default function TeamPage() {
-  const { changeMemberRole, currentMember, inviteMember, invitations, members, removeMember } = useMockApp()
+  const { changeMemberRole, currentMember, currentWorkspace, inviteMember, invitations, members, removeMember } = useMockApp()
   const [inviteEmail, setInviteEmail] = useState('')
   const [inviteRole, setInviteRole] = useState<WorkspaceRole>('viewer')
   const [feedback, setFeedback] = useState('')
@@ -18,12 +19,29 @@ export default function TeamPage() {
   const pendingInvitations = useMemo(() => invitations.filter((invitation) => invitation.status === 'pending'), [invitations])
 
   const handleInvite = () => {
-    if (!inviteEmail.trim()) {
+    const normalizedEmail = inviteEmail.trim().toLowerCase()
+
+    if (!normalizedEmail) {
       setError('Enter an email address to invite someone.')
       return
     }
 
-    inviteMember(inviteEmail, inviteRole)
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalizedEmail)) {
+      setError('Enter a valid email address.')
+      return
+    }
+
+    if (members.some((member) => member.user?.email.toLowerCase() === normalizedEmail)) {
+      setError('That person is already in this workspace.')
+      return
+    }
+
+    if (pendingInvitations.some((invitation) => invitation.email === normalizedEmail)) {
+      setError('There is already a pending invitation for that email.')
+      return
+    }
+
+    inviteMember(normalizedEmail, inviteRole)
     setInviteEmail('')
     setInviteRole('viewer')
     setError('')
@@ -66,6 +84,7 @@ export default function TeamPage() {
         <div className="overflow-hidden rounded-[2rem] border border-stone-200 bg-white shadow-sm shadow-stone-100/80">
           <div className="border-b border-stone-100 px-6 py-4">
             <h2 className="text-sm font-semibold text-gray-900">Members ({members.length})</h2>
+            <p className="mt-1 text-xs text-gray-500">Everyone listed here belongs to {currentWorkspace?.name ?? 'the active workspace'}.</p>
           </div>
           <div className="divide-y divide-stone-100">
             {members.map((member) => {
@@ -85,10 +104,11 @@ export default function TeamPage() {
                       <p className="truncate text-xs text-gray-500">{member.user?.email}</p>
                     </div>
                   </div>
-                  <div className="flex flex-wrap items-center gap-3 md:justify-end">
-                    <RoleBadge role={member.role} />
-                    <PermissionGate requiredPermission="change_roles" currentRole={currentMember?.role ?? 'viewer'}>
-                      <select
+                    <div className="flex flex-wrap items-center gap-3 md:justify-end">
+                      <RoleBadge role={member.role} />
+                      {isSelf && <span className="rounded-full border border-stone-200 bg-stone-50 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.14em] text-gray-500">You</span>}
+                      <PermissionGate requiredPermission="change_roles" currentRole={currentMember?.role ?? 'viewer'}>
+                        <select
                         value={member.role}
                         disabled={disableRoleChange}
                         onChange={(event) => handleRoleChange(member.userId, event.target.value as WorkspaceRole)}
@@ -124,6 +144,7 @@ export default function TeamPage() {
         >
           <div className="rounded-[2rem] border border-stone-200 bg-white p-6 shadow-sm shadow-stone-100/80">
             <h2 className="mb-4 text-base font-semibold text-gray-900">Invite teammate</h2>
+            <p className="mb-4 text-sm leading-6 text-gray-500">New invites stay pending in local workspace state until real auth and invitations land in Phase 2.</p>
             <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_180px_auto]">
               <input
                 type="email"
@@ -150,16 +171,21 @@ export default function TeamPage() {
         <div className="overflow-hidden rounded-[2rem] border border-stone-200 bg-white shadow-sm shadow-stone-100/80">
           <div className="border-b border-stone-100 px-6 py-4">
             <h2 className="text-sm font-semibold text-gray-900">Pending invitations</h2>
+            <p className="mt-1 text-xs text-gray-500">Pending invites are workspace-specific and preserved locally.</p>
           </div>
           {pendingInvitations.length === 0 ? (
-            <div className="px-6 py-10 text-center text-sm text-gray-400">No pending invitations.</div>
+            <div className="px-6 py-10">
+              <EmptyState title="No pending invitations" description="Invite a teammate when you need another person inside this workspace." icon="✉️" />
+            </div>
           ) : (
             <div className="divide-y divide-stone-100">
               {pendingInvitations.map((invitation) => (
                 <div key={invitation.id} className="flex flex-col gap-3 px-6 py-5 sm:flex-row sm:items-center">
                   <div className="min-w-0 flex-1">
                     <p className="truncate text-sm font-medium text-gray-900">{invitation.email}</p>
-                    <p className="text-xs text-gray-400">Expires {new Date(invitation.expiresAt).toLocaleDateString()}</p>
+                    <p className="text-xs text-gray-400">
+                      Pending · created {new Date(invitation.createdAt).toLocaleDateString()} · expires {new Date(invitation.expiresAt).toLocaleDateString()}
+                    </p>
                   </div>
                   <div className="flex items-center gap-3">
                     <RoleBadge role={invitation.role} />

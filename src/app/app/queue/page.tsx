@@ -20,6 +20,8 @@ const STATUS_FILTERS: Array<{ label: string; value: PublishJobStatus | 'all' }> 
 export default function QueuePage() {
   const { cancelQueueJob, contents, publishJobs, retryQueueJob } = useMockApp()
   const [activeStatus, setActiveStatus] = useState<PublishJobStatus | 'all'>('all')
+  const [feedback, setFeedback] = useState('')
+  const [error, setError] = useState('')
 
   const filtered = useMemo(
     () => publishJobs.filter((job) => activeStatus === 'all' || job.status === activeStatus).sort((left, right) => new Date(right.createdAt).getTime() - new Date(left.createdAt).getTime()),
@@ -31,6 +33,12 @@ export default function QueuePage() {
   return (
     <div>
       <PageHeader title="Publish Queue" description="Track and nudge scheduled, failed, and draft publish jobs in mock state." />
+
+      {(feedback || error) && (
+        <div className={`mb-5 rounded-2xl px-4 py-3 text-sm ${error ? 'border border-red-200 bg-red-50 text-red-700' : 'border border-green-200 bg-green-50 text-green-700'}`}>
+          {error || feedback}
+        </div>
+      )}
 
       <div className="mb-5 flex flex-wrap items-center gap-2">
         {STATUS_FILTERS.map((filter) => (
@@ -57,17 +65,49 @@ export default function QueuePage() {
                 </div>
                 <div className="min-w-0 flex-1">
                   <p className="truncate text-sm font-medium text-gray-900">{getContentTitle(job.contentId)}</p>
-                  <p className="mt-1 text-xs text-gray-500">{job.scheduledAt ? `Scheduled: ${new Date(job.scheduledAt).toLocaleString()}` : 'Not scheduled yet'}</p>
+                  <p className="mt-1 text-xs text-gray-500">
+                    {job.status === 'failed'
+                      ? 'Needs retry or cancellation'
+                      : job.status === 'cancelled'
+                        ? 'Removed from the active queue'
+                        : job.scheduledAt
+                          ? `Scheduled: ${new Date(job.scheduledAt).toLocaleString()}`
+                          : 'Not scheduled yet'}
+                  </p>
                   {job.errorMessage && <p className="mt-2 text-xs text-red-500">{job.errorMessage}</p>}
                 </div>
                 <div className="flex flex-wrap items-center gap-2 lg:justify-end">
                   {job.status === 'failed' && (
-                    <button onClick={() => retryQueueJob(job.id)} className="rounded-2xl border border-violet-200 px-3 py-2 text-xs font-medium text-violet-700 transition hover:bg-violet-50">
+                    <button
+                      onClick={() => {
+                        try {
+                          retryQueueJob(job.id)
+                          setFeedback('Queue item moved back to scheduled.')
+                          setError('')
+                        } catch (cause) {
+                          setError(cause instanceof Error ? cause.message : 'Unable to retry queue item.')
+                          setFeedback('')
+                        }
+                      }}
+                      className="rounded-2xl border border-violet-200 px-3 py-2 text-xs font-medium text-violet-700 transition hover:bg-violet-50"
+                    >
                       Retry
                     </button>
                   )}
                   {(job.status === 'scheduled' || job.status === 'draft' || job.status === 'failed') && (
-                    <button onClick={() => cancelQueueJob(job.id)} className="rounded-2xl border border-stone-200 px-3 py-2 text-xs font-medium text-gray-600 transition hover:bg-stone-50 hover:text-red-600">
+                    <button
+                      onClick={() => {
+                        try {
+                          cancelQueueJob(job.id)
+                          setFeedback('Queue item cancelled.')
+                          setError('')
+                        } catch (cause) {
+                          setError(cause instanceof Error ? cause.message : 'Unable to cancel queue item.')
+                          setFeedback('')
+                        }
+                      }}
+                      className="rounded-2xl border border-stone-200 px-3 py-2 text-xs font-medium text-gray-600 transition hover:bg-stone-50 hover:text-red-600"
+                    >
                       Cancel
                     </button>
                   )}

@@ -87,10 +87,13 @@ export function createContent(
 
 export function updateContent(
   state: MockAppDataState,
+  workspaceId: string,
   contentId: string,
   patch: Partial<Pick<Content, 'title' | 'body' | 'status' | 'tags'>>,
 ): { state: MockAppDataState; content: Content; previous: Content } {
-  const content = state.contents.find((entry) => entry.id === contentId)
+  const content = state.contents.find(
+    (entry) => entry.workspaceId === workspaceId && entry.id === contentId,
+  )
   if (!content) {
     throw new Error('Content not found.')
   }

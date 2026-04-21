@@ -18,9 +18,12 @@ export function listContentPublishJobs(
 
 export function retryPublishJob(
   state: MockAppDataState,
+  workspaceId: string,
   jobId: string,
 ): { state: MockAppDataState; job: PublishJob; previous: PublishJob } {
-  const job = state.publishJobs.find((entry) => entry.id === jobId)
+  const job = state.publishJobs.find(
+    (entry) => entry.workspaceId === workspaceId && entry.id === jobId,
+  )
   if (!job) {
     throw new Error('Publish job not found.')
   }
@@ -44,9 +47,12 @@ export function retryPublishJob(
 
 export function cancelPublishJob(
   state: MockAppDataState,
+  workspaceId: string,
   jobId: string,
 ): { state: MockAppDataState; job: PublishJob; previous: PublishJob } {
-  const job = state.publishJobs.find((entry) => entry.id === jobId)
+  const job = state.publishJobs.find(
+    (entry) => entry.workspaceId === workspaceId && entry.id === jobId,
+  )
   if (!job) {
     throw new Error('Publish job not found.')
   }

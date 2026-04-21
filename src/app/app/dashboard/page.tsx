@@ -5,6 +5,7 @@ import PageHeader from '@/components/ui/PageHeader'
 import StatCard from '@/components/ui/StatCard'
 import ContentCard from '@/components/ui/ContentCard'
 import EmptyState from '@/components/ui/EmptyState'
+import { describeAuditLog, getAuditLogMeta } from '@/lib/audit/presenter'
 import { useMockApp } from '@/lib/mock/store/provider'
 
 export default function DashboardPage() {
@@ -84,16 +85,17 @@ export default function DashboardPage() {
             </span>
           </div>
           {recentActivity.length === 0 ? (
-            <p className="text-sm text-gray-500">No recent audit activity yet.</p>
+            <EmptyState
+              title="No recent activity yet"
+              description="Recent content, inbox, queue, and team actions will appear here for this workspace."
+              icon="🕊️"
+            />
           ) : (
             <div className="space-y-3">
               {recentActivity.map((log) => (
                 <div key={log.id} className="rounded-2xl border border-stone-100 bg-stone-50 px-4 py-3">
-                  <p className="text-sm text-gray-700">
-                    <span className="font-medium text-gray-900">{log.actor?.name ?? 'Unknown'}</span>{' '}
-                    {log.action.replace(/_/g, ' ')}
-                  </p>
-                  <p className="mt-1 text-xs text-gray-400">{new Date(log.createdAt).toLocaleString()}</p>
+                  <p className="text-sm leading-6 text-gray-700">{describeAuditLog(log)}</p>
+                  <p className="mt-1 text-xs text-gray-400">{getAuditLogMeta(log)}</p>
                 </div>
               ))}
             </div>

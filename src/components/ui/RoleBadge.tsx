@@ -14,7 +14,7 @@ const ROLE_STYLES: Record<WorkspaceRole, string> = {
 
 export default function RoleBadge({ role }: RoleBadgeProps) {
   return (
-    <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium border ${ROLE_STYLES[role]}`}>
+    <span className={`inline-flex items-center rounded-full border px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.14em] ${ROLE_STYLES[role]}`}>
       {role.charAt(0).toUpperCase() + role.slice(1)}
     </span>
   )

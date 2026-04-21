@@ -9,7 +9,7 @@ import { useMockSession } from '@/lib/session/mock-session'
 
 export default function AppLayout({ children }: { children: React.ReactNode }) {
   const router = useRouter()
-  const { currentUser, isAuthenticated, isReady: sessionReady } = useMockSession()
+  const { currentUser, isAuthenticated, isReady: sessionReady, signOut } = useMockSession()
   const { currentWorkspace, currentMember, isReady: appReady } = useMockApp()
 
   useEffect(() => {
@@ -38,7 +38,18 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
         <div className="w-full max-w-xl">
           <EmptyState
             title="No workspace available"
-            description="This mock account does not have an active workspace yet."
+            description="This mock account does not have an active workspace yet, or the stored workspace is stale."
+            action={
+              <button
+                onClick={() => {
+                  signOut()
+                  router.replace('/login')
+                }}
+                className="rounded-2xl border border-stone-200 bg-white px-4 py-2 text-sm text-gray-700 transition hover:bg-stone-50"
+              >
+                Back to login
+              </button>
+            }
           />
         </div>
       </div>

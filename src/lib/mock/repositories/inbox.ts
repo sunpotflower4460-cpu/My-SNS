@@ -8,10 +8,13 @@ export function listWorkspaceInbox(state: MockAppDataState, workspaceId: string)
 
 export function updateInboxItem(
   state: MockAppDataState,
+  workspaceId: string,
   inboxItemId: string,
   patch: Partial<Pick<InboxItem, 'isRead' | 'isStarred' | 'needsAction'>>,
 ): { state: MockAppDataState; item: InboxItem; previous: InboxItem } {
-  const item = state.inboxItems.find((entry) => entry.id === inboxItemId)
+  const item = state.inboxItems.find(
+    (entry) => entry.workspaceId === workspaceId && entry.id === inboxItemId,
+  )
   if (!item) {
     throw new Error('Inbox item not found.')
   }
@@ -28,14 +31,33 @@ export function updateInboxItem(
   }
 }
 
-export function listInboxNotes(state: MockAppDataState, inboxItemId: string): InboxNote[] {
+export function listInboxNotes(
+  state: MockAppDataState,
+  workspaceId: string,
+  inboxItemId: string,
+): InboxNote[] {
+  const relatedInboxItem = state.inboxItems.find(
+    (item) => item.workspaceId === workspaceId && item.id === inboxItemId,
+  )
+
+  if (!relatedInboxItem) {
+    return []
+  }
+
   return state.inboxNotes.filter((note) => note.inboxItemId === inboxItemId)
 }
 
 export function addInboxNote(
   state: MockAppDataState,
-  params: { inboxItemId: string; authorId: string; text: string },
+  params: { workspaceId: string; inboxItemId: string; authorId: string; text: string },
 ): { state: MockAppDataState; note: InboxNote } {
+  const relatedInboxItem = state.inboxItems.find(
+    (item) => item.workspaceId === params.workspaceId && item.id === params.inboxItemId,
+  )
+  if (!relatedInboxItem) {
+    throw new Error('Inbox item not found.')
+  }
+
   const note: InboxNote = {
     id: createId('note'),
     inboxItemId: params.inboxItemId,
