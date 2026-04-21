@@ -4,12 +4,12 @@ import { useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import AppShell from '@/components/layout/AppShell'
 import EmptyState from '@/components/ui/EmptyState'
-import { useMockApp } from '@/lib/mock/store/provider'
-import { useMockSession } from '@/lib/session/mock-session'
+import { useMockApp } from '@/lib/app/app-provider'
+import { useAuth } from '@/lib/auth/auth-provider'
 
 export default function AppLayout({ children }: { children: React.ReactNode }) {
   const router = useRouter()
-  const { currentUser, isAuthenticated, isReady: sessionReady, signOut } = useMockSession()
+  const { user: currentUser, isAuthenticated, isReady: sessionReady, signOut } = useAuth()
   const { currentWorkspace, currentMember, isReady: appReady } = useMockApp()
 
   useEffect(() => {

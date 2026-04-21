@@ -5,7 +5,7 @@ import PageHeader from '@/components/ui/PageHeader'
 import PermissionGate from '@/components/ui/PermissionGate'
 import RoleBadge from '@/components/ui/RoleBadge'
 import { useCurrentUser } from '@/hooks/useCurrentUser'
-import { useMockApp } from '@/lib/mock/store/provider'
+import { useMockApp } from '@/lib/app/app-provider'
 import type { SocialPlatform } from '@/lib/domain/types'
 
 const PLATFORM_ICONS: Record<SocialPlatform, string> = {
@@ -30,9 +30,9 @@ export default function SettingsPage() {
     setWorkspaceSlug(currentWorkspace?.slug ?? '')
   }, [currentWorkspace])
 
-  const handleSaveWorkspace = () => {
+  const handleSaveWorkspace = async () => {
     try {
-      saveWorkspaceSettings(workspaceName, workspaceSlug)
+      await saveWorkspaceSettings(workspaceName, workspaceSlug)
       setSaved(true)
       setError('')
       window.setTimeout(() => setSaved(false), 2500)

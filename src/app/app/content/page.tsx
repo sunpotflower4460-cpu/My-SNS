@@ -6,7 +6,7 @@ import { useRouter } from 'next/navigation'
 import PageHeader from '@/components/ui/PageHeader'
 import ContentCard from '@/components/ui/ContentCard'
 import EmptyState from '@/components/ui/EmptyState'
-import { useMockApp } from '@/lib/mock/store/provider'
+import { useMockApp } from '@/lib/app/app-provider'
 import type { ContentType } from '@/lib/domain/types'
 
 const TYPE_FILTERS: Array<{ label: string; value: ContentType | 'all' }> = [

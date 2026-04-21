@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation'
 import PageHeader from '@/components/ui/PageHeader'
 import EmptyState from '@/components/ui/EmptyState'
 import { formatBytes, normalizeTags } from '@/lib/mock/repositories/helpers'
-import { useMockApp } from '@/lib/mock/store/provider'
+import { useMockApp } from '@/lib/app/app-provider'
 import type { ContentStatus, ContentType } from '@/lib/domain/types'
 import { MockAssetStorageAdapter } from '@/lib/storage/mock-asset-storage'
 import type { PreparedAssetUpload } from '@/lib/storage/interfaces'
@@ -54,8 +54,8 @@ export default function NewContentPage() {
     setAssets((prev) => [...prev, ...nextAssets])
   }
 
-  const handleSave = (targetStatus: ContentStatus) => {
-    const content = createContentItem({
+  const handleSave = async (targetStatus: ContentStatus) => {
+    const content = await createContentItem({
       title,
       body,
       type,

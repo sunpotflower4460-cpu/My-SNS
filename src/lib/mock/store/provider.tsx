@@ -35,7 +35,7 @@ import {
   updateWorkspaceDetails,
   updateWorkspaceMemberRole,
 } from '@/lib/mock/repositories/workspaces'
-import { useMockSession } from '@/lib/session/mock-session'
+import { useAuth } from '@/lib/auth/auth-provider'
 import { createInitialMockAppState } from './create-initial-state'
 import { readStoredMockAppState, writeStoredMockAppState } from './persistence'
 import type { MockAppDataState } from './types'
@@ -106,7 +106,7 @@ function assertDefined<T>(value: T | null | undefined, message: string): NonNull
 }
 
 export function MockAppProvider({ children }: { children: React.ReactNode }) {
-  const { currentUser, currentUserId, isReady: sessionReady } = useMockSession()
+  const { user: currentUser, currentUserId, isReady: sessionReady } = useAuth()
   const [state, setState] = useState<MockAppDataState>(createInitialMockAppState)
   const [isHydrated, setIsHydrated] = useState(false)
 

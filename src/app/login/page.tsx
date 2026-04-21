@@ -1,14 +1,19 @@
 'use client'
 
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { useCurrentUser } from '@/hooks/useCurrentUser'
+import { useAuth } from '@/lib/auth/auth-provider'
+import { createClient } from '@/lib/supabase/client'
+
+export const dynamic = 'force-dynamic'
 
 export default function LoginPage() {
   const router = useRouter()
-  const { currentUser, isAuthenticated, isReady, sessionNotice, signInAs, users } = useCurrentUser()
+  const { user, isAuthenticated, isReady } = useAuth()
   const [email, setEmail] = useState('')
+  const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState('')
+  const [success, setSuccess] = useState('')
 
   useEffect(() => {
     if (isReady && isAuthenticated) {
@@ -16,29 +21,44 @@ export default function LoginPage() {
     }
   }, [isAuthenticated, isReady, router])
 
-  const userSummaries = useMemo(
-    () =>
-      users.map((user) => ({
-        ...user,
-      })),
-    [users],
-  )
-
   if (!isReady) {
     return <div className="flex min-h-screen items-center justify-center bg-stone-50 text-sm text-gray-500">Loading…</div>
   }
 
-  const handleEmailSignIn = (event: React.FormEvent) => {
+  const handleSignIn = async (event: React.FormEvent) => {
     event.preventDefault()
-    const matchedUser = users.find((user) => user.email.toLowerCase() === email.trim().toLowerCase())
+    setIsLoading(true)
+    setError('')
+    setSuccess('')
 
-    if (!matchedUser) {
-      setError('Use one of the seeded emails below to enter the prototype.')
+    const normalizedEmail = email.trim().toLowerCase()
+    if (!normalizedEmail) {
+      setError('Please enter your email address')
+      setIsLoading(false)
       return
     }
 
-    setError('')
-    signInAs(matchedUser.id)
+    try {
+      const supabase = createClient()
+      const { error } = await supabase.auth.signInWithOtp({
+        email: normalizedEmail,
+        options: {
+          emailRedirectTo: `${window.location.origin}/app/dashboard`,
+        },
+      })
+
+      if (error) {
+        setError(error.message)
+      } else {
+        setSuccess('Check your email for the magic link!')
+        setEmail('')
+      }
+    } catch (err) {
+      setError('An unexpected error occurred. Please try again.')
+      console.error('Sign in error:', err)
+    } finally {
+      setIsLoading(false)
+    }
   }
 
   return (
@@ -51,18 +71,23 @@ export default function LoginPage() {
             </div>
             <h1 className="text-3xl font-semibold tracking-tight text-gray-900 sm:text-4xl">Creator Hub</h1>
             <p className="mt-3 text-sm leading-6 text-gray-500">
-              Sign in with a seeded mock account, switch between workspaces, and keep your local prototype state across refreshes.
+              Sign in with your email to access your workspace. We&apos;ll send you a magic link to sign in securely.
             </p>
           </div>
 
-          <form onSubmit={handleEmailSignIn} className="rounded-3xl border border-stone-200 bg-stone-50 p-5">
-            {sessionNotice && (
-              <div className="mb-4 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
-                {sessionNotice}
+          <form onSubmit={handleSignIn} className="rounded-3xl border border-stone-200 bg-stone-50 p-5">
+            {success && (
+              <div className="mb-4 rounded-2xl border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-800">
+                {success}
+              </div>
+            )}
+            {error && (
+              <div className="mb-4 rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">
+                {error}
               </div>
             )}
             <label htmlFor="email" className="mb-2 block text-sm font-medium text-gray-700">
-              Quick sign-in by seeded email
+              Email address
             </label>
             <div className="flex flex-col gap-3 sm:flex-row">
               <input
@@ -70,63 +95,32 @@ export default function LoginPage() {
                 type="email"
                 value={email}
                 onChange={(event) => setEmail(event.target.value)}
-                placeholder="alex@creatorhub.io"
-                className="flex-1 rounded-2xl border border-stone-200 bg-white px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-violet-300"
+                placeholder="you@example.com"
+                disabled={isLoading}
+                className="flex-1 rounded-2xl border border-stone-200 bg-white px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-violet-300 disabled:opacity-50"
               />
               <button
                 type="submit"
-                className="rounded-2xl bg-violet-600 px-5 py-3 text-sm font-medium text-white transition hover:bg-violet-700"
+                disabled={isLoading}
+                className="rounded-2xl bg-violet-600 px-5 py-3 text-sm font-medium text-white transition hover:bg-violet-700 disabled:opacity-50"
               >
-                Sign in
+                {isLoading ? 'Sending...' : 'Send magic link'}
               </button>
             </div>
-            {error && <p className="mt-3 text-sm text-red-600">{error}</p>}
           </form>
-
-          <div className="mt-6 grid gap-4 lg:grid-cols-2">
-            {userSummaries.map((user) => (
-              <button
-                key={user.id}
-                onClick={() => {
-                  signInAs(user.id)
-                }}
-                className="rounded-3xl border border-stone-200 bg-white p-5 text-left shadow-sm shadow-stone-100 transition hover:-translate-y-0.5 hover:border-violet-200 hover:shadow-md"
-              >
-                <div className="flex items-center gap-3">
-                  <div className="flex h-11 w-11 items-center justify-center rounded-full bg-violet-100 text-sm font-semibold text-violet-700">
-                    {user.name.charAt(0)}
-                  </div>
-                  <div>
-                    <p className="text-sm font-semibold text-gray-900">{user.name}</p>
-                    <p className="text-xs text-gray-500">{user.email}</p>
-                  </div>
-                </div>
-                <div className="mt-4 flex flex-wrap gap-2 text-xs text-gray-500">
-                  <span className="rounded-full border border-stone-200 bg-stone-50 px-2.5 py-1">
-                    Seeded mock user
-                  </span>
-                  {currentUser?.id === user.id && (
-                    <span className="rounded-full border border-violet-200 bg-violet-50 px-2.5 py-1 text-violet-700">
-                      Current session
-                    </span>
-                  )}
-                </div>
-              </button>
-            ))}
-          </div>
         </section>
 
         <aside className="rounded-[2rem] border border-stone-200 bg-white p-8 shadow-sm shadow-stone-200/70 sm:p-10">
-          <h2 className="text-sm font-semibold uppercase tracking-[0.2em] text-gray-400">Mock auth flow</h2>
+          <h2 className="text-sm font-semibold uppercase tracking-[0.2em] text-gray-400">Supabase Auth</h2>
           <div className="mt-5 space-y-5 text-sm leading-6 text-gray-600">
-            <p>• <strong className="text-gray-900">/app</strong> is now protected by a lightweight local session guard.</p>
-            <p>• Your selected user is stored in localStorage so refreshes keep you in context.</p>
-            <p>• Workspace switching is also persisted, so each mock account can move between memberships naturally.</p>
-            <p>• This structure is intentionally simple so it can be swapped for Supabase Auth later.</p>
+            <p>• <strong className="text-gray-900">Magic link</strong> authentication for secure, passwordless sign-in.</p>
+            <p>• Your session is managed by Supabase Auth with automatic refresh.</p>
+            <p>• <strong className="text-gray-900">/app</strong> routes are protected and require authentication.</p>
+            <p>• All data is now backed by a real Supabase database.</p>
           </div>
-          {currentUser && (
+          {user && (
             <div className="mt-6 rounded-3xl border border-violet-200 bg-violet-50 p-4 text-sm text-violet-800">
-              Signed in as {currentUser.name}. Redirecting to your workspace...
+              Signed in as {user.name}. Redirecting to your workspace...
             </div>
           )}
         </aside>
