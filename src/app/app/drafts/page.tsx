@@ -6,17 +6,16 @@ import PageHeader from '@/components/ui/PageHeader'
 import DraftEditorCard from '@/components/ui/DraftEditorCard'
 import EmptyState from '@/components/ui/EmptyState'
 import { useCurrentUser } from '@/hooks/useCurrentUser'
-import { regenerateDraftText } from '@/lib/mock/repositories/drafts'
-import { useMockApp } from '@/lib/app/app-provider'
-import { MockAiDraftGeneratorService } from '@/lib/services/ai-draft'
+import { useApp } from '@/lib/app/app-provider'
+import { resetTemplateDraft, TemplateDraftGeneratorService } from '@/lib/services/ai-draft'
 import type { SocialDraft, SocialPlatform } from '@/lib/domain/types'
 
 const PLATFORMS: SocialPlatform[] = ['youtube', 'instagram', 'threads', 'x', 'tiktok', 'facebook']
 const TONES = ['casual', 'professional', 'playful', 'inspirational']
-const aiService = new MockAiDraftGeneratorService()
+const draftService = new TemplateDraftGeneratorService()
 
 export default function DraftsPage() {
-  const { approveDraft, contents, currentWorkspace, drafts, getDraftsForContent, saveDraft } = useMockApp()
+  const { approveDraft, contents, currentWorkspace, drafts, getDraftsForContent, saveDraft } = useApp()
   const { currentUser } = useCurrentUser()
   const [contentId, setContentId] = useState(contents[0]?.id ?? '')
   const [selectedPlatforms, setSelectedPlatforms] = useState<SocialPlatform[]>(['instagram', 'x'])
@@ -24,8 +23,8 @@ export default function DraftsPage() {
   const [length, setLength] = useState<'short' | 'medium' | 'long'>('short')
   const [generatedDrafts, setGeneratedDrafts] = useState<SocialDraft[]>([])
   const [loading, setLoading] = useState(false)
-  const [variationSeed, setVariationSeed] = useState(0)
   const [feedback, setFeedback] = useState('')
+  const [error, setError] = useState('')
 
   useEffect(() => {
     if (contents.length > 0 && !contents.some((content) => content.id === contentId)) {
@@ -51,16 +50,20 @@ export default function DraftsPage() {
   const handleGenerate = async () => {
     if (!selectedContent) return
     setLoading(true)
-    const seed = variationSeed + 1
-    const nextDrafts = await aiService.generateDrafts(selectedContent, selectedPlatforms, tone, length, {
-      workspaceName: currentWorkspace?.name,
-      createdBy: currentUser?.id ?? selectedContent.authorId,
-      variationSeed: seed,
-    })
-    setGeneratedDrafts(nextDrafts)
-    setVariationSeed(seed)
-    setFeedback(`Generated ${nextDrafts.length} draft variations for ${currentWorkspace?.name ?? 'this workspace'}.`)
-    setLoading(false)
+    setError('')
+    try {
+      const nextDrafts = await draftService.generateDrafts(selectedContent, selectedPlatforms, tone, length, {
+        workspaceName: currentWorkspace?.name,
+        createdBy: currentUser?.id ?? selectedContent.authorId,
+      })
+      setGeneratedDrafts(nextDrafts)
+      setFeedback(`Prepared ${nextDrafts.length} platform templates for ${currentWorkspace?.name ?? 'this workspace'}.`)
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'Unable to generate draft templates.')
+      setFeedback('')
+    } finally {
+      setLoading(false)
+    }
   }
 
   const persistDraft = async (draft: SocialDraft) =>
@@ -76,13 +79,24 @@ export default function DraftsPage() {
       createdBy: draft.createdBy,
     })
 
+  const runDraftAction = async (action: () => Promise<unknown>, successMessage: string) => {
+    try {
+      await action()
+      setFeedback(successMessage)
+      setError('')
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'Unable to save the draft.')
+      setFeedback('')
+    }
+  }
+
   return (
     <div>
-      <PageHeader title="AI Draft Studio" description="Generate, tweak, regenerate, and save platform-specific copy into the mock repository." />
+      <PageHeader title="Template Draft Studio" description="Prepare and save deterministic platform templates. Reviewed AI generation is added in PR2." />
 
-      {feedback && (
-        <div className="mb-5 rounded-2xl border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-700">
-          {feedback}
+      {(feedback || error) && (
+        <div className={`mb-5 rounded-2xl border px-4 py-3 text-sm ${error ? 'border-red-200 bg-red-50 text-red-700' : 'border-green-200 bg-green-50 text-green-700'}`}>
+          {error || feedback}
         </div>
       )}
 
@@ -144,14 +158,14 @@ export default function DraftsPage() {
         </div>
 
         <button onClick={handleGenerate} disabled={loading || selectedPlatforms.length === 0 || !selectedContent} className="mt-5 rounded-2xl bg-violet-600 px-5 py-2.5 text-sm font-medium text-white transition hover:bg-violet-700 disabled:cursor-not-allowed disabled:opacity-50">
-          {loading ? 'Generating…' : '✨ Generate Drafts'}
+          {loading ? 'Generating…' : 'Generate Templates'}
         </button>
         </div>
       )}
 
       {generatedDrafts.length > 0 && (
         <section className="mb-8">
-          <h2 className="mb-3 text-base font-semibold text-gray-900">Generated drafts</h2>
+          <h2 className="mb-3 text-base font-semibold text-gray-900">Template drafts</h2>
           <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
             {generatedDrafts.map((draft) => (
               <DraftEditorCard
@@ -165,33 +179,35 @@ export default function DraftsPage() {
                     )
                     const target = generatedDrafts.find((entry) => entry.id === id)
                     if (target) {
-                      persistDraft({ ...target, draftText: text })
-                      setFeedback(`Saved ${target.platform} draft changes locally.`)
+                      void runDraftAction(
+                        () => persistDraft({ ...target, draftText: text }),
+                        `Saved ${target.platform} draft changes to this workspace.`,
+                      )
                     }
                   }}
                   onApprove={(id) => {
                     const target = generatedDrafts.find((entry) => entry.id === id)
                     if (!target) return
-                    persistDraft({ ...target, status: 'approved' })
+                    void runDraftAction(
+                      () => persistDraft({ ...target, status: 'approved' }),
+                      `Approved ${target.platform} draft.`,
+                    )
                     setGeneratedDrafts((prev) => prev.map((entry) => (entry.id === id ? { ...entry, status: 'approved' } : entry)))
-                    setFeedback(`Approved ${target.platform} draft.`)
                   }}
                   onRegenerate={(id) => {
                     if (!selectedContent) return
                   setGeneratedDrafts((prev) => {
-                    const targetIndex = prev.findIndex((entry) => entry.id === id)
-                    return prev.map((entry, index) =>
+                    return prev.map((entry) =>
                       entry.id === id
                         ? {
                             ...entry,
-                            draftText: regenerateDraftText(entry, selectedContent, variationSeed + targetIndex + 1),
+                            draftText: resetTemplateDraft(entry, selectedContent),
                             updatedAt: new Date().toISOString(),
                           }
                         : entry,
                     )
                     })
-                    setVariationSeed((prev) => prev + 1)
-                    setFeedback('Generated a fresh variation for that platform.')
+                    setFeedback('Reset that draft to its source template.')
                   }}
                 />
               ))}
@@ -222,20 +238,22 @@ export default function DraftsPage() {
                       onEdit={(id, text) => {
                         const target = existingDrafts.find((entry) => entry.id === id)
                         if (!target) return
-                        persistDraft({ ...target, draftText: text })
-                        setFeedback(`Saved ${target.platform} draft changes locally.`)
+                        void runDraftAction(
+                          () => persistDraft({ ...target, draftText: text }),
+                          `Saved ${target.platform} draft changes to this workspace.`,
+                        )
                       }}
                       onApprove={(id) => {
-                        approveDraft(id)
-                        setFeedback('Draft approved.')
+                        void runDraftAction(() => approveDraft(id), 'Draft approved.')
                       }}
                       onRegenerate={(id) => {
                         if (!selectedContent) return
                         const target = existingDrafts.find((entry) => entry.id === id)
                         if (!target) return
-                        persistDraft({ ...target, draftText: regenerateDraftText(target, selectedContent, variationSeed + 1) })
-                        setVariationSeed((prev) => prev + 1)
-                        setFeedback('Generated a fresh variation for that saved draft.')
+                        void runDraftAction(
+                          () => persistDraft({ ...target, draftText: resetTemplateDraft(target, selectedContent) }),
+                          'Reset and saved the source template.',
+                        )
                       }}
                     />
                   ))}

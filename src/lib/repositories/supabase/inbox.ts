@@ -1,4 +1,4 @@
-import type { InboxItem, InboxNote, Content } from '@/lib/domain/types'
+import type { InboxItem, InboxNote } from '@/lib/domain/types'
 import { createClient } from '@/lib/supabase/client'
 
 export async function listWorkspaceInbox(workspaceId: string): Promise<InboxItem[]> {
@@ -95,7 +95,7 @@ export async function updateInboxItem(
 }
 
 export async function listInboxNotes(
-  workspaceId: string,
+  _workspaceId: string,
   inboxItemId: string
 ): Promise<InboxNote[]> {
   const supabase = createClient()
@@ -117,6 +117,28 @@ export async function listInboxNotes(
     authorId: n.author_id,
     text: n.text,
     createdAt: n.created_at,
+  }))
+}
+
+export async function listWorkspaceInboxNotes(workspaceId: string): Promise<InboxNote[]> {
+  const supabase = createClient()
+  const { data, error } = await supabase
+    .from('inbox_notes')
+    .select('*, inbox_item:inbox_items!inner(workspace_id)')
+    .eq('inbox_item.workspace_id', workspaceId)
+    .order('created_at', { ascending: true })
+
+  if (error) {
+    console.error('Error fetching workspace inbox notes:', error)
+    return []
+  }
+
+  return (data || []).map((note) => ({
+    id: note.id,
+    inboxItemId: note.inbox_item_id,
+    authorId: note.author_id,
+    text: note.text,
+    createdAt: note.created_at,
   }))
 }
 

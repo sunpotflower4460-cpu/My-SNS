@@ -1,54 +1,42 @@
 import type { InboxItem, SocialPlatform } from '@/lib/domain/types'
 import type { SocialConnectorAdapter } from './interfaces'
-import { MOCK_INBOX_ITEMS } from '@/lib/mock/seed'
 
-export class MockSocialConnectorAdapter implements SocialConnectorAdapter {
-  async connect(_platform: SocialPlatform, _authCode: string): Promise<void> {
-    // Phase 2: Wire up OAuth flow per platform
-    throw new Error('connect() not implemented — wire up OAuth in Phase 2')
+function connectorUnavailable(operation: string, platform?: SocialPlatform): never {
+  const target = platform ? ` for ${platform}` : ''
+  throw new Error(`${operation}${target} is unavailable until the reviewed platform connector phase.`)
+}
+
+export class UnavailableSocialConnectorAdapter implements SocialConnectorAdapter {
+  async connect(platform: SocialPlatform): Promise<void> {
+    return connectorUnavailable('OAuth connection', platform)
   }
 
-  async disconnect(_platform: SocialPlatform): Promise<void> {
-    // Phase 2: Revoke tokens and remove social account record
-    throw new Error('disconnect() not implemented — wire up in Phase 2')
+  async disconnect(platform: SocialPlatform): Promise<void> {
+    return connectorUnavailable('OAuth disconnection', platform)
   }
 
-  async refreshToken(_platform: SocialPlatform): Promise<void> {
-    // Phase 2: Use refresh token from Supabase-stored credentials
-    throw new Error('refreshToken() not implemented — wire up in Phase 2')
+  async refreshToken(platform: SocialPlatform): Promise<void> {
+    return connectorUnavailable('Token refresh', platform)
   }
 
-  async publish(_draftId: string): Promise<void> {
-    // Phase 2: Call the platform API with the approved draft text
-    throw new Error('publish() not implemented — wire up platform APIs in Phase 2')
+  async publish(): Promise<void> {
+    return connectorUnavailable('Publishing')
   }
 
-  async fetchInbox(platform: SocialPlatform, workspaceId: string): Promise<InboxItem[]> {
-    await new Promise((resolve) => setTimeout(resolve, 300))
-    return MOCK_INBOX_ITEMS.filter(
-      (item) => item.platform === platform && item.workspaceId === workspaceId,
-    )
+  async fetchInbox(platform: SocialPlatform): Promise<InboxItem[]> {
+    return connectorUnavailable('Inbox sync', platform)
   }
 
-  async fetchComments(platform: SocialPlatform, postId: string): Promise<InboxItem[]> {
-    await new Promise((resolve) => setTimeout(resolve, 300))
-    return MOCK_INBOX_ITEMS.filter(
-      (item) => item.platform === platform && item.contentId === postId && item.kind === 'comment',
-    )
+  async fetchComments(platform: SocialPlatform): Promise<InboxItem[]> {
+    return connectorUnavailable('Comment sync', platform)
   }
 
-  async fetchMentions(platform: SocialPlatform, workspaceId: string): Promise<InboxItem[]> {
-    await new Promise((resolve) => setTimeout(resolve, 300))
-    return MOCK_INBOX_ITEMS.filter(
-      (item) => item.platform === platform && item.workspaceId === workspaceId && item.kind === 'mention',
-    )
+  async fetchMentions(platform: SocialPlatform): Promise<InboxItem[]> {
+    return connectorUnavailable('Mention sync', platform)
   }
 
-  async fetchMessages(platform: SocialPlatform, workspaceId: string): Promise<InboxItem[]> {
-    await new Promise((resolve) => setTimeout(resolve, 300))
-    return MOCK_INBOX_ITEMS.filter(
-      (item) => item.platform === platform && item.workspaceId === workspaceId && item.kind === 'dm',
-    )
+  async fetchMessages(platform: SocialPlatform): Promise<InboxItem[]> {
+    return connectorUnavailable('Message sync', platform)
   }
 
   generateOpenUrl(platform: SocialPlatform, handle: string): string {
@@ -57,7 +45,6 @@ export class MockSocialConnectorAdapter implements SocialConnectorAdapter {
       youtube: `https://youtube.com/@${cleanHandle}`,
       instagram: `https://instagram.com/${cleanHandle}`,
       threads: `https://threads.net/@${cleanHandle}`,
-      // x.com format — legacy twitter.com URLs redirect here automatically
       x: `https://x.com/${cleanHandle}`,
       tiktok: `https://tiktok.com/@${cleanHandle}`,
       facebook: `https://facebook.com/${cleanHandle}`,

@@ -1,8 +1,8 @@
-import { useMockApp } from '@/lib/mock/store/provider'
+import { useApp } from '@/lib/app/app-provider'
 
 export function useCurrentWorkspace() {
   const { currentWorkspace, currentMember, workspaceMemberships, workspaces, setActiveWorkspaceId } =
-    useMockApp()
+    useApp()
 
   return {
     currentWorkspace,

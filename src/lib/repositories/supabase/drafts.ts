@@ -1,4 +1,4 @@
-import type { SocialDraft, SocialPlatform } from '@/lib/domain/types'
+import type { SocialDraft } from '@/lib/domain/types'
 import { createClient } from '@/lib/supabase/client'
 
 export async function listWorkspaceDrafts(workspaceId: string): Promise<SocialDraft[]> {

@@ -83,6 +83,7 @@ export interface Asset {
   contentId?: string
   name: string
   url: string
+  storagePath?: string
   type: AssetType
   size: number
   uploadedBy: string

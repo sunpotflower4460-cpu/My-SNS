@@ -5,7 +5,7 @@ import PageHeader from '@/components/ui/PageHeader'
 import PermissionGate from '@/components/ui/PermissionGate'
 import RoleBadge from '@/components/ui/RoleBadge'
 import { useCurrentUser } from '@/hooks/useCurrentUser'
-import { useMockApp } from '@/lib/app/app-provider'
+import { useApp } from '@/lib/app/app-provider'
 import type { SocialPlatform } from '@/lib/domain/types'
 
 const PLATFORM_ICONS: Record<SocialPlatform, string> = {
@@ -18,7 +18,7 @@ const PLATFORM_ICONS: Record<SocialPlatform, string> = {
 }
 
 export default function SettingsPage() {
-  const { currentMember, currentWorkspace, saveWorkspaceSettings, socialAccounts } = useMockApp()
+  const { currentMember, currentWorkspace, saveWorkspaceSettings, socialAccounts } = useApp()
   const { currentUser } = useCurrentUser()
   const [workspaceName, setWorkspaceName] = useState(currentWorkspace?.name ?? '')
   const [workspaceSlug, setWorkspaceSlug] = useState(currentWorkspace?.slug ?? '')
@@ -44,7 +44,7 @@ export default function SettingsPage() {
 
   return (
     <div>
-      <PageHeader title="Settings" description="Manage workspace identity and review connected channels in the active mock workspace." />
+      <PageHeader title="Settings" description="Manage workspace identity and review connected channels in the active workspace." />
 
       <div className="max-w-4xl space-y-6">
         <div className="rounded-[2rem] border border-stone-200 bg-white p-6 shadow-sm shadow-stone-100/80">
@@ -101,7 +101,7 @@ export default function SettingsPage() {
         <div className="rounded-[2rem] border border-stone-200 bg-white p-6 shadow-sm shadow-stone-100/80">
           <h2 className="mb-2 text-base font-semibold text-gray-900">Current scope</h2>
           <p className="text-sm leading-6 text-gray-500">
-            This prototype keeps settings, memberships, content, queue updates, and inbox interactions in local mock persistence. Branding uploads, OAuth, and destructive workspace actions stay deferred to Phase 2.
+            Settings, memberships, content, queue updates, inbox interactions, and private asset metadata are stored in Supabase. Social OAuth and destructive workspace actions remain disabled until their reviewed implementation phases.
           </p>
         </div>
       </div>

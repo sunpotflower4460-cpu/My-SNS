@@ -4,7 +4,7 @@ import { useMemo, useState } from 'react'
 import PageHeader from '@/components/ui/PageHeader'
 import InboxItemCard from '@/components/ui/InboxItemCard'
 import EmptyState from '@/components/ui/EmptyState'
-import { useMockApp } from '@/lib/app/app-provider'
+import { useApp } from '@/lib/app/app-provider'
 import type { InboxItem, InboxKind } from '@/lib/domain/types'
 
 type FilterTab = 'all' | InboxKind | 'unread' | 'needs_action' | 'starred'
@@ -36,7 +36,7 @@ function filterItems(items: InboxItem[], tab: FilterTab): InboxItem[] {
 }
 
 export default function InboxPage() {
-  const { addInboxNote, contents, getInboxNotes, inboxItems, toggleInboxNeedsAction, toggleInboxRead, toggleInboxStar } = useMockApp()
+  const { addInboxNote, contents, getInboxNotes, inboxItems, toggleInboxNeedsAction, toggleInboxRead, toggleInboxStar } = useApp()
   const [activeTab, setActiveTab] = useState<FilterTab>('all')
   const [draftNotes, setDraftNotes] = useState<Record<string, string>>({})
   const [feedback, setFeedback] = useState('')
@@ -93,7 +93,7 @@ export default function InboxPage() {
                   if (!draftNotes[item.id]?.trim()) return
                   await addInboxNote(item.id, draftNotes[item.id])
                   setDraftNotes((prev) => ({ ...prev, [item.id]: '' }))
-                  setFeedback('Internal note saved to local workspace state.')
+                  setFeedback('Internal note saved to this workspace.')
                 }}
                 onToggleRead={async () => {
                   await toggleInboxRead(item.id)

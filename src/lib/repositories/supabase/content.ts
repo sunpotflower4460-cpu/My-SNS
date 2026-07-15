@@ -1,6 +1,50 @@
 import type { Content, ContentStatus, ContentType, Asset } from '@/lib/domain/types'
 import { createClient } from '@/lib/supabase/client'
 
+interface AssetRow {
+  id: string
+  workspace_id: string
+  content_id?: string
+  name: string
+  url: string
+  storage_path?: string | null
+  type: Asset['type']
+  size: number
+  uploaded_by: string
+  created_at: string
+}
+
+async function resolveAssetUrls(rows: AssetRow[]): Promise<Asset[]> {
+  const storagePaths = rows.flatMap((row) => row.storage_path ? [row.storage_path] : [])
+  const signedUrlByPath = new Map<string, string>()
+
+  if (storagePaths.length > 0) {
+    const supabase = createClient()
+    const { data, error } = await supabase.storage.from('assets').createSignedUrls(storagePaths, 60 * 60)
+
+    if (error) {
+      console.error('Error creating signed asset URLs:', error)
+    } else {
+      for (const entry of data ?? []) {
+        if (entry.path && entry.signedUrl) signedUrlByPath.set(entry.path, entry.signedUrl)
+      }
+    }
+  }
+
+  return rows.map((asset) => ({
+    id: asset.id,
+    workspaceId: asset.workspace_id,
+    contentId: asset.content_id,
+    name: asset.name,
+    url: asset.storage_path ? signedUrlByPath.get(asset.storage_path) ?? '' : asset.url,
+    storagePath: asset.storage_path ?? undefined,
+    type: asset.type,
+    size: asset.size,
+    uploadedBy: asset.uploaded_by,
+    createdAt: asset.created_at,
+  }))
+}
+
 export async function listWorkspaceContent(workspaceId: string): Promise<Content[]> {
   const supabase = createClient()
 
@@ -208,15 +252,21 @@ export async function listContentAssets(workspaceId: string, contentId: string):
     return []
   }
 
-  return (data || []).map((a) => ({
-    id: a.id,
-    workspaceId: a.workspace_id,
-    contentId: a.content_id,
-    name: a.name,
-    url: a.url,
-    type: a.type,
-    size: a.size,
-    uploadedBy: a.uploaded_by,
-    createdAt: a.created_at,
-  }))
+  return resolveAssetUrls((data || []) as AssetRow[])
+}
+
+export async function listWorkspaceAssets(workspaceId: string): Promise<Asset[]> {
+  const supabase = createClient()
+  const { data, error } = await supabase
+    .from('assets')
+    .select('*')
+    .eq('workspace_id', workspaceId)
+    .order('created_at', { ascending: true })
+
+  if (error) {
+    console.error('Error fetching workspace assets:', error)
+    return []
+  }
+
+  return resolveAssetUrls((data || []) as AssetRow[])
 }

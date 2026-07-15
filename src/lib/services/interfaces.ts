@@ -1,7 +1,7 @@
 import type { Content, SocialDraft, SocialPlatform, InboxItem } from '@/lib/domain/types'
 
-// ─── AI Draft Generator ───────────────────────────────────────────────────────
-export interface AiDraftGeneratorService {
+// ─── Draft Generator ──────────────────────────────────────────────────────────
+export interface DraftGeneratorService {
   generateDrafts(
     content: Content,
     platforms: SocialPlatform[],
@@ -10,7 +10,6 @@ export interface AiDraftGeneratorService {
     context?: {
       workspaceName?: string
       createdBy?: string
-      variationSeed?: number
     },
   ): Promise<SocialDraft[]>
 }

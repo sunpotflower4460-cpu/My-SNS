@@ -71,7 +71,7 @@ export default function DraftEditorCard({ draft, onEdit, onApprove, onRegenerate
             onClick={() => onRegenerate(draft.id)}
             className="rounded-xl border border-stone-200 px-3 py-1.5 text-xs text-gray-500 hover:bg-stone-50"
           >
-            Regenerate
+            Reset template
           </button>
         )}
         <span className="ml-auto text-xs text-gray-400">{text.length} chars</span>

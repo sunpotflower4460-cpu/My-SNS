@@ -5,7 +5,7 @@ import PageHeader from '@/components/ui/PageHeader'
 import PlatformBadge from '@/components/ui/PlatformBadge'
 import StatusBadge from '@/components/ui/StatusBadge'
 import EmptyState from '@/components/ui/EmptyState'
-import { useMockApp } from '@/lib/app/app-provider'
+import { useApp } from '@/lib/app/app-provider'
 import type { PublishJobStatus } from '@/lib/domain/types'
 
 const STATUS_FILTERS: Array<{ label: string; value: PublishJobStatus | 'all' }> = [
@@ -18,10 +18,11 @@ const STATUS_FILTERS: Array<{ label: string; value: PublishJobStatus | 'all' }> 
 ]
 
 export default function QueuePage() {
-  const { cancelQueueJob, contents, publishJobs, retryQueueJob } = useMockApp()
+  const { cancelQueueJob, contents, publishJobs, retryQueueJob } = useApp()
   const [activeStatus, setActiveStatus] = useState<PublishJobStatus | 'all'>('all')
   const [feedback, setFeedback] = useState('')
   const [error, setError] = useState('')
+  const [busyJobId, setBusyJobId] = useState<string | null>(null)
 
   const filtered = useMemo(
     () => publishJobs.filter((job) => activeStatus === 'all' || job.status === activeStatus).sort((left, right) => new Date(right.createdAt).getTime() - new Date(left.createdAt).getTime()),
@@ -30,9 +31,37 @@ export default function QueuePage() {
 
   const getContentTitle = (contentId: string) => contents.find((content) => content.id === contentId)?.title ?? contentId
 
+  const handleRetry = async (jobId: string) => {
+    setBusyJobId(jobId)
+    try {
+      await retryQueueJob(jobId)
+      setFeedback('Queue item moved back to scheduled.')
+      setError('')
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'Unable to retry queue item.')
+      setFeedback('')
+    } finally {
+      setBusyJobId(null)
+    }
+  }
+
+  const handleCancel = async (jobId: string) => {
+    setBusyJobId(jobId)
+    try {
+      await cancelQueueJob(jobId)
+      setFeedback('Queue item cancelled.')
+      setError('')
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'Unable to cancel queue item.')
+      setFeedback('')
+    } finally {
+      setBusyJobId(null)
+    }
+  }
+
   return (
     <div>
-      <PageHeader title="Publish Queue" description="Track and nudge scheduled, failed, and draft publish jobs in mock state." />
+      <PageHeader title="Publish Queue" description="Track scheduled, failed, and draft publish jobs in this workspace." />
 
       {(feedback || error) && (
         <div className={`mb-5 rounded-2xl px-4 py-3 text-sm ${error ? 'border border-red-200 bg-red-50 text-red-700' : 'border border-green-200 bg-green-50 text-green-700'}`}>
@@ -79,34 +108,18 @@ export default function QueuePage() {
                 <div className="flex flex-wrap items-center gap-2 lg:justify-end">
                   {job.status === 'failed' && (
                     <button
-                      onClick={() => {
-                        try {
-                          retryQueueJob(job.id)
-                          setFeedback('Queue item moved back to scheduled.')
-                          setError('')
-                        } catch (cause) {
-                          setError(cause instanceof Error ? cause.message : 'Unable to retry queue item.')
-                          setFeedback('')
-                        }
-                      }}
-                      className="rounded-2xl border border-violet-200 px-3 py-2 text-xs font-medium text-violet-700 transition hover:bg-violet-50"
+                      onClick={() => handleRetry(job.id)}
+                      disabled={busyJobId === job.id}
+                      className="rounded-2xl border border-violet-200 px-3 py-2 text-xs font-medium text-violet-700 transition hover:bg-violet-50 disabled:cursor-wait disabled:opacity-50"
                     >
                       Retry
                     </button>
                   )}
                   {(job.status === 'scheduled' || job.status === 'draft' || job.status === 'failed') && (
                     <button
-                      onClick={() => {
-                        try {
-                          cancelQueueJob(job.id)
-                          setFeedback('Queue item cancelled.')
-                          setError('')
-                        } catch (cause) {
-                          setError(cause instanceof Error ? cause.message : 'Unable to cancel queue item.')
-                          setFeedback('')
-                        }
-                      }}
-                      className="rounded-2xl border border-stone-200 px-3 py-2 text-xs font-medium text-gray-600 transition hover:bg-stone-50 hover:text-red-600"
+                      onClick={() => handleCancel(job.id)}
+                      disabled={busyJobId === job.id}
+                      className="rounded-2xl border border-stone-200 px-3 py-2 text-xs font-medium text-gray-600 transition hover:bg-stone-50 hover:text-red-600 disabled:cursor-wait disabled:opacity-50"
                     >
                       Cancel
                     </button>

@@ -6,7 +6,7 @@ import { useRouter } from 'next/navigation'
 import PageHeader from '@/components/ui/PageHeader'
 import ContentCard from '@/components/ui/ContentCard'
 import EmptyState from '@/components/ui/EmptyState'
-import { useMockApp } from '@/lib/app/app-provider'
+import { useApp } from '@/lib/app/app-provider'
 import type { ContentType } from '@/lib/domain/types'
 
 const TYPE_FILTERS: Array<{ label: string; value: ContentType | 'all' }> = [
@@ -20,7 +20,7 @@ const TYPE_FILTERS: Array<{ label: string; value: ContentType | 'all' }> = [
 
 export default function ContentPage() {
   const router = useRouter()
-  const { contents, currentWorkspace } = useMockApp()
+  const { contents, currentWorkspace } = useApp()
   const [activeType, setActiveType] = useState<ContentType | 'all'>('all')
   const [search, setSearch] = useState('')
   const filterCounts = useMemo(
