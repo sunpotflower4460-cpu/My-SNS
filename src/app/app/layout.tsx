@@ -4,13 +4,13 @@ import { useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import AppShell from '@/components/layout/AppShell'
 import EmptyState from '@/components/ui/EmptyState'
-import { useMockApp } from '@/lib/app/app-provider'
+import { useApp } from '@/lib/app/app-provider'
 import { useAuth } from '@/lib/auth/auth-provider'
 
 export default function AppLayout({ children }: { children: React.ReactNode }) {
   const router = useRouter()
   const { user: currentUser, isAuthenticated, isReady: sessionReady, signOut } = useAuth()
-  const { currentWorkspace, currentMember, isReady: appReady } = useMockApp()
+  const { currentWorkspace, currentMember, isReady: appReady } = useApp()
 
   useEffect(() => {
     if (sessionReady && !isAuthenticated) {
@@ -38,7 +38,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
         <div className="w-full max-w-xl">
           <EmptyState
             title="No workspace available"
-            description="This mock account does not have an active workspace yet, or the stored workspace is stale."
+            description="This account does not have an active workspace yet, or the saved workspace is no longer available."
             action={
               <button
                 onClick={() => {

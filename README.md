@@ -2,7 +2,7 @@
 
 A calm, workspace-centric creator home hub for content planning, draft generation, inbox triage, queue management, and lightweight team collaboration.
 
-## Phase 2A Complete ✅
+## Phase 2A + PR0 foundation ✅
 
 The app is now backed by **real Supabase infrastructure** while preserving the existing UI and architecture.
 
@@ -11,7 +11,7 @@ The app is now backed by **real Supabase infrastructure** while preserving the e
 - **Real Supabase Auth** with magic link email authentication
 - **Protected `/app/*` routes** requiring authenticated session
 - **Real Postgres database** with all workspace, content, team, inbox, and queue data persisted
-- **Supabase Storage** for asset uploads
+- **Private Supabase Storage** for workspace-scoped asset uploads and short-lived previews
 - **Multi-workspace** switching with real membership data
 - **Row-level security (RLS)** policies protecting all workspace data
 - **Dashboard, content library, content detail, draft studio, queue, inbox, team, and settings flows** with real persistence
@@ -58,10 +58,8 @@ SUPABASE_SECRET_KEY=your-service-role-key-here
      - `supabase/migrations/20260421000000_initial_schema.sql`
      - `supabase/migrations/20260421000001_rls_policies.sql`
      - `supabase/migrations/20260421000002_triggers.sql`
-3. **Create a storage bucket** named `assets` in Supabase Storage:
-   - Go to Storage section
-   - Create a public bucket named `assets`
-   - Enable RLS on the bucket
+     - `supabase/migrations/20260715000000_private_asset_storage.sql`
+3. The final migration creates or converts the `assets` bucket to private and installs workspace-scoped Storage policies.
 4. **Copy your project credentials** to `.env.local`
 
 ## Local development
@@ -104,7 +102,7 @@ src/
     storage/supabase/          Supabase Storage adapter
     supabase/                  Supabase client setup
     domain/                    Shared domain types
-    services/                  AI draft + social connector seams (still mock)
+    services/                  Deterministic draft templates + disabled connector seams
 ```
 
 ## Database schema
@@ -141,6 +139,10 @@ npm run dev
 # Linting
 npm run lint
 
+# Type and unit checks
+npm run typecheck
+npm test
+
 # Production build
 npm run build
 npm run start
@@ -157,7 +159,7 @@ npm run start
 ### After (Phase 2A)
 - **Supabase Auth** with magic link email authentication
 - **Supabase Postgres** with full schema and RLS policies
-- **Supabase Storage** for real file uploads
+- **Private Supabase Storage** for real, workspace-scoped file uploads
 - **Real repositories** backed by database queries
 - **Session managed** via Supabase Auth cookies
 - **Audit logging** persisted to database
@@ -192,7 +194,7 @@ Future phases will add:
 ## Known limitations
 
 - Social connectors are placeholder (no real OAuth or posting yet)
-- Draft generation is still mock (no real AI yet)
+- Draft generation is a clearly labeled deterministic template preview (no AI provider yet)
 - Inbox syncing is internal only (no external platform messages yet)
 - Publishing is queued but not executed by background workers yet
 
@@ -203,6 +205,8 @@ Future phases will add:
 - Workspace members can only access their own workspace data
 - Write operations respect role-based permissions
 - Asset uploads are scoped to workspace storage paths
+- The `assets` bucket is private; UI previews use one-hour signed URLs
+- Security-definer database helpers use a pinned search path
 
 ## Support
 

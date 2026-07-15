@@ -108,7 +108,8 @@ Managed by Supabase Auth. Extended with a `profiles` table.
 | workspace_id | uuid | FK → workspaces.id |
 | content_id | uuid | Optional FK → contents.id |
 | name | text | |
-| url | text | Supabase Storage URL |
+| url | text | Legacy URL fallback; new private assets store an empty value |
+| storage_path | text | Private `assets` bucket object path |
 | type | text | image/video/audio/document |
 | size | bigint | Bytes |
 | uploaded_by | uuid | FK → users.id |

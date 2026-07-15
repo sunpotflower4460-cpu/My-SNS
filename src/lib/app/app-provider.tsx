@@ -25,13 +25,7 @@ import * as inboxRepo from '@/lib/repositories/supabase/inbox'
 import * as queueRepo from '@/lib/repositories/supabase/queue'
 import * as auditRepo from '@/lib/repositories/supabase/audit'
 import { SupabaseAssetStorage } from '@/lib/storage/supabase/supabase-asset-storage'
-
-interface AssetInput {
-  name: string
-  size: number
-  type: Asset['type']
-  url?: string
-}
+import type { AssetUploadInput } from '@/lib/storage/interfaces'
 
 interface AppContextValue {
   isReady: boolean
@@ -55,7 +49,7 @@ interface AppContextValue {
     type: ContentType
     status: ContentStatus
     tags: string[] | string
-    assets?: AssetInput[]
+    assets?: AssetUploadInput[]
   }) => Promise<Content>
   updateContentItem: (
     contentId: string,
@@ -88,7 +82,7 @@ interface AppContextValue {
 const AppContext = createContext<AppContextValue | null>(null)
 
 export function AppProvider({ children }: { children: React.ReactNode }) {
-  const { user: currentUser, currentUserId, isReady: authReady } = useAuth()
+  const { currentUserId, isReady: authReady } = useAuth()
 
   const [activeWorkspaceId, setActiveWorkspaceId] = useState<string | null>(null)
   const [workspaces, setWorkspaces] = useState<Workspace[]>([])
@@ -98,8 +92,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const [invitations, setInvitations] = useState<Invitation[]>([])
   const [socialAccounts, setSocialAccounts] = useState<SocialAccount[]>([])
   const [contents, setContents] = useState<Content[]>([])
+  const [workspaceAssets, setWorkspaceAssets] = useState<Asset[]>([])
   const [publishJobs, setPublishJobs] = useState<PublishJob[]>([])
   const [inboxItems, setInboxItems] = useState<InboxItem[]>([])
+  const [inboxNotes, setInboxNotes] = useState<InboxNote[]>([])
   const [auditLogs, setAuditLogs] = useState<AuditLog[]>([])
   const [drafts, setDrafts] = useState<SocialDraft[]>([])
   const [isReady, setIsReady] = useState(false)
@@ -144,8 +140,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         invitationsList,
         socialAccountsList,
         contentsList,
+        assetsList,
         publishJobsList,
         inboxItemsList,
+        inboxNotesList,
         auditLogsList,
         draftsList,
       ] = await Promise.all([
@@ -155,9 +153,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         workspacesRepo.listWorkspaceInvitations(activeWorkspaceId),
         workspacesRepo.listWorkspaceSocialAccounts(activeWorkspaceId),
         contentRepo.listWorkspaceContent(activeWorkspaceId),
+        contentRepo.listWorkspaceAssets(activeWorkspaceId),
         queueRepo.listWorkspacePublishJobs(activeWorkspaceId),
         inboxRepo.listWorkspaceInbox(activeWorkspaceId),
-        auditRepo.listWorkspaceAuditLogs(activeWorkspaceId, 12),
+        inboxRepo.listWorkspaceInboxNotes(activeWorkspaceId),
+        auditRepo.listWorkspaceAuditLogs(activeWorkspaceId, 100),
         draftsRepo.listWorkspaceDrafts(activeWorkspaceId),
       ])
 
@@ -167,8 +167,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       setInvitations(invitationsList)
       setSocialAccounts(socialAccountsList)
       setContents(contentsList)
+      setWorkspaceAssets(assetsList)
       setPublishJobs(publishJobsList)
       setInboxItems(inboxItemsList)
+      setInboxNotes(inboxNotesList)
       setAuditLogs(auditLogsList)
       setDrafts(draftsList)
     } catch (error) {
@@ -222,7 +224,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         const content = await contentRepo.createContent({
           workspaceId: currentWorkspace.id,
           authorId: currentUserId,
-          ...input,
+          title: input.title,
+          body: input.body,
+          type: input.type,
+          status: input.status,
+          tags: input.tags,
         })
 
         await auditRepo.appendAuditLog({
@@ -234,19 +240,18 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           metadata: { title: content.title, status: content.status },
         })
 
-        // Handle assets if provided
         if (input.assets && input.assets.length > 0) {
-          for (const asset of input.assets) {
+          const preparedAssets = await assetStorage.prepareFiles(input.assets, {
+            workspaceId: currentWorkspace.id,
+            contentId: content.id,
+          })
+
+          for (const preparedAsset of preparedAssets) {
             await assetStorage.saveAssetMetadata({
               workspaceId: currentWorkspace.id,
               contentId: content.id,
               uploadedBy: currentUserId,
-              preparedAsset: {
-                name: asset.name,
-                size: asset.size,
-                type: asset.type,
-                url: asset.url,
-              },
+              preparedAsset,
             })
           }
         }
@@ -279,11 +284,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         }
 
         const content = contents.find((c) => c.id === contentId) || null
-        const assets: Asset[] = [] // Would need to fetch separately
+        const assets = workspaceAssets.filter((asset) => asset.contentId === contentId)
         const contentDrafts = drafts.filter((d) => d.contentId === contentId)
         const jobs = publishJobs.filter((j) => j.contentId === contentId)
         const relatedInbox = inboxItems.filter((item) => item.contentId === contentId)
-        const logs: AuditLog[] = [] // Would need to fetch separately
+        const logs = auditLogs.filter((log) => log.targetId === contentId).slice(0, 10)
 
         return {
           content,
@@ -469,8 +474,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       },
 
       getInboxNotes: (inboxItemId) => {
-        // Would need to fetch separately or cache
-        return []
+        return inboxNotes.filter((note) => note.inboxItemId === inboxItemId)
       },
 
       retryQueueJob: async (jobId) => {
@@ -566,8 +570,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     invitations,
     socialAccounts,
     contents,
+    workspaceAssets,
     publishJobs,
     inboxItems,
+    inboxNotes,
     auditLogs,
     drafts,
     currentUserId,
@@ -584,6 +590,3 @@ export function useApp() {
   }
   return context
 }
-
-// Export with same name as mock for compatibility
-export { AppProvider as MockAppProvider, useApp as useMockApp }

@@ -6,10 +6,10 @@ import StatCard from '@/components/ui/StatCard'
 import ContentCard from '@/components/ui/ContentCard'
 import EmptyState from '@/components/ui/EmptyState'
 import { describeAuditLog, getAuditLogMeta } from '@/lib/audit/presenter'
-import { useMockApp } from '@/lib/app/app-provider'
+import { useApp } from '@/lib/app/app-provider'
 
 export default function DashboardPage() {
-  const { auditLogs, contents, currentWorkspace, inboxItems, publishJobs } = useMockApp()
+  const { auditLogs, contents, currentWorkspace, inboxItems, publishJobs } = useApp()
 
   const draftCount = contents.filter((content) => content.status === 'draft').length
   const readyCount = contents.filter((content) => content.status === 'ready').length

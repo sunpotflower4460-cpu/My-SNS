@@ -6,11 +6,11 @@ import EmptyState from '@/components/ui/EmptyState'
 import RoleBadge from '@/components/ui/RoleBadge'
 import StatusBadge from '@/components/ui/StatusBadge'
 import PermissionGate from '@/components/ui/PermissionGate'
-import { useMockApp } from '@/lib/app/app-provider'
+import { useApp } from '@/lib/app/app-provider'
 import type { WorkspaceRole } from '@/lib/domain/types'
 
 export default function TeamPage() {
-  const { changeMemberRole, currentMember, currentWorkspace, inviteMember, invitations, members, removeMember } = useMockApp()
+  const { changeMemberRole, currentMember, currentWorkspace, inviteMember, invitations, members, removeMember } = useApp()
   const [inviteEmail, setInviteEmail] = useState('')
   const [inviteRole, setInviteRole] = useState<WorkspaceRole>('viewer')
   const [feedback, setFeedback] = useState('')
@@ -41,11 +41,16 @@ export default function TeamPage() {
       return
     }
 
-    await inviteMember(normalizedEmail, inviteRole)
-    setInviteEmail('')
-    setInviteRole('viewer')
-    setError('')
-    setFeedback('Invitation added to local mock state.')
+    try {
+      await inviteMember(normalizedEmail, inviteRole)
+      setInviteEmail('')
+      setInviteRole('viewer')
+      setError('')
+      setFeedback('Invitation saved to this workspace.')
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'Unable to create the invitation.')
+      setFeedback('')
+    }
   }
 
   const handleRoleChange = async (userId: string, role: WorkspaceRole) => {
@@ -72,7 +77,7 @@ export default function TeamPage() {
 
   return (
     <div>
-      <PageHeader title="Team" description="Manage workspace members, invitations, and role changes with local persistence." />
+      <PageHeader title="Team" description="Manage workspace members, invitations, and role changes." />
 
       {(feedback || error) && (
         <div className={`mb-5 rounded-2xl px-4 py-3 text-sm ${error ? 'border border-red-200 bg-red-50 text-red-700' : 'border border-green-200 bg-green-50 text-green-700'}`}>
@@ -144,7 +149,7 @@ export default function TeamPage() {
         >
           <div className="rounded-[2rem] border border-stone-200 bg-white p-6 shadow-sm shadow-stone-100/80">
             <h2 className="mb-4 text-base font-semibold text-gray-900">Invite teammate</h2>
-            <p className="mb-4 text-sm leading-6 text-gray-500">New invites stay pending in local workspace state until real auth and invitations land in Phase 2.</p>
+            <p className="mb-4 text-sm leading-6 text-gray-500">Invitation records stay pending until the reviewed email and acceptance workflow is added.</p>
             <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_180px_auto]">
               <input
                 type="email"

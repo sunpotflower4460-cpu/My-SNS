@@ -8,13 +8,13 @@ import EmptyState from '@/components/ui/EmptyState'
 import PlatformBadge from '@/components/ui/PlatformBadge'
 import StatusBadge from '@/components/ui/StatusBadge'
 import { describeAuditLog, getAuditLogMeta } from '@/lib/audit/presenter'
-import { formatBytes, normalizeTags } from '@/lib/mock/repositories/helpers'
-import { useMockApp } from '@/lib/app/app-provider'
+import { formatBytes, normalizeTags } from '@/lib/content/utils'
+import { useApp } from '@/lib/app/app-provider'
 import type { ContentStatus } from '@/lib/domain/types'
 
 export default function ContentDetailPage() {
   const params = useParams<{ id: string }>()
-  const { currentWorkspace, getContentDetail, updateContentItem } = useMockApp()
+  const { currentWorkspace, getContentDetail, updateContentItem } = useApp()
   const detail = getContentDetail(params.id)
   const [title, setTitle] = useState('')
   const [body, setBody] = useState('')
@@ -58,7 +58,7 @@ export default function ContentDetailPage() {
         status,
         tags: normalizedTags,
       })
-      setFeedback('Content details saved locally for this workspace.')
+      setFeedback('Content details saved to this workspace.')
       setError('')
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'Unable to save content.')
@@ -90,7 +90,7 @@ export default function ContentDetailPage() {
           <div className="rounded-[2rem] border border-stone-200 bg-white p-6 shadow-sm shadow-stone-100/80">
             <div className="mb-4 flex items-center justify-between gap-3">
               <h2 className="text-sm font-semibold uppercase tracking-[0.2em] text-gray-400">Overview</h2>
-              <p className="text-xs text-gray-500">Draft and ready states stay editable in local mock state.</p>
+              <p className="text-xs text-gray-500">Draft and ready states stay editable until they are approved for publishing.</p>
             </div>
             <div className="grid gap-4">
               <div>
@@ -168,6 +168,11 @@ export default function ContentDetailPage() {
                       <p className="truncate text-sm font-medium text-gray-900">{asset.name}</p>
                       <p className="text-xs text-gray-500">{asset.type} · {formatBytes(asset.size)}</p>
                     </div>
+                    {asset.url && (
+                      <a href={asset.url} target="_blank" rel="noreferrer" className="text-xs font-medium text-violet-700 hover:text-violet-900">
+                        Open
+                      </a>
+                    )}
                   </div>
                 ))}
               </div>

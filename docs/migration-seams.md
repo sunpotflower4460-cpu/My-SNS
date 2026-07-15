@@ -1,61 +1,27 @@
-# Migration seams
+# Remaining migration seams
 
-## Auth provider boundary
+PR0 closes the prototype seams for auth, application persistence, asset upload, content detail assets, inbox notes, and audit detail.
 
-- Current seam:
-  - `src/hooks/useCurrentUser.ts`
-  - `src/lib/session/interfaces.ts`
-  - `src/lib/session/mock-session.tsx`
-- Phase 2 direction:
-  - keep the hook surface
-  - replace the mock provider internals with Supabase session and profile loading
+## Draft generation
 
-## Data repository boundary
+- Current: deterministic templates in `src/lib/services/ai-draft.ts`
+- Behavior: clearly labeled as templates; no invented AI or viral claims
+- Next: PR2 adds a reviewed provider with structured output, proposal cards, and explicit approval
 
-- Current seam:
-  - `src/lib/mock/store/provider.tsx` is the application façade
-  - `src/lib/mock/repositories/*` contain data access and mutation rules
-  - page files do not import raw seed data
-- Phase 2 direction:
-  - replace each mock repository with Supabase-backed implementations
-  - keep workspace-aware method signatures
+## Social connectors
 
-## Storage boundary
+- Current: `UnavailableSocialConnectorAdapter` fails closed
+- Next: platform-specific OAuth, encrypted credentials, account capability checks, and publish adapters
 
-- Current seam:
-  - `src/lib/storage/interfaces.ts`
-  - `src/lib/storage/mock-asset-storage.ts`
-  - `src/app/app/content/new/page.tsx`
-- Current behavior:
-  - prepares lightweight asset metadata and optional image previews locally
-- Phase 2 direction:
-  - upload files to Supabase Storage
-  - save returned object paths in the `assets` table
+## Publishing
 
-## Connector boundary
+- Current: queue records can be listed, retried, and cancelled
+- Next: immutable approved revisions, idempotent attempts, scheduler, worker, and external post IDs
 
-- Current seam:
-  - `src/lib/services/interfaces.ts`
-  - `src/lib/services/social-connector.ts`
-- Phase 2 direction:
-  - add real per-platform OAuth/token handling
-  - map publish and inbox sync calls to connector implementations
+## Manual actions intentionally postponed
 
-## Local persistence boundary
+- Provider developer-account creation and OAuth consent
+- YouTube and TikTok audit submissions
+- Existing Supabase project migration/deployment approval
 
-- Current seam:
-  - `src/lib/mock/store/persistence.ts`
-  - `src/lib/session/persistence.ts`
-- Current behavior:
-  - keeps prototype edits and session selections in browser `localStorage`
-  - safely falls back when stored state is stale or malformed
-- Phase 2 direction:
-  - remove prototype persistence once real auth and database persistence are live
-  - keep domain logic and page behavior unchanged where possible
-
-## Open priorities
-
-1. Real auth
-2. Database persistence
-3. Real asset storage
-4. First social connector
+These actions are needed only when the corresponding implementation is ready for an end-to-end account test.

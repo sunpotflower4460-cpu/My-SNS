@@ -1,6 +1,6 @@
 # Phase 2 plan
 
-## Phase 2A Status: ✅ COMPLETE
+## Phase 2A + PR0 Status: ✅ COMPLETE
 
 All Phase 2A objectives have been successfully implemented.
 
@@ -70,9 +70,9 @@ Replace prototype-only auth, persistence, and integrations with real Supabase-ba
 - `README.md` - Updated documentation
 - `package.json` - Added Supabase dependencies
 
-## What still uses mocks
-- AI draft generation (no real LLM provider yet)
-- Social platform connectors (OAuth and posting)
+## Intentionally deferred adapters
+- Draft Studio uses deterministic, clearly labeled templates until the reviewed LLM integration
+- Social platform connectors fail closed until OAuth and posting are implemented
 - Background publishing workers
 - Webhook ingestion
 
@@ -130,7 +130,7 @@ Future phases will implement:
 ## Key architectural decisions
 
 1. **Async app provider** - App provider methods are now async, reflecting database queries
-2. **Maintained hook interface** - `useMockApp()` and related hooks maintain same signatures for compatibility
+2. **Truthful hook interface** - Runtime pages use the Supabase-backed `useApp()` hook
 3. **Repository pattern** - Clean separation between app logic and database queries
 4. **RLS first** - Security enforced at database level, not application level
 5. **Storage abstraction** - Asset storage behind clean interface for future flexibility
@@ -141,7 +141,8 @@ Future phases will implement:
 - ✅ `/app/*` requires real session
 - ✅ Real DB schema/migrations exist
 - ✅ Workspace/member/content flows use real persistence
-- ✅ Asset upload uses Supabase Storage
+- ✅ Asset upload uses private, workspace-scoped Supabase Storage
+- ✅ Lint, typecheck, unit tests, build, and GitHub Actions verification exist
 - ✅ Repository boundaries remain clean
 - ✅ Inbox/drafts/audit are DB-backed
 - ✅ UI still feels coherent
@@ -151,7 +152,7 @@ Future phases will implement:
 ## Known limitations after Phase 2A
 
 - **No real social posting** - Social connector implementations are still placeholder
-- **No real AI generation** - Draft generation uses mock responses
+- **No real AI generation** - Draft Studio uses deterministic templates and labels them as such
 - **No external inbox** - Inbox items are internal only, no platform syncing
 - **No background jobs** - Publishing jobs are queued but not executed by workers
 - **No invitation emails** - Invitation records created but emails not sent

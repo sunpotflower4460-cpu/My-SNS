@@ -1,68 +1,50 @@
-import type { AssetStorageAdapter, AssetUploadInput, PreparedAssetUpload } from '../interfaces'
+import type { AssetStorageAdapter, AssetUploadContext, AssetUploadInput, PreparedAssetUpload } from '../interfaces'
 import { createClient } from '@/lib/supabase/client'
 import type { Asset } from '@/lib/domain/types'
+import { inferAssetType } from '@/lib/content/utils'
+import { buildAssetStoragePath } from '@/lib/storage/asset-path'
 
 export class SupabaseAssetStorage implements AssetStorageAdapter {
   private supabase = createClient()
   private bucketName = 'assets'
 
-  async prepareFiles(inputs: AssetUploadInput[]): Promise<PreparedAssetUpload[]> {
+  async prepareFiles(inputs: AssetUploadInput[], context: AssetUploadContext): Promise<PreparedAssetUpload[]> {
     const prepared: PreparedAssetUpload[] = []
 
     for (const input of inputs) {
-      try {
-        const file = input.file
-        const fileExt = file.name.split('.').pop() || ''
-        const fileName = `${Date.now()}-${Math.random().toString(36).substring(7)}.${fileExt}`
-        const filePath = fileName
+      const file = input.file
+      const assetType = inferAssetType(file.name, file.type)
+      const filePath = buildAssetStoragePath({
+        workspaceId: context.workspaceId,
+        contentId: context.contentId,
+        assetId: crypto.randomUUID(),
+        fileName: file.name,
+      })
 
-        // Determine asset type
-        let assetType: 'image' | 'video' | 'audio' | 'document' = 'document'
-        if (file.type.startsWith('image/')) {
-          assetType = 'image'
-        } else if (file.type.startsWith('video/')) {
-          assetType = 'video'
-        } else if (file.type.startsWith('audio/')) {
-          assetType = 'audio'
-        }
-
-        // Upload to Supabase Storage
-        const { data, error } = await this.supabase.storage
-          .from(this.bucketName)
-          .upload(filePath, file, {
-            cacheControl: '3600',
-            upsert: false,
-          })
-
-        if (error) {
-          console.error('Upload error:', error)
-          continue
-        }
-
-        // Get public URL
-        const { data: urlData } = this.supabase.storage
-          .from(this.bucketName)
-          .getPublicUrl(data.path)
-
-        const publicUrl = urlData.publicUrl
-
-        // For images, create a preview URL
-        let previewUrl: string | undefined
-        if (assetType === 'image' && file.size < 10 * 1024 * 1024) {
-          // For images under 10MB, use the URL directly as preview
-          previewUrl = publicUrl
-        }
-
-        prepared.push({
-          name: file.name,
-          size: file.size,
-          type: assetType,
-          url: publicUrl,
-          previewUrl,
+      const { data, error } = await this.supabase.storage
+        .from(this.bucketName)
+        .upload(filePath, file, {
+          cacheControl: '3600',
+          contentType: file.type || undefined,
+          upsert: false,
         })
-      } catch (error) {
-        console.error('Error preparing file:', error)
+
+      if (error) {
+        throw new Error(`Unable to upload ${file.name}: ${error.message}`)
       }
+
+      const { data: signedUrlData } = await this.supabase.storage
+        .from(this.bucketName)
+        .createSignedUrl(data.path, 60 * 60)
+
+      prepared.push({
+        name: file.name,
+        size: file.size,
+        type: assetType,
+        storagePath: data.path,
+        url: signedUrlData?.signedUrl,
+        previewUrl: assetType === 'image' ? signedUrlData?.signedUrl : undefined,
+      })
     }
 
     return prepared
@@ -80,7 +62,8 @@ export class SupabaseAssetStorage implements AssetStorageAdapter {
         workspace_id: params.workspaceId,
         content_id: params.contentId,
         name: params.preparedAsset.name,
-        url: params.preparedAsset.url || '',
+        url: '',
+        storage_path: params.preparedAsset.storagePath,
         type: params.preparedAsset.type,
         size: params.preparedAsset.size,
         uploaded_by: params.uploadedBy,
@@ -89,6 +72,7 @@ export class SupabaseAssetStorage implements AssetStorageAdapter {
       .single()
 
     if (error) {
+      await this.supabase.storage.from(this.bucketName).remove([params.preparedAsset.storagePath])
       throw new Error(error.message)
     }
 
@@ -97,7 +81,8 @@ export class SupabaseAssetStorage implements AssetStorageAdapter {
       workspaceId: data.workspace_id,
       contentId: data.content_id,
       name: data.name,
-      url: data.url,
+      url: params.preparedAsset.url || data.url,
+      storagePath: data.storage_path,
       type: data.type,
       size: data.size,
       uploadedBy: data.uploaded_by,
