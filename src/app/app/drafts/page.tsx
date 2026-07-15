@@ -2,62 +2,71 @@
 
 import { useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
-import PageHeader from '@/components/ui/PageHeader'
+import { useSearchParams } from 'next/navigation'
+import ChannelBadge from '@/components/ui/ChannelBadge'
 import DraftEditorCard from '@/components/ui/DraftEditorCard'
 import EmptyState from '@/components/ui/EmptyState'
+import PageHeader from '@/components/ui/PageHeader'
 import { useCurrentUser } from '@/hooks/useCurrentUser'
+import { PUBLISHING_CHANNEL_CONFIG } from '@/lib/channels/config'
 import { useApp } from '@/lib/app/app-provider'
+import { CORE_PUBLISHING_CHANNELS, type PublishingChannel, type SocialDraft } from '@/lib/domain/types'
 import { resetTemplateDraft, TemplateDraftGeneratorService } from '@/lib/services/ai-draft'
-import type { SocialDraft, SocialPlatform } from '@/lib/domain/types'
 
-const PLATFORMS: SocialPlatform[] = ['youtube', 'instagram', 'threads', 'x', 'tiktok', 'facebook']
-const TONES = ['casual', 'professional', 'playful', 'inspirational']
+const TONES = ['calm', 'casual', 'professional', 'playful']
 const draftService = new TemplateDraftGeneratorService()
 
 export default function DraftsPage() {
-  const { approveDraft, contents, currentWorkspace, drafts, getDraftsForContent, saveDraft } = useApp()
+  const searchParams = useSearchParams()
+  const { approveDraft, currentWorkspace, drafts, getDraftsForSeed, saveDraft, seeds } = useApp()
   const { currentUser } = useCurrentUser()
-  const [contentId, setContentId] = useState(contents[0]?.id ?? '')
-  const [selectedPlatforms, setSelectedPlatforms] = useState<SocialPlatform[]>(['instagram', 'x'])
-  const [tone, setTone] = useState('casual')
+  const requestedSeedId = searchParams.get('seed')
+  const [seedId, setSeedId] = useState(requestedSeedId ?? seeds[0]?.id ?? '')
+  const [selectedChannels, setSelectedChannels] = useState<PublishingChannel[]>([])
+  const [tone, setTone] = useState('calm')
   const [length, setLength] = useState<'short' | 'medium' | 'long'>('short')
   const [generatedDrafts, setGeneratedDrafts] = useState<SocialDraft[]>([])
   const [loading, setLoading] = useState(false)
   const [feedback, setFeedback] = useState('')
   const [error, setError] = useState('')
 
-  useEffect(() => {
-    if (contents.length > 0 && !contents.some((content) => content.id === contentId)) {
-      setContentId(contents[0].id)
-    }
-  }, [contentId, contents])
-
-  const selectedContent = useMemo(() => contents.find((content) => content.id === contentId) ?? null, [contentId, contents])
-  const existingDrafts = useMemo(() => (contentId ? getDraftsForContent(contentId) : drafts), [contentId, drafts, getDraftsForContent])
-  const draftsByPlatform = useMemo(
-    () =>
-      existingDrafts.reduce<Record<string, SocialDraft[]>>((accumulator, draft) => {
-        accumulator[draft.platform] = [...(accumulator[draft.platform] ?? []), draft]
-        return accumulator
-      }, {}),
+  const selectedSeed = useMemo(() => seeds.find((seed) => seed.id === seedId) ?? null, [seedId, seeds])
+  const existingDrafts = useMemo(() => seedId ? getDraftsForSeed(seedId) : drafts, [drafts, getDraftsForSeed, seedId])
+  const draftsByChannel = useMemo(
+    () => existingDrafts.reduce<Record<string, SocialDraft[]>>((accumulator, draft) => {
+      accumulator[draft.channel] = [...(accumulator[draft.channel] ?? []), draft]
+      return accumulator
+    }, {}),
     [existingDrafts],
   )
 
-  const togglePlatform = (platform: SocialPlatform) => {
-    setSelectedPlatforms((prev) => (prev.includes(platform) ? prev.filter((value) => value !== platform) : [...prev, platform]))
+  useEffect(() => {
+    if (seeds.length > 0 && !seeds.some((seed) => seed.id === seedId)) setSeedId(seeds[0].id)
+  }, [seedId, seeds])
+
+  useEffect(() => {
+    if (!selectedSeed) return
+    setSelectedChannels(selectedSeed.targetChannels.length > 0 ? selectedSeed.targetChannels : [...CORE_PUBLISHING_CHANNELS])
+    setGeneratedDrafts([])
+  }, [selectedSeed])
+
+  const toggleChannel = (channel: PublishingChannel) => {
+    setSelectedChannels((current) => current.includes(channel)
+      ? current.filter((entry) => entry !== channel)
+      : [...current, channel])
   }
 
   const handleGenerate = async () => {
-    if (!selectedContent) return
+    if (!selectedSeed) return
     setLoading(true)
     setError('')
     try {
-      const nextDrafts = await draftService.generateDrafts(selectedContent, selectedPlatforms, tone, length, {
+      const nextDrafts = await draftService.generateDrafts(selectedSeed, selectedChannels, tone, length, {
         workspaceName: currentWorkspace?.name,
-        createdBy: currentUser?.id ?? selectedContent.authorId,
+        createdBy: currentUser?.id ?? selectedSeed.createdBy,
       })
       setGeneratedDrafts(nextDrafts)
-      setFeedback(`Prepared ${nextDrafts.length} platform templates for ${currentWorkspace?.name ?? 'this workspace'}.`)
+      setFeedback(`Prepared ${nextDrafts.length} transparent templates. They are not AI proposals yet.`)
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'Unable to generate draft templates.')
       setFeedback('')
@@ -66,18 +75,17 @@ export default function DraftsPage() {
     }
   }
 
-  const persistDraft = async (draft: SocialDraft) =>
-    await saveDraft({
-      ...(draft.id.startsWith('generated-') ? {} : { id: draft.id }),
-      workspaceId: draft.workspaceId,
-      contentId: draft.contentId,
-      platform: draft.platform,
-      tone: draft.tone,
-      length: draft.length,
-      draftText: draft.draftText,
-      status: draft.status,
-      createdBy: draft.createdBy,
-    })
+  const persistDraft = async (draft: SocialDraft) => saveDraft({
+    ...(draft.id.startsWith('generated-') ? {} : { id: draft.id }),
+    workspaceId: draft.workspaceId,
+    seedId: draft.seedId,
+    channel: draft.channel,
+    tone: draft.tone,
+    length: draft.length,
+    draftText: draft.draftText,
+    status: draft.status,
+    createdBy: draft.createdBy,
+  })
 
   const runDraftAction = async (action: () => Promise<unknown>, successMessage: string) => {
     try {
@@ -92,174 +100,61 @@ export default function DraftsPage() {
 
   return (
     <div>
-      <PageHeader title="Template Draft Studio" description="Prepare and save deterministic platform templates. Reviewed AI generation is added in PR2." />
+      <PageHeader title="Template Draft Studio" description="Preview deterministic channel shapes from one Seed. PR2 replaces this step with reviewed AI proposals." />
 
-      {(feedback || error) && (
-        <div className={`mb-5 rounded-2xl border px-4 py-3 text-sm ${error ? 'border-red-200 bg-red-50 text-red-700' : 'border-green-200 bg-green-50 text-green-700'}`}>
-          {error || feedback}
-        </div>
-      )}
+      {(feedback || error) && <div className={`mb-5 rounded-2xl border px-4 py-3 text-sm ${error ? 'border-red-200 bg-red-50 text-red-700' : 'border-green-200 bg-green-50 text-green-700'}`}>{error || feedback}</div>}
 
-      {contents.length === 0 && (
-        <EmptyState
-          title="No content ready for draft work"
-          description="Create content in this workspace first, then come back to generate platform drafts."
-          action={
-            <Link href="/app/content/new" className="rounded-2xl bg-violet-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-violet-700">
-              Create content
-            </Link>
-          }
-          icon="✍️"
-        />
-      )}
-
-      {contents.length > 0 && (
+      {seeds.length === 0 ? (
+        <EmptyState title="No Seeds ready for draft work" description="Capture one source first, then return to prepare channel-specific drafts." action={<Link href="/app/seeds/new" className="rounded-2xl bg-violet-600 px-4 py-2 text-sm font-medium text-white">Capture a Seed</Link>} icon="✍️" />
+      ) : (
         <div className="mb-6 rounded-[2rem] border border-stone-200 bg-white p-6 shadow-sm shadow-stone-100/80">
-        <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_200px_200px]">
-          <div>
-            <label className="mb-2 block text-sm font-medium text-gray-700">Source Content</label>
-            <select value={contentId} onChange={(event) => setContentId(event.target.value)} className="w-full rounded-2xl border border-stone-200 px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-violet-300">
-              {contents.map((content) => (
-                <option key={content.id} value={content.id}>{content.title}</option>
-              ))}
-            </select>
+          <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_200px_200px]">
+            <div><label className="mb-2 block text-sm font-medium text-gray-700">Source Seed</label><select value={seedId} onChange={(event) => setSeedId(event.target.value)} className="w-full rounded-2xl border border-stone-200 px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-violet-300">{seeds.map((seed) => <option key={seed.id} value={seed.id}>{seed.title} · {seed.status}</option>)}</select></div>
+            <div><label className="mb-2 block text-sm font-medium text-gray-700">Template tone</label><select value={tone} onChange={(event) => setTone(event.target.value)} className="w-full rounded-2xl border border-stone-200 px-4 py-3 text-sm">{TONES.map((option) => <option key={option} value={option}>{option}</option>)}</select></div>
+            <div><label className="mb-2 block text-sm font-medium text-gray-700">Length</label><select value={length} onChange={(event) => setLength(event.target.value as 'short' | 'medium' | 'long')} className="w-full rounded-2xl border border-stone-200 px-4 py-3 text-sm"><option value="short">Short</option><option value="medium">Medium</option><option value="long">Long</option></select></div>
           </div>
-          <div>
-            <label className="mb-2 block text-sm font-medium text-gray-700">Tone</label>
-            <select value={tone} onChange={(event) => setTone(event.target.value)} className="w-full rounded-2xl border border-stone-200 px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-violet-300">
-              {TONES.map((option) => (
-                <option key={option} value={option}>{option.charAt(0).toUpperCase() + option.slice(1)}</option>
-              ))}
-            </select>
-          </div>
-          <div>
-            <label className="mb-2 block text-sm font-medium text-gray-700">Length</label>
-            <select value={length} onChange={(event) => setLength(event.target.value as 'short' | 'medium' | 'long')} className="w-full rounded-2xl border border-stone-200 px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-violet-300">
-              <option value="short">Short</option>
-              <option value="medium">Medium</option>
-              <option value="long">Long</option>
-            </select>
-          </div>
-        </div>
 
-        <div className="mt-4">
-          <label className="mb-2 block text-sm font-medium text-gray-700">Platforms</label>
-          <div className="flex flex-wrap gap-2">
-            {PLATFORMS.map((platform) => (
-              <button
-                key={platform}
-                onClick={() => togglePlatform(platform)}
-                className={`rounded-full px-3.5 py-2 text-xs font-medium capitalize transition ${selectedPlatforms.includes(platform) ? 'bg-violet-600 text-white' : 'border border-stone-200 bg-white text-gray-600 hover:bg-stone-50'}`}
-              >
-                {platform}
-              </button>
-            ))}
-          </div>
-        </div>
-
-        <button onClick={handleGenerate} disabled={loading || selectedPlatforms.length === 0 || !selectedContent} className="mt-5 rounded-2xl bg-violet-600 px-5 py-2.5 text-sm font-medium text-white transition hover:bg-violet-700 disabled:cursor-not-allowed disabled:opacity-50">
-          {loading ? 'Generating…' : 'Generate Templates'}
-        </button>
+          <div className="mt-4"><label className="mb-2 block text-sm font-medium text-gray-700">Channels from this Seed</label><div className="flex flex-wrap gap-2">{CORE_PUBLISHING_CHANNELS.map((channel) => <button key={channel} type="button" onClick={() => toggleChannel(channel)} className={`rounded-full transition ${selectedChannels.includes(channel) ? 'ring-2 ring-violet-400 ring-offset-2' : 'opacity-50 hover:opacity-80'}`}><ChannelBadge channel={channel} /></button>)}</div></div>
+          {selectedChannels.includes('note') && <p className="mt-3 text-xs text-emerald-700">note remains review + copy only; this app will not claim an automatic publishing path.</p>}
+          <button onClick={() => void handleGenerate()} disabled={loading || selectedChannels.length === 0 || !selectedSeed} className="mt-5 rounded-2xl bg-violet-600 px-5 py-2.5 text-sm font-medium text-white transition hover:bg-violet-700 disabled:opacity-50">{loading ? 'Preparing…' : 'Prepare transparent templates'}</button>
         </div>
       )}
 
       {generatedDrafts.length > 0 && (
         <section className="mb-8">
-          <h2 className="mb-3 text-base font-semibold text-gray-900">Template drafts</h2>
+          <h2 className="mb-3 text-base font-semibold text-gray-900">Unsaved template drafts</h2>
           <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
             {generatedDrafts.map((draft) => (
               <DraftEditorCard
                 key={draft.id}
                 draft={draft}
-                  onEdit={(id, text) => {
-                    setGeneratedDrafts((prev) =>
-                      prev.map((entry) =>
-                        entry.id === id ? { ...entry, draftText: text, updatedAt: new Date().toISOString() } : entry,
-                      ),
-                    )
-                    const target = generatedDrafts.find((entry) => entry.id === id)
-                    if (target) {
-                      void runDraftAction(
-                        () => persistDraft({ ...target, draftText: text }),
-                        `Saved ${target.platform} draft changes to this workspace.`,
-                      )
-                    }
-                  }}
-                  onApprove={(id) => {
-                    const target = generatedDrafts.find((entry) => entry.id === id)
-                    if (!target) return
-                    void runDraftAction(
-                      () => persistDraft({ ...target, status: 'approved' }),
-                      `Approved ${target.platform} draft.`,
-                    )
-                    setGeneratedDrafts((prev) => prev.map((entry) => (entry.id === id ? { ...entry, status: 'approved' } : entry)))
-                  }}
-                  onRegenerate={(id) => {
-                    if (!selectedContent) return
-                  setGeneratedDrafts((prev) => {
-                    return prev.map((entry) =>
-                      entry.id === id
-                        ? {
-                            ...entry,
-                            draftText: resetTemplateDraft(entry, selectedContent),
-                            updatedAt: new Date().toISOString(),
-                          }
-                        : entry,
-                    )
-                    })
-                    setFeedback('Reset that draft to its source template.')
-                  }}
-                />
-              ))}
+                onEdit={(id, text) => {
+                  const target = generatedDrafts.find((entry) => entry.id === id)
+                  setGeneratedDrafts((current) => current.map((entry) => entry.id === id ? { ...entry, draftText: text, updatedAt: new Date().toISOString() } : entry))
+                  if (target) void runDraftAction(() => persistDraft({ ...target, draftText: text }), `Saved ${PUBLISHING_CHANNEL_CONFIG[target.channel].label} draft.`)
+                }}
+                onApprove={(id) => {
+                  const target = generatedDrafts.find((entry) => entry.id === id)
+                  if (!target) return
+                  void runDraftAction(() => persistDraft({ ...target, status: 'approved' }), `Approved ${PUBLISHING_CHANNEL_CONFIG[target.channel].label} draft.`)
+                  setGeneratedDrafts((current) => current.map((entry) => entry.id === id ? { ...entry, status: 'approved' } : entry))
+                }}
+                onRegenerate={(id) => {
+                  if (!selectedSeed) return
+                  setGeneratedDrafts((current) => current.map((entry) => entry.id === id ? { ...entry, draftText: resetTemplateDraft(entry, selectedSeed), updatedAt: new Date().toISOString() } : entry))
+                  setFeedback('Reset that draft to its source template.')
+                }}
+              />
+            ))}
           </div>
         </section>
       )}
 
       <section>
-        <div className="mb-3 flex items-center justify-between gap-3">
-          <h2 className="text-base font-semibold text-gray-900">Saved drafts</h2>
-          {selectedContent && <span className="text-sm text-gray-500">{selectedContent.title}</span>}
-        </div>
-        {existingDrafts.length === 0 ? (
-          <EmptyState title="No drafts yet" description="Generate your first set above and save the ones you want to keep." />
-        ) : (
+        <div className="mb-3 flex items-center justify-between gap-3"><h2 className="text-base font-semibold text-gray-900">Saved drafts</h2>{selectedSeed && <span className="text-sm text-gray-500">{selectedSeed.title}</span>}</div>
+        {existingDrafts.length === 0 ? <EmptyState title="No drafts yet" description="Prepare a template and save the versions worth keeping." /> : (
           <div className="space-y-6">
-            {Object.entries(draftsByPlatform).map(([platform, platformDrafts]) => (
-              <section key={platform}>
-                <div className="mb-3 flex items-center justify-between gap-3">
-                  <h3 className="text-sm font-semibold uppercase tracking-[0.18em] text-gray-500">{platform}</h3>
-                  <span className="text-xs text-gray-400">{platformDrafts.length} saved</span>
-                </div>
-                <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
-                  {platformDrafts.map((draft) => (
-                    <DraftEditorCard
-                      key={draft.id}
-                      draft={draft}
-                      onEdit={(id, text) => {
-                        const target = existingDrafts.find((entry) => entry.id === id)
-                        if (!target) return
-                        void runDraftAction(
-                          () => persistDraft({ ...target, draftText: text }),
-                          `Saved ${target.platform} draft changes to this workspace.`,
-                        )
-                      }}
-                      onApprove={(id) => {
-                        void runDraftAction(() => approveDraft(id), 'Draft approved.')
-                      }}
-                      onRegenerate={(id) => {
-                        if (!selectedContent) return
-                        const target = existingDrafts.find((entry) => entry.id === id)
-                        if (!target) return
-                        void runDraftAction(
-                          () => persistDraft({ ...target, draftText: resetTemplateDraft(target, selectedContent) }),
-                          'Reset and saved the source template.',
-                        )
-                      }}
-                    />
-                  ))}
-                </div>
-              </section>
-            ))}
+            {Object.entries(draftsByChannel).map(([channel, channelDrafts]) => <section key={channel}><div className="mb-3 flex items-center justify-between"><h3 className="text-sm font-semibold text-gray-700">{PUBLISHING_CHANNEL_CONFIG[channel as PublishingChannel].label}</h3><span className="text-xs text-gray-400">{channelDrafts.length} saved</span></div><div className="grid grid-cols-1 gap-4 xl:grid-cols-2">{channelDrafts.map((draft) => <DraftEditorCard key={draft.id} draft={draft} onEdit={(id, text) => { const target = existingDrafts.find((entry) => entry.id === id); if (target) void runDraftAction(() => persistDraft({ ...target, draftText: text }), `Saved ${PUBLISHING_CHANNEL_CONFIG[target.channel].label} draft.`) }} onApprove={(id) => { void runDraftAction(() => approveDraft(id), 'Draft approved.') }} onRegenerate={(id) => { if (!selectedSeed) return; const target = existingDrafts.find((entry) => entry.id === id); if (target) void runDraftAction(() => persistDraft({ ...target, draftText: resetTemplateDraft(target, selectedSeed) }), 'Reset and saved the source template.') }} />)}</div></section>)}
           </div>
         )}
       </section>

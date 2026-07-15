@@ -1,4 +1,4 @@
-import type { Content, SocialDraft, SocialPlatform } from '@/lib/domain/types'
+import type { PublishingChannel, Seed, SocialDraft } from '@/lib/domain/types'
 import type { DraftGeneratorService } from './interfaces'
 
 type DraftLength = 'short' | 'medium' | 'long'
@@ -8,42 +8,56 @@ function truncate(text: string, limit: number): string {
   return normalized.length <= limit ? normalized : `${normalized.slice(0, Math.max(0, limit - 1)).trimEnd()}…`
 }
 
-function hashtags(content: Content, limit = content.tags.length): string {
-  return content.tags.slice(0, limit).map((tag) => `#${tag}`).join(' ')
+function hashtags(seed: Seed, limit = seed.tags.length): string {
+  return seed.tags.slice(0, limit).map((tag) => `#${tag}`).join(' ')
 }
 
-const PLATFORM_TEMPLATES: Record<SocialPlatform, (content: Content, tone: string, length: DraftLength) => string> = {
-  instagram: (content, _tone, length) => {
-    const bodyLimit = length === 'short' ? 120 : length === 'medium' ? 360 : 900
-    return [content.title, truncate(content.body ?? '', bodyLimit), hashtags(content)].filter(Boolean).join('\n\n')
+function keyPoints(seed: Seed): string {
+  return seed.keyPoints.map((point) => `- ${point}`).join('\n')
+}
+
+const CHANNEL_TEMPLATES: Record<PublishingChannel, (seed: Seed, tone: string, length: DraftLength) => string> = {
+  instagram: (seed, _tone, length) => {
+    const sourceLimit = length === 'short' ? 120 : length === 'medium' ? 360 : 900
+    return [seed.title, truncate(seed.sourceText ?? '', sourceLimit), seed.callToAction, hashtags(seed)]
+      .filter(Boolean)
+      .join('\n\n')
   },
-  x: (content) => {
-    return truncate([content.title, content.body, hashtags(content, 2)].filter(Boolean).join(' — '), 280)
+  x: (seed) => {
+    return truncate([seed.title, seed.sourceText, seed.callToAction, hashtags(seed, 2)].filter(Boolean).join(' — '), 280)
   },
-  youtube: (content) => {
-    return [content.title, content.body, hashtags(content)].filter(Boolean).join('\n\n')
+  youtube: (seed) => {
+    return [seed.title, seed.sourceText, keyPoints(seed), seed.callToAction, hashtags(seed)].filter(Boolean).join('\n\n')
   },
-  threads: (content, _tone, length) => {
-    const bodyLimit = length === 'short' ? 180 : length === 'medium' ? 360 : 700
-    return [content.title, truncate(content.body ?? '', bodyLimit)].filter(Boolean).join('\n\n')
+  note: (seed) => {
+    return [seed.title, seed.sourceText, keyPoints(seed), seed.callToAction].filter(Boolean).join('\n\n')
   },
-  tiktok: (content) => {
-    return [content.title, truncate(content.body ?? '', 180), hashtags(content, 4)].filter(Boolean).join('\n\n')
+  threads: (seed, _tone, length) => {
+    const sourceLimit = length === 'short' ? 180 : length === 'medium' ? 360 : 700
+    return [seed.title, truncate(seed.sourceText ?? '', sourceLimit), seed.callToAction].filter(Boolean).join('\n\n')
   },
-  facebook: (content, _tone, length) => {
-    const bodyLimit = length === 'short' ? 180 : length === 'medium' ? 500 : 1200
-    return [content.title, truncate(content.body ?? '', bodyLimit)].filter(Boolean).join('\n\n')
+  tiktok: (seed) => {
+    return [seed.title, truncate(seed.sourceText ?? '', 180), seed.callToAction, hashtags(seed, 4)]
+      .filter(Boolean)
+      .join('\n\n')
+  },
+  facebook: (seed, _tone, length) => {
+    const sourceLimit = length === 'short' ? 180 : length === 'medium' ? 500 : 1200
+    return [seed.title, truncate(seed.sourceText ?? '', sourceLimit), seed.callToAction].filter(Boolean).join('\n\n')
+  },
+  website: (seed) => {
+    return [seed.title, seed.sourceText, keyPoints(seed), seed.callToAction].filter(Boolean).join('\n\n')
   },
 }
 
-export function resetTemplateDraft(draft: SocialDraft, content: Content): string {
-  return PLATFORM_TEMPLATES[draft.platform](content, draft.tone, draft.length)
+export function resetTemplateDraft(draft: SocialDraft, seed: Seed): string {
+  return CHANNEL_TEMPLATES[draft.channel](seed, draft.tone, draft.length)
 }
 
 export class TemplateDraftGeneratorService implements DraftGeneratorService {
   async generateDrafts(
-    content: Content,
-    platforms: SocialPlatform[],
+    seed: Seed,
+    channels: PublishingChannel[],
     tone: string,
     length: DraftLength,
     context?: {
@@ -53,16 +67,16 @@ export class TemplateDraftGeneratorService implements DraftGeneratorService {
   ): Promise<SocialDraft[]> {
     const now = new Date().toISOString()
 
-    return platforms.map((platform, index) => ({
+    return channels.map((channel, index) => ({
       id: `generated-${Date.now()}-${index}`,
-      workspaceId: content.workspaceId,
-      contentId: content.id,
-      platform,
-      draftText: PLATFORM_TEMPLATES[platform](content, tone, length),
+      workspaceId: seed.workspaceId,
+      seedId: seed.id,
+      channel,
+      draftText: CHANNEL_TEMPLATES[channel](seed, tone, length),
       tone,
       length,
       status: 'draft' as const,
-      createdBy: context?.createdBy ?? content.authorId,
+      createdBy: context?.createdBy ?? seed.createdBy,
       createdAt: now,
       updatedAt: now,
     }))

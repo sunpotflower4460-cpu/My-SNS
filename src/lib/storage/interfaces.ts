@@ -4,7 +4,7 @@ export interface AssetUploadInput {
 
 export interface AssetUploadContext {
   workspaceId: string
-  contentId: string
+  seedId: string
 }
 
 export interface PreparedAssetUpload {

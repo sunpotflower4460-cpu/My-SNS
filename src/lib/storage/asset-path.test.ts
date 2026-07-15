@@ -8,12 +8,12 @@ describe('private asset paths', () => {
     expect(getSafeAssetExtension('file.reallylongextension')).toBe('')
   })
 
-  it('always scopes an object below workspace and content ids', () => {
+  it('always scopes an object below workspace and Seed ids', () => {
     expect(buildAssetStoragePath({
       workspaceId: 'workspace-id',
-      contentId: 'content-id',
+      seedId: 'seed-id',
       assetId: 'asset-id',
       fileName: '../../cover.JPG',
-    })).toBe('workspace-id/content-id/asset-id.jpg')
+    })).toBe('workspace-id/seed-id/asset-id.jpg')
   })
 })

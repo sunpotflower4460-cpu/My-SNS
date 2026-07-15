@@ -18,8 +18,8 @@ export async function listWorkspaceDrafts(workspaceId: string): Promise<SocialDr
   return (data || []).map((d) => ({
     id: d.id,
     workspaceId: d.workspace_id,
-    contentId: d.content_id,
-    platform: d.platform,
+    seedId: d.seed_id,
+    channel: d.channel,
     draftText: d.draft_text,
     tone: d.tone,
     length: d.length,
@@ -30,9 +30,9 @@ export async function listWorkspaceDrafts(workspaceId: string): Promise<SocialDr
   }))
 }
 
-export async function listContentDrafts(
+export async function listSeedDrafts(
   workspaceId: string,
-  contentId: string
+  seedId: string
 ): Promise<SocialDraft[]> {
   const supabase = createClient()
 
@@ -40,19 +40,19 @@ export async function listContentDrafts(
     .from('social_drafts')
     .select('*')
     .eq('workspace_id', workspaceId)
-    .eq('content_id', contentId)
+    .eq('seed_id', seedId)
     .order('updated_at', { ascending: false })
 
   if (error) {
-    console.error('Error fetching content drafts:', error)
+    console.error('Error fetching Seed drafts:', error)
     return []
   }
 
   return (data || []).map((d) => ({
     id: d.id,
     workspaceId: d.workspace_id,
-    contentId: d.content_id,
-    platform: d.platform,
+    seedId: d.seed_id,
+    channel: d.channel,
     draftText: d.draft_text,
     tone: d.tone,
     length: d.length,
@@ -91,8 +91,8 @@ export async function upsertSocialDraft(
     return {
       id: data.id,
       workspaceId: data.workspace_id,
-      contentId: data.content_id,
-      platform: data.platform,
+      seedId: data.seed_id,
+      channel: data.channel,
       draftText: data.draft_text,
       tone: data.tone,
       length: data.length,
@@ -107,8 +107,8 @@ export async function upsertSocialDraft(
       .from('social_drafts')
       .insert({
         workspace_id: draft.workspaceId,
-        content_id: draft.contentId,
-        platform: draft.platform,
+        seed_id: draft.seedId,
+        channel: draft.channel,
         draft_text: draft.draftText,
         tone: draft.tone,
         length: draft.length,
@@ -125,8 +125,8 @@ export async function upsertSocialDraft(
     return {
       id: data.id,
       workspaceId: data.workspace_id,
-      contentId: data.content_id,
-      platform: data.platform,
+      seedId: data.seed_id,
+      channel: data.channel,
       draftText: data.draft_text,
       tone: data.tone,
       length: data.length,

@@ -1,5 +1,7 @@
 import type {
-  Content,
+  BrandProfile,
+  BrandProfileInput,
+  Seed,
   Workspace,
   WorkspaceMember,
   InboxItem,
@@ -7,13 +9,19 @@ import type {
   AuditLog,
 } from '@/lib/domain/types'
 
-// ─── Content Repository ───────────────────────────────────────────────────────
-export interface ContentRepository {
-  findById(id: string): Promise<Content | null>
-  findByWorkspace(workspaceId: string): Promise<Content[]>
-  create(data: Omit<Content, 'id' | 'createdAt' | 'updatedAt'>): Promise<Content>
-  update(id: string, data: Partial<Content>): Promise<Content>
+// ─── Seed Repository ─────────────────────────────────────────────────────────
+export interface SeedRepository {
+  findById(id: string): Promise<Seed | null>
+  findByWorkspace(workspaceId: string): Promise<Seed[]>
+  create(data: Omit<Seed, 'id' | 'createdAt' | 'updatedAt'>): Promise<Seed>
+  update(id: string, data: Partial<Seed>): Promise<Seed>
   delete(id: string): Promise<void>
+}
+
+// ─── Brand Profile Repository ────────────────────────────────────────────────
+export interface BrandProfileRepository {
+  findByWorkspace(workspaceId: string): Promise<BrandProfile[]>
+  save(profileId: string | undefined, data: BrandProfileInput): Promise<BrandProfile>
 }
 
 // ─── Workspace Repository ─────────────────────────────────────────────────────
@@ -43,7 +51,7 @@ export interface InboxRepository {
 export interface PublishQueueRepository {
   findById(id: string): Promise<PublishJob | null>
   findByWorkspace(workspaceId: string): Promise<PublishJob[]>
-  findByContent(contentId: string): Promise<PublishJob[]>
+  findBySeed(seedId: string): Promise<PublishJob[]>
   create(data: Omit<PublishJob, 'id' | 'createdAt'>): Promise<PublishJob>
   update(id: string, data: Partial<PublishJob>): Promise<PublishJob>
   cancel(id: string): Promise<PublishJob>

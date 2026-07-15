@@ -1,21 +1,23 @@
 'use client'
 
 import Link from 'next/link'
+import { useRouter } from 'next/navigation'
 import PageHeader from '@/components/ui/PageHeader'
 import StatCard from '@/components/ui/StatCard'
-import ContentCard from '@/components/ui/ContentCard'
+import SeedCard from '@/components/ui/SeedCard'
 import EmptyState from '@/components/ui/EmptyState'
 import { describeAuditLog, getAuditLogMeta } from '@/lib/audit/presenter'
 import { useApp } from '@/lib/app/app-provider'
 
 export default function DashboardPage() {
-  const { auditLogs, contents, currentWorkspace, inboxItems, publishJobs } = useApp()
+  const router = useRouter()
+  const { auditLogs, currentWorkspace, inboxItems, publishJobs, seeds } = useApp()
 
-  const draftCount = contents.filter((content) => content.status === 'draft').length
-  const readyCount = contents.filter((content) => content.status === 'ready').length
+  const capturedCount = seeds.filter((seed) => seed.status === 'captured').length
+  const readyCount = seeds.filter((seed) => seed.status === 'ready').length
   const queueCount = publishJobs.filter((job) => job.status === 'scheduled').length
   const unreadCount = inboxItems.filter((item) => !item.isRead).length
-  const recentContent = [...contents]
+  const recentSeeds = [...seeds]
     .sort((left, right) => new Date(right.updatedAt).getTime() - new Date(left.updatedAt).getTime())
     .slice(0, 3)
   const recentActivity = auditLogs.slice(0, 6)
@@ -28,8 +30,8 @@ export default function DashboardPage() {
       />
 
       <div className="mb-8 grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        <StatCard label="Total Content" value={contents.length} icon="📄" />
-        <StatCard label="Drafts" value={draftCount} icon="✏️" trend={`${readyCount} ready to review`} />
+        <StatCard label="Total Seeds" value={seeds.length} icon="🌱" />
+        <StatCard label="Captured" value={capturedCount} icon="✍️" trend={`${readyCount} ready for proposals`} />
         <StatCard label="Scheduled Jobs" value={queueCount} icon="📅" trend="Queue moving" />
         <StatCard label="Unread Inbox" value={unreadCount} icon="📬" trend="Needs attention" />
       </div>
@@ -37,36 +39,36 @@ export default function DashboardPage() {
       <div className="grid gap-6 xl:grid-cols-[minmax(0,2fr)_minmax(320px,1fr)]">
         <section>
           <div className="mb-3 flex items-center justify-between gap-3">
-            <h2 className="text-base font-semibold text-gray-900">Recent content</h2>
-            <Link href="/app/content" className="text-sm font-medium text-violet-600 hover:text-violet-800">
+            <h2 className="text-base font-semibold text-gray-900">Recent Seeds</h2>
+            <Link href="/app/seeds" className="text-sm font-medium text-violet-600 hover:text-violet-800">
               View all →
             </Link>
           </div>
 
-          {recentContent.length === 0 ? (
+          {recentSeeds.length === 0 ? (
             <EmptyState
-              title="No content yet"
-              description="Create the first piece for this workspace to start building momentum."
+              title="No Seeds yet"
+              description="Capture one rough source idea or file. It does not need to be publication-ready."
               action={
-                <Link href="/app/content/new" className="rounded-2xl bg-violet-600 px-4 py-2 text-sm font-medium text-white hover:bg-violet-700">
-                  + New Content
+                <Link href="/app/seeds/new" className="rounded-2xl bg-violet-600 px-4 py-2 text-sm font-medium text-white hover:bg-violet-700">
+                  + New Seed
                 </Link>
               }
             />
           ) : (
             <div className="grid gap-4 lg:grid-cols-2">
-              {recentContent.map((content) => (
-                <ContentCard key={content.id} content={content} />
+              {recentSeeds.map((seed) => (
+                <SeedCard key={seed.id} seed={seed} onClick={() => router.push(`/app/seeds/${seed.id}`)} />
               ))}
             </div>
           )}
 
           <div className="mt-6 flex flex-wrap items-center gap-3">
             <Link
-              href="/app/content/new"
+              href="/app/seeds/new"
               className="inline-flex items-center gap-2 rounded-2xl bg-violet-600 px-4 py-2.5 text-sm font-medium text-white transition hover:bg-violet-700"
             >
-              + New Content
+              + New Seed
             </Link>
             <Link
               href="/app/inbox"
@@ -87,7 +89,7 @@ export default function DashboardPage() {
           {recentActivity.length === 0 ? (
             <EmptyState
               title="No recent activity yet"
-              description="Recent content, inbox, queue, and team actions will appear here for this workspace."
+              description="Recent Seed, inbox, queue, and team actions will appear here for this workspace."
               icon="🕊️"
             />
           ) : (

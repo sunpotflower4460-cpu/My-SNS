@@ -6,8 +6,8 @@ interface InboxItemCardProps {
   item: InboxItem
   notes?: InboxNote[]
   noteDraft?: string
-  relatedContentTitle?: string | null
-  relatedContentHref?: string | null
+  relatedSeedTitle?: string | null
+  relatedSeedHref?: string | null
   onChangeNote?: (value: string) => void
   onSaveNote?: () => void
   onToggleRead?: () => void
@@ -26,8 +26,8 @@ export default function InboxItemCard({
   item,
   notes = [],
   noteDraft = '',
-  relatedContentTitle,
-  relatedContentHref,
+  relatedSeedTitle,
+  relatedSeedHref,
   onChangeNote,
   onSaveNote,
   onToggleRead,
@@ -52,14 +52,14 @@ export default function InboxItemCard({
           <p className="text-sm font-medium text-gray-800">{item.authorHandle}</p>
           <p className="mt-1 text-sm leading-6 text-gray-600">{item.text}</p>
           {item.aiSummary && <p className="mt-2 text-xs italic text-gray-400">AI: {item.aiSummary}</p>}
-          {relatedContentTitle && (
+          {relatedSeedTitle && (
             <div className="mt-3">
-              {relatedContentHref ? (
-                <Link href={relatedContentHref} className="text-xs font-medium text-violet-700 hover:text-violet-900">
-                  Related content: {relatedContentTitle} →
+              {relatedSeedHref ? (
+                <Link href={relatedSeedHref} className="text-xs font-medium text-violet-700 hover:text-violet-900">
+                  Related Seed: {relatedSeedTitle} →
                 </Link>
               ) : (
-                <p className="text-xs text-gray-500">Related content: {relatedContentTitle}</p>
+                <p className="text-xs text-gray-500">Related Seed: {relatedSeedTitle}</p>
               )}
             </div>
           )}

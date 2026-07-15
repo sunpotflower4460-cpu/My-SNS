@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from 'react'
 import PageHeader from '@/components/ui/PageHeader'
-import PlatformBadge from '@/components/ui/PlatformBadge'
+import ChannelBadge from '@/components/ui/ChannelBadge'
 import StatusBadge from '@/components/ui/StatusBadge'
 import EmptyState from '@/components/ui/EmptyState'
 import { useApp } from '@/lib/app/app-provider'
@@ -18,7 +18,7 @@ const STATUS_FILTERS: Array<{ label: string; value: PublishJobStatus | 'all' }> 
 ]
 
 export default function QueuePage() {
-  const { cancelQueueJob, contents, publishJobs, retryQueueJob } = useApp()
+  const { cancelQueueJob, publishJobs, retryQueueJob, seeds } = useApp()
   const [activeStatus, setActiveStatus] = useState<PublishJobStatus | 'all'>('all')
   const [feedback, setFeedback] = useState('')
   const [error, setError] = useState('')
@@ -29,7 +29,7 @@ export default function QueuePage() {
     [activeStatus, publishJobs],
   )
 
-  const getContentTitle = (contentId: string) => contents.find((content) => content.id === contentId)?.title ?? contentId
+  const getSeedTitle = (seedId: string) => seeds.find((seed) => seed.id === seedId)?.title ?? seedId
 
   const handleRetry = async (jobId: string) => {
     setBusyJobId(jobId)
@@ -82,18 +82,18 @@ export default function QueuePage() {
       </div>
 
       {filtered.length === 0 ? (
-        <EmptyState title="No jobs found" description="Try a different filter or schedule new content." />
+        <EmptyState title="No jobs found" description="Try a different filter or approve a channel draft for scheduling later." />
       ) : (
         <div className="overflow-hidden rounded-[2rem] border border-stone-200 bg-white shadow-sm shadow-stone-100/80">
           <div className="divide-y divide-stone-100">
             {filtered.map((job) => (
               <div key={job.id} className="flex flex-col gap-4 px-6 py-5 lg:flex-row lg:items-center">
                 <div className="flex items-center gap-3">
-                  <PlatformBadge platform={job.platform} />
+                  <ChannelBadge channel={job.channel} />
                   <StatusBadge status={job.status} />
                 </div>
                 <div className="min-w-0 flex-1">
-                  <p className="truncate text-sm font-medium text-gray-900">{getContentTitle(job.contentId)}</p>
+                  <p className="truncate text-sm font-medium text-gray-900">{getSeedTitle(job.seedId)}</p>
                   <p className="mt-1 text-xs text-gray-500">
                     {job.status === 'failed'
                       ? 'Needs retry or cancellation'

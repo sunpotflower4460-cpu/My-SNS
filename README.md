@@ -1,8 +1,8 @@
 # Creator Hub — My-SNS
 
-A calm, workspace-centric creator home hub for content planning, draft generation, inbox triage, queue management, and lightweight team collaboration.
+A calm, workspace-centric Creator OS for capturing one source Seed, preserving a reusable Brand Profile, preparing channel drafts, triaging inbox activity, and coordinating publishing.
 
-## Phase 2A + PR0 foundation ✅
+## Phase 2A + PR0 + PR1 foundation ✅
 
 The app is now backed by **real Supabase infrastructure** while preserving the existing UI and architecture.
 
@@ -10,11 +10,13 @@ The app is now backed by **real Supabase infrastructure** while preserving the e
 
 - **Real Supabase Auth** with magic link email authentication
 - **Protected `/app/*` routes** requiring authenticated session
-- **Real Postgres database** with all workspace, content, team, inbox, and queue data persisted
+- **Real Postgres database** with all workspace, Seed, Brand Profile, team, inbox, and queue data persisted
 - **Private Supabase Storage** for workspace-scoped asset uploads and short-lived previews
 - **Multi-workspace** switching with real membership data
 - **Row-level security (RLS)** policies protecting all workspace data
-- **Dashboard, content library, content detail, draft studio, queue, inbox, team, and settings flows** with real persistence
+- **Seed Library and one-place Seed intake** for source text, files, purpose, audience, key facts, CTA, and five target channels
+- **Workspace Brand Profile** kept separate from each Seed, including voice, values, preferred wording, and avoided claims
+- **Dashboard, Seed detail, draft studio, queue, inbox, team, brand, and settings flows** with real persistence
 - **Audit events** logged to database
 - **Workspace roles** (owner, admin, editor, contributor, viewer) enforced via RLS
 
@@ -59,7 +61,8 @@ SUPABASE_SECRET_KEY=your-service-role-key-here
      - `supabase/migrations/20260421000001_rls_policies.sql`
      - `supabase/migrations/20260421000002_triggers.sql`
      - `supabase/migrations/20260715000000_private_asset_storage.sql`
-3. The final migration creates or converts the `assets` bucket to private and installs workspace-scoped Storage policies.
+     - `supabase/migrations/20260715010000_seed_brand_profile_foundation.sql`
+3. The PR0 migration makes assets private; the PR1 migration preserves existing rows while promoting `contents` to `seeds` and adding `brand_profiles`.
 4. **Copy your project credentials** to `.env.local`
 
 ## Local development
@@ -98,11 +101,11 @@ src/
   lib/
     auth/                      Supabase Auth provider
     app/                       App provider with Supabase repositories
-    repositories/supabase/     Supabase-backed repository implementations
+    repositories/supabase/     Seed, Brand Profile, and workspace repositories
     storage/supabase/          Supabase Storage adapter
     supabase/                  Supabase client setup
     domain/                    Shared domain types
-    services/                  Deterministic draft templates + disabled connector seams
+    services/                  Transparent channel templates + disabled connector seams
 ```
 
 ## Database schema
@@ -112,9 +115,10 @@ The app uses the following main tables:
 - **workspaces** - Workspace records with ownership
 - **workspace_members** - Membership records with roles
 - **workspace_invitations** - Pending invitations
-- **contents** - Content items
-- **assets** - Asset metadata pointing to Supabase Storage
-- **social_drafts** - Platform-specific draft variations
+- **seeds** - Raw source inputs captured once before channel adaptation
+- **brand_profiles** - Reusable voice, audience, values, and wording boundaries
+- **assets** - Private asset metadata linked to Seeds
+- **social_drafts** - Channel-specific draft variations
 - **publish_jobs** - Publishing queue
 - **inbox_items** - Inbox messages (internal for now)
 - **inbox_notes** - Internal notes on inbox items
@@ -125,9 +129,9 @@ All tables have Row-Level Security (RLS) enabled with workspace-scoped policies.
 ## Workspace roles
 
 - **Owner** - Full control, can transfer ownership
-- **Admin** - Can manage members, settings, and all content
-- **Editor** - Can manage content and publishing
-- **Contributor** - Can create and edit own content
+- **Admin** - Can manage members, settings, Brand Profiles, and all Seeds
+- **Editor** - Can manage Seeds, Brand Profiles, and draft approval
+- **Contributor** - Can capture and edit their own Seeds
 - **Viewer** - Read-only access
 
 ## Commands
@@ -171,7 +175,8 @@ The UI, component structure, and page flows remain **unchanged** to preserve the
 All core flows now persist to Supabase:
 - Workspace creation and switching
 - Team member management
-- Content creation and editing
+- Seed capture and editing
+- Brand Profile editing
 - Draft generation and management
 - Queue operations
 - Inbox triage and notes
@@ -181,15 +186,16 @@ The **mock session provider** has been replaced by **Supabase Auth provider**.
 
 The **mock app provider** has been replaced by **Supabase app provider** that loads real data from the database.
 
-## Next steps (Phase 2B)
+## Next steps
 
-Future phases will add:
-1. Real social platform OAuth and API integration
-2. Webhook endpoints for external SNS events
-3. Background workers for publishing jobs
-4. Real AI provider integration for draft generation
-5. Billing and usage tracking
-6. Advanced analytics and reporting
+The delivery order intentionally leaves manual provider setup until the integration code is ready:
+
+1. **PR2** — structured AI proposals, missing-information suggestions, and explicit approval
+2. **PR3** — scheduling rules, immutable approved revisions, and worker seams
+3. **PR4** — X and Instagram adapters
+4. **PR5** — YouTube and TikTok adapters plus note review/copy handoff
+
+`note` is modeled as a publishing channel but remains manual review + copy because there is no supported public posting API in scope.
 
 ## Known limitations
 

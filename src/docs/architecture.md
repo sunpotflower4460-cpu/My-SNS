@@ -23,7 +23,10 @@ The app provider is the client-side façade. Pages do not access seeded or local
 
 ## Current product truth
 
-- Auth, workspace data, content, drafts, queue state, inbox notes, and audits persist in Supabase.
+- Auth, workspace data, Seeds, Brand Profiles, drafts, queue state, inbox notes, and audits persist in Supabase.
+- A Seed is the raw source of truth; Brand Profile is a reusable editorial boundary.
+- The five default output channels are YouTube, note, Instagram, X, and TikTok.
+- note is a review-and-copy channel, not an automatic connector claim.
 - Draft generation is a deterministic template preview, not an AI claim.
 - External social connectors are unavailable and fail closed.
 - No background publisher runs yet.

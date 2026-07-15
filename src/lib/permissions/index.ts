@@ -2,11 +2,12 @@ import type { WorkspaceRole } from '@/lib/domain/types'
 
 // ─── Permission Definitions ───────────────────────────────────────────────────
 export type Permission =
-  | 'view_content'
-  | 'create_content'
-  | 'edit_content'
-  | 'delete_content'
-  | 'publish_content'
+  | 'view_seeds'
+  | 'create_seeds'
+  | 'edit_seeds'
+  | 'delete_seeds'
+  | 'approve_publishing'
+  | 'edit_brand_profile'
   | 'view_drafts'
   | 'create_drafts'
   | 'edit_drafts'
@@ -31,11 +32,12 @@ export type Permission =
 // ─── Role → Permission Map ────────────────────────────────────────────────────
 export const ROLE_PERMISSIONS: Record<WorkspaceRole, Permission[]> = {
   owner: [
-    'view_content',
-    'create_content',
-    'edit_content',
-    'delete_content',
-    'publish_content',
+    'view_seeds',
+    'create_seeds',
+    'edit_seeds',
+    'delete_seeds',
+    'approve_publishing',
+    'edit_brand_profile',
     'view_drafts',
     'create_drafts',
     'edit_drafts',
@@ -58,11 +60,12 @@ export const ROLE_PERMISSIONS: Record<WorkspaceRole, Permission[]> = {
     'delete_workspace',
   ],
   admin: [
-    'view_content',
-    'create_content',
-    'edit_content',
-    'delete_content',
-    'publish_content',
+    'view_seeds',
+    'create_seeds',
+    'edit_seeds',
+    'delete_seeds',
+    'approve_publishing',
+    'edit_brand_profile',
     'view_drafts',
     'create_drafts',
     'edit_drafts',
@@ -83,9 +86,10 @@ export const ROLE_PERMISSIONS: Record<WorkspaceRole, Permission[]> = {
     'delete_assets',
   ],
   editor: [
-    'view_content',
-    'create_content',
-    'edit_content',
+    'view_seeds',
+    'create_seeds',
+    'edit_seeds',
+    'edit_brand_profile',
     'view_drafts',
     'create_drafts',
     'edit_drafts',
@@ -98,8 +102,8 @@ export const ROLE_PERMISSIONS: Record<WorkspaceRole, Permission[]> = {
     'upload_assets',
   ],
   contributor: [
-    'view_content',
-    'create_content',
+    'view_seeds',
+    'create_seeds',
     'view_drafts',
     'create_drafts',
     'view_queue',
@@ -108,7 +112,7 @@ export const ROLE_PERMISSIONS: Record<WorkspaceRole, Permission[]> = {
     'upload_assets',
   ],
   viewer: [
-    'view_content',
+    'view_seeds',
     'view_drafts',
     'view_queue',
     'view_inbox',
@@ -126,8 +130,8 @@ export function canManageMembers(role: WorkspaceRole): boolean {
   return hasPermission(role, 'invite_members') || hasPermission(role, 'remove_members')
 }
 
-export function canManageContent(role: WorkspaceRole): boolean {
-  return hasPermission(role, 'edit_content')
+export function canManageSeeds(role: WorkspaceRole): boolean {
+  return hasPermission(role, 'edit_seeds')
 }
 
 export function canViewAuditLog(role: WorkspaceRole): boolean {
@@ -135,7 +139,7 @@ export function canViewAuditLog(role: WorkspaceRole): boolean {
 }
 
 export function canPublish(role: WorkspaceRole): boolean {
-  return hasPermission(role, 'publish_content')
+  return hasPermission(role, 'approve_publishing')
 }
 
 export function canManageSettings(role: WorkspaceRole): boolean {
