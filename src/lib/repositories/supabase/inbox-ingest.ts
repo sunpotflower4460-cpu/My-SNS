@@ -25,8 +25,11 @@ export async function upsertInboxItems(
   }))
 
   // ignoreDuplicates + onConflict targets inbox_items_external_dedupe_idx
-  // (see its migration): the same platform event delivered twice — a
-  // webhook retry, an overlapping manual sync — produces exactly one row.
+  // (see its migration — deliberately a plain, non-partial unique index:
+  // PostgREST's onConflict can only emit a bare column list, so it cannot
+  // target a partial index as the ON CONFLICT arbiter). The same platform
+  // event delivered twice — a webhook retry, an overlapping manual sync —
+  // produces exactly one row.
   const { data, error } = await supabase
     .from('inbox_items')
     .upsert(rows, { onConflict: 'workspace_id,platform,kind,external_id', ignoreDuplicates: true })

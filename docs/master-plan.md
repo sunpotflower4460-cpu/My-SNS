@@ -101,7 +101,7 @@
 
 ### PR6 — Webhook + Unified Inbox（MVP後拡張の第一弾、マージ済み）
 
-- `inbox_items` に `external_id` 列＋部分ユニークインデックス（`workspace_id, platform, kind, external_id` / `external_id IS NOT NULL`）を追加し、同一プラットフォームイベントの重複取り込み（Webhookの再送、手動syncとの競合）を1行に集約する。
+- `inbox_items` に `external_id` 列＋ユニークインデックス（`workspace_id, platform, kind, external_id`）を追加し、同一プラットフォームイベントの重複取り込み（Webhookの再送、手動syncとの競合）を1行に集約する。PostgRESTの`.upsert({onConflict})`はON CONFLICTにWHERE述語を付けられないため、部分インデックスではなく通常のユニークインデックスとした（NULLは互いに衝突しないため、外部同期由来でない行の一意性には影響しない）。あわせて`social_accounts`に`(platform, external_account_id) WHERE connected`の部分ユニークインデックスを追加し、同一プラットフォームアカウントが同時に複数ワークスペースへ接続される状態を防止する。
 - Instagram: Meta Graph API Webhook（`/api/webhooks/meta`）。GETでの購読検証ハンドシェイク、POSTでの`X-Hub-Signature-256`（HMAC-SHA256、`META_APP_SECRET`鍵、timing-safe比較）による署名検証を必須とし、未検証のペイロードは一切処理しない（fail-closed）。`comments`フィールドとInstagram Messagingの`messaging`配列を実装。`mentions`フィールドはコメント本文を含まないポインタのみのため、追加のGraph API呼び出しが必要な既知の未対応（正直なギャップ）として明示。
 - YouTube: `commentThreads.list`（既存の`youtube.readonly`スコープでカバー済み、追加同意不要）によるプル型コメント取得。チャンネル全体（`allThreadsRelatedToChannelId`）と動画単位（`videoId`）の両方に対応。
 - X・TikTok: 実装を試みるのではなく、正直な恒久的ギャップとして明示。Xは無料枠の書き込みスコープのみ要求しており、v2の読み取りエンドポイントやAccount Activity API Webhookは有料ティアが必要。TikTokのContent Posting APIスコープはエンゲージメントデータの読み取りを含まず、別途Display APIの審査が必要。

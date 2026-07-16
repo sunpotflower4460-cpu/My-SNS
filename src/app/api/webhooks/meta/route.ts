@@ -54,17 +54,26 @@ export async function POST(request: NextRequest) {
   const supabase = createServiceClient()
   let ingested = 0
 
+  // Each entry is processed independently: a single delivery can fan out
+  // events for several workspaces at once, and a failure on one (a transient
+  // DB error, an unexpected payload shape) must never suppress delivery to
+  // every other workspace in the same batch — nor turn into an uncaught 500
+  // that makes Meta retry-storm the whole payload forever.
   for (const entry of payload.entry ?? []) {
-    if (!entry.id) continue
+    try {
+      if (!entry.id) continue
 
-    // Not a workspace we know about (e.g. a delivery for an unrelated
-    // subscription) — ignore rather than error; Meta fans this app's
-    // webhook out to every subscribed page/account, not just ours.
-    const workspaceId = await resolveWorkspaceIdByExternalAccount(supabase, 'instagram', entry.id)
-    if (!workspaceId) continue
+      // Not a workspace we know about (e.g. a delivery for an unrelated
+      // subscription) — ignore rather than error; Meta fans this app's
+      // webhook out to every subscribed page/account, not just ours.
+      const workspaceId = await resolveWorkspaceIdByExternalAccount(supabase, 'instagram', entry.id)
+      if (!workspaceId) continue
 
-    const events = mapMetaWebhookEntry(entry)
-    ingested += await upsertInboxItems(supabase, workspaceId, events)
+      const events = mapMetaWebhookEntry(entry)
+      ingested += await upsertInboxItems(supabase, workspaceId, events)
+    } catch (cause) {
+      console.error('Failed to ingest a Meta webhook entry:', entry.id, cause)
+    }
   }
 
   // Always 200 once the signature is verified and the body parses, even when
