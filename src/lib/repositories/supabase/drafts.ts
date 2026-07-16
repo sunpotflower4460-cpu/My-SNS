@@ -1,5 +1,47 @@
-import type { SocialDraft } from '@/lib/domain/types'
+import type { DraftSource, SocialDraft } from '@/lib/domain/types'
 import { createClient } from '@/lib/supabase/client'
+
+interface SocialDraftRow {
+  id: string
+  workspace_id: string
+  seed_id: string
+  channel: SocialDraft['channel']
+  title?: string | null
+  draft_text: string
+  hashtags?: string[] | null
+  cta?: string | null
+  assumptions?: string[] | null
+  metadata?: Record<string, unknown> | null
+  source: DraftSource
+  tone: string
+  length: SocialDraft['length']
+  status: SocialDraft['status']
+  created_by: string
+  created_at: string
+  updated_at: string
+}
+
+function mapDraft(row: SocialDraftRow): SocialDraft {
+  return {
+    id: row.id,
+    workspaceId: row.workspace_id,
+    seedId: row.seed_id,
+    channel: row.channel,
+    title: row.title ?? undefined,
+    draftText: row.draft_text,
+    hashtags: row.hashtags ?? [],
+    cta: row.cta ?? undefined,
+    assumptions: row.assumptions ?? [],
+    metadata: row.metadata ?? {},
+    source: row.source,
+    tone: row.tone,
+    length: row.length,
+    status: row.status,
+    createdBy: row.created_by,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  }
+}
 
 export async function listWorkspaceDrafts(workspaceId: string): Promise<SocialDraft[]> {
   const supabase = createClient()
@@ -15,19 +57,7 @@ export async function listWorkspaceDrafts(workspaceId: string): Promise<SocialDr
     return []
   }
 
-  return (data || []).map((d) => ({
-    id: d.id,
-    workspaceId: d.workspace_id,
-    seedId: d.seed_id,
-    channel: d.channel,
-    draftText: d.draft_text,
-    tone: d.tone,
-    length: d.length,
-    status: d.status,
-    createdBy: d.created_by,
-    createdAt: d.created_at,
-    updatedAt: d.updated_at,
-  }))
+  return (data ?? []).map((row) => mapDraft(row as SocialDraftRow))
 }
 
 export async function listSeedDrafts(
@@ -48,19 +78,7 @@ export async function listSeedDrafts(
     return []
   }
 
-  return (data || []).map((d) => ({
-    id: d.id,
-    workspaceId: d.workspace_id,
-    seedId: d.seed_id,
-    channel: d.channel,
-    draftText: d.draft_text,
-    tone: d.tone,
-    length: d.length,
-    status: d.status,
-    createdBy: d.created_by,
-    createdAt: d.created_at,
-    updatedAt: d.updated_at,
-  }))
+  return (data ?? []).map((row) => mapDraft(row as SocialDraftRow))
 }
 
 export async function upsertSocialDraft(
@@ -69,71 +87,37 @@ export async function upsertSocialDraft(
 ): Promise<SocialDraft> {
   const supabase = createClient()
 
-  if (draft.id) {
-    // Update existing
-    const { data, error } = await supabase
-      .from('social_drafts')
-      .update({
-        draft_text: draft.draftText,
-        tone: draft.tone,
-        length: draft.length,
-        status: draft.status,
-      })
-      .eq('id', draft.id)
-      .eq('workspace_id', workspaceId)
-      .select()
-      .single()
-
-    if (error) {
-      throw new Error(error.message)
-    }
-
-    return {
-      id: data.id,
-      workspaceId: data.workspace_id,
-      seedId: data.seed_id,
-      channel: data.channel,
-      draftText: data.draft_text,
-      tone: data.tone,
-      length: data.length,
-      status: data.status,
-      createdBy: data.created_by,
-      createdAt: data.created_at,
-      updatedAt: data.updated_at,
-    }
-  } else {
-    // Create new
-    const { data, error } = await supabase
-      .from('social_drafts')
-      .insert({
-        workspace_id: draft.workspaceId,
-        seed_id: draft.seedId,
-        channel: draft.channel,
-        draft_text: draft.draftText,
-        tone: draft.tone,
-        length: draft.length,
-        status: draft.status,
-        created_by: draft.createdBy,
-      })
-      .select()
-      .single()
-
-    if (error) {
-      throw new Error(error.message)
-    }
-
-    return {
-      id: data.id,
-      workspaceId: data.workspace_id,
-      seedId: data.seed_id,
-      channel: data.channel,
-      draftText: data.draft_text,
-      tone: data.tone,
-      length: data.length,
-      status: data.status,
-      createdBy: data.created_by,
-      createdAt: data.created_at,
-      updatedAt: data.updated_at,
-    }
+  const values = {
+    draft_text: draft.draftText,
+    title: draft.title?.trim() || null,
+    hashtags: draft.hashtags,
+    cta: draft.cta?.trim() || null,
+    assumptions: draft.assumptions,
+    metadata: draft.metadata,
+    source: draft.source,
+    tone: draft.tone,
+    length: draft.length,
+    status: draft.status,
   }
+
+  const query = draft.id
+    ? supabase
+        .from('social_drafts')
+        .update(values)
+        .eq('id', draft.id)
+        .eq('workspace_id', workspaceId)
+    : supabase
+        .from('social_drafts')
+        .insert({
+          ...values,
+          workspace_id: draft.workspaceId,
+          seed_id: draft.seedId,
+          channel: draft.channel,
+          created_by: draft.createdBy,
+        })
+
+  const { data, error } = await query.select().single()
+  if (error) throw new Error(error.message)
+
+  return mapDraft(data as SocialDraftRow)
 }

@@ -1,16 +1,20 @@
-import type { Seed, SocialDraft, PublishingChannel, SocialPlatform, InboxItem } from '@/lib/domain/types'
+import type { BrandProfile, Seed, SocialDraft, PublishingChannel, SocialPlatform, InboxItem } from '@/lib/domain/types'
 
 // ─── Draft Generator ──────────────────────────────────────────────────────────
+export interface DraftGenerationContext {
+  workspaceName?: string
+  createdBy?: string
+  brandProfile?: BrandProfile | null
+}
+
 export interface DraftGeneratorService {
+  /** Returns unsaved proposals (ephemeral ids) — the caller decides whether to persist them. */
   generateDrafts(
     seed: Seed,
     channels: PublishingChannel[],
     tone: string,
     length: 'short' | 'medium' | 'long',
-    context?: {
-      workspaceName?: string
-      createdBy?: string
-    },
+    context?: DraftGenerationContext,
   ): Promise<SocialDraft[]>
 }
 

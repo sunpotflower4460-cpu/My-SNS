@@ -78,10 +78,11 @@ AIは文章生成だけではなく、発信準備・変換・判断補助を担
 |---|---|---|
 | PR0 | マージ済み | Supabase基盤の正常化。実Auth、Postgres、RLS、private Storage、実データ永続化、監査ログ、CI、未実装connectorのfail-closed化。 |
 | PR1 | マージ済み | ContentをSeedへ昇格し、Brand Profile、標準5チャンネル、Seed readiness、noteのreview＋copy方針を追加。 |
-| 現在できること | 実装済み | ログイン、ワークスペース、チーム権限、Seed保存、Brand Profile、ファイル保存、下書き画面、Queue、内部Inbox、設定、監査ログ。 |
-| まだできないこと | 未接続 | 実AI生成、SNS OAuth、実投稿、予約Worker、外部コメント/DM同期、Webhook、深い分析。 |
+| PR2 | マージ済み | 実AI（Anthropic）による媒体別ドラフト生成、assumptions表示、承認版（draft_revisions、追記専用）、コスト記録（ai_generations）を追加。APIキー未設定時はテンプレートへ明示的にフォールバック。 |
+| 現在できること | 実装済み | ログイン、ワークスペース、チーム権限、Seed保存、Brand Profile、実AI下書き生成と承認、Queue、内部Inbox、設定、監査ログ。 |
+| まだできないこと | 未接続 | SNS OAuth、実投稿、予約Worker、外部コメント/DM同期、Webhook、深い分析。 |
 
-実装順、各PRの詳細仕様は `docs/master-plan.md` を参照。次はPR2（AI提案＋承認）から着手する。
+実装順、各PRの詳細仕様は `docs/master-plan.md` を参照。次はPR3（Scheduling Engine）から着手する。
 
 ## 7. MVPの完成条件
 

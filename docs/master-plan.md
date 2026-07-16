@@ -23,8 +23,8 @@
 |---|---|---|
 | PR0 | Supabase基盤の正常化 | ✅ マージ済み (#6) |
 | PR1 | Seed / Brand Profile 基盤、5標準チャンネル、readiness、note review+copy方針 | ✅ マージ済み (#7) |
-| PR2 | AI提案＋承認 | 次に着手 |
-| PR3 | Scheduling Engine | PR2の後 |
+| PR2 | AI提案＋承認 | ✅ マージ済み |
+| PR3 | Scheduling Engine | 次に着手 |
 | PR4 | X + Instagram コネクタ | PR3の後 |
 | PR5 | YouTube + TikTok コネクタ + note handoff（ここまででMVP） | PR4の後 |
 | PR6 | Webhook + Unified Inbox | MVP後 |
@@ -48,9 +48,9 @@
 
 - [x] Seedに文章・ファイル・目的・重要点・対象媒体を一度だけ入力できる（PR1）
 - [x] Brand Profileを5媒体分の生成に再利用できる（PR1）
-- [ ] 実AIが構造化された媒体別ドラフトを生成する（PR2）
-- [ ] 不足情報・AIの推測箇所（assumptions）が明確に区別される（PR2）
-- [ ] 媒体別の修正・承認を行い、承認版（Revision）を固定できる（PR2）
+- [x] 実AIが構造化された媒体別ドラフトを生成する（PR2、`ANTHROPIC_API_KEY`未設定時はテンプレートへ明示的にフォールバック）
+- [x] 不足情報・AIの推測箇所（assumptions）が明確に区別される（PR2）
+- [x] 媒体別の修正・承認を行い、承認版（Revision）を固定できる（PR2、`draft_revisions`は追記専用）
 - [ ] X・Instagram・YouTubeのうち利用可能な連携先へ予約または即時投稿できる（PR3〜PR5）
 - [ ] TikTokは権限に応じて自動投稿または承認済み受け渡しができる（PR5）
 - [ ] noteは完成原稿の確認・コピー・手動完了記録まで短い導線で行える（PR5）

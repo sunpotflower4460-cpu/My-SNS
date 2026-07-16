@@ -2,7 +2,7 @@
 
 A calm, workspace-centric Creator OS for capturing one source Seed, preserving a reusable Brand Profile, preparing channel drafts, triaging inbox activity, and coordinating publishing.
 
-## Phase 2A + PR0 + PR1 foundation ✅
+## Phase 2A + PR0 + PR1 + PR2 foundation ✅
 
 The app is now backed by **real Supabase infrastructure** while preserving the existing UI and architecture.
 
@@ -16,6 +16,9 @@ The app is now backed by **real Supabase infrastructure** while preserving the e
 - **Row-level security (RLS)** policies protecting all workspace data
 - **Seed Library and one-place Seed intake** for source text, files, purpose, audience, key facts, CTA, and five target channels
 - **Workspace Brand Profile** kept separate from each Seed, including voice, values, preferred wording, and avoided claims
+- **Real AI draft proposals** via `/api/drafts/generate` (Anthropic), with explicit `assumptions` surfaced for every guess and a labeled deterministic template fallback when no API key is configured
+- **Immutable Revisions**: approving a draft permanently snapshots what was approved into `draft_revisions`; later Seed or Brand Profile edits cannot change history
+- **AI cost/usage tracking** in `ai_generations` (model, token counts, estimated cost)
 - **Dashboard, Seed detail, draft studio, queue, inbox, team, brand, and settings flows** with real persistence
 - **Audit events** logged to database
 - **Workspace roles** (owner, admin, editor, contributor, viewer) enforced via RLS
@@ -26,7 +29,6 @@ The app is now backed by **real Supabase infrastructure** while preserving the e
 - Webhook ingestion from social platforms
 - Background publishing jobs and workers
 - Advanced notifications
-- Real AI provider integration
 - Billing/usage metering
 - Deep analytics dashboards
 
@@ -50,6 +52,8 @@ NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=your-anon-key-here
 SUPABASE_SECRET_KEY=your-service-role-key-here
 ```
 
+Optionally set `ANTHROPIC_API_KEY` to enable real AI draft proposals (server-only, never sent to the browser). Without it, `/api/drafts/generate` falls back to deterministic templates and says so explicitly in the response — it never presents a template as an AI proposal. See `.env.example` for the full list of AI-related variables (model override, optional cost-per-token for `ai_generations.cost_usd`).
+
 ### Setting up Supabase
 
 1. **Create a Supabase project** at [supabase.com](https://supabase.com)
@@ -62,7 +66,8 @@ SUPABASE_SECRET_KEY=your-service-role-key-here
      - `supabase/migrations/20260421000002_triggers.sql`
      - `supabase/migrations/20260715000000_private_asset_storage.sql`
      - `supabase/migrations/20260715010000_seed_brand_profile_foundation.sql`
-3. The PR0 migration makes assets private; the PR1 migration preserves existing rows while promoting `contents` to `seeds` and adding `brand_profiles`.
+     - `supabase/migrations/20260716000000_ai_draft_generation.sql`
+3. The PR0 migration makes assets private; the PR1 migration preserves existing rows while promoting `contents` to `seeds` and adding `brand_profiles`; the PR2 migration adds structured proposal fields to `social_drafts` plus the append-only `draft_revisions` and `ai_generations` tables.
 4. **Copy your project credentials** to `.env.local`
 
 ## Local development
@@ -93,6 +98,7 @@ src/
     providers.tsx              Auth + App provider composition
     login/page.tsx             Magic link auth flow
     app/                       Protected app routes
+    api/drafts/generate/       Server-only AI draft generation route
   components/
     layout/                    Sidebar, top bar, workspace switcher
     ui/                        Shared presentation components
@@ -101,11 +107,11 @@ src/
   lib/
     auth/                      Supabase Auth provider
     app/                       App provider with Supabase repositories
-    repositories/supabase/     Seed, Brand Profile, and workspace repositories
+    repositories/supabase/     Seed, Brand Profile, Draft/Revision, and workspace repositories
     storage/supabase/          Supabase Storage adapter
-    supabase/                  Supabase client setup
+    supabase/                  Supabase client setup (browser + server)
     domain/                    Shared domain types
-    services/                  Transparent channel templates + disabled connector seams
+    services/                  Template drafts, Anthropic-backed drafts (server-only), and disabled connector seams
 ```
 
 ## Database schema
@@ -118,7 +124,9 @@ The app uses the following main tables:
 - **seeds** - Raw source inputs captured once before channel adaptation
 - **brand_profiles** - Reusable voice, audience, values, and wording boundaries
 - **assets** - Private asset metadata linked to Seeds
-- **social_drafts** - Channel-specific draft variations
+- **social_drafts** - Channel-specific draft variations (title, hashtags, CTA, assumptions, channel-specific metadata, source)
+- **draft_revisions** - Append-only, immutable snapshot of each approved draft
+- **ai_generations** - Model, token counts, and estimated cost for each real AI generation call
 - **publish_jobs** - Publishing queue
 - **inbox_items** - Inbox messages (internal for now)
 - **inbox_notes** - Internal notes on inbox items
@@ -190,8 +198,8 @@ The **mock app provider** has been replaced by **Supabase app provider** that lo
 
 The delivery order intentionally leaves manual provider setup until the integration code is ready:
 
-1. **PR2** — structured AI proposals, missing-information suggestions, and explicit approval
-2. **PR3** — scheduling rules, immutable approved revisions, and worker seams
+1. ~~**PR2** — structured AI proposals, missing-information suggestions, and explicit approval~~ ✅
+2. **PR3** — scheduling engine (`publish_attempts`, Worker, retry/cancel, Queue state UI)
 3. **PR4** — X and Instagram adapters
 4. **PR5** — YouTube and TikTok adapters plus note review/copy handoff
 
@@ -200,7 +208,7 @@ The delivery order intentionally leaves manual provider setup until the integrat
 ## Known limitations
 
 - Social connectors are placeholder (no real OAuth or posting yet)
-- Draft generation is a clearly labeled deterministic template preview (no AI provider yet)
+- AI draft generation requires `ANTHROPIC_API_KEY`; without it, `/api/drafts/generate` returns clearly labeled deterministic templates instead
 - Inbox syncing is internal only (no external platform messages yet)
 - Publishing is queued but not executed by background workers yet
 

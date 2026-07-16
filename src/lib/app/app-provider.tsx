@@ -21,10 +21,12 @@ import type {
   WorkspaceRole,
 } from '@/lib/domain/types'
 import { useAuth } from '@/lib/auth/auth-provider'
+import { hasPermission } from '@/lib/permissions'
 import * as workspacesRepo from '@/lib/repositories/supabase/workspaces'
 import * as seedsRepo from '@/lib/repositories/supabase/seeds'
 import * as brandProfilesRepo from '@/lib/repositories/supabase/brand-profiles'
 import * as draftsRepo from '@/lib/repositories/supabase/drafts'
+import * as draftRevisionsRepo from '@/lib/repositories/supabase/draft-revisions'
 import * as inboxRepo from '@/lib/repositories/supabase/inbox'
 import * as queueRepo from '@/lib/repositories/supabase/queue'
 import * as auditRepo from '@/lib/repositories/supabase/audit'
@@ -89,7 +91,14 @@ interface AppContextValue {
   cancelQueueJob: (jobId: string) => Promise<PublishJob>
   saveDraft: (draft: Omit<SocialDraft, 'id' | 'createdAt' | 'updatedAt'> & { id?: string }) => Promise<SocialDraft>
   approveDraft: (draftId: string) => Promise<SocialDraft>
+  saveAndApproveDraft: (draft: Omit<SocialDraft, 'id' | 'createdAt' | 'updatedAt'> & { id?: string }) => Promise<SocialDraft>
   getDraftsForSeed: (seedId: string) => SocialDraft[]
+  generateChannelDrafts: (
+    seedId: string,
+    channels: PublishingChannel[],
+    tone: string,
+    length: 'short' | 'medium' | 'long',
+  ) => Promise<{ source: 'ai' | 'template-fallback'; reason?: string; drafts: SocialDraft[] }>
 }
 
 const AppContext = createContext<AppContextValue | null>(null)
@@ -217,6 +226,56 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   const value = useMemo<AppContextValue>(() => {
     const assetStorage = new SupabaseAssetStorage()
+
+    // Shared by approveDraft (an already-saved draft) and saveAndApproveDraft
+    // (a freshly generated, not-yet-saved proposal): persists the draft as
+    // approved, then freezes its content into an immutable Revision. Later
+    // edits to the Seed, Brand Profile, or this draft cannot change what this
+    // recorded — that is the whole point of a Revision.
+    const approveDraftContent = async (
+      draft: Omit<SocialDraft, 'id' | 'createdAt' | 'updatedAt'> & { id?: string },
+    ): Promise<SocialDraft> => {
+      if (!currentWorkspace || !currentUserId) throw new Error('Not ready')
+      // Checked before writing anything: the Revision insert below is RLS-restricted
+      // to owner/admin/editor too, but failing there would leave the draft already
+      // saved as "approved" with no Revision — checked here first so approval is
+      // all-or-nothing instead of a silently broken partial state.
+      if (!currentMember || !hasPermission(currentMember.role, 'approve_drafts')) {
+        throw new Error('Your role cannot approve drafts.')
+      }
+
+      const approved = await draftsRepo.upsertSocialDraft(currentWorkspace.id, {
+        ...draft,
+        status: 'approved',
+      })
+
+      await draftRevisionsRepo.createDraftRevision({
+        workspaceId: currentWorkspace.id,
+        seedId: approved.seedId,
+        socialDraftId: approved.id,
+        channel: approved.channel,
+        title: approved.title,
+        body: approved.draftText,
+        hashtags: approved.hashtags,
+        cta: approved.cta,
+        assumptions: approved.assumptions,
+        metadata: approved.metadata,
+        source: approved.source,
+        approvedBy: currentUserId,
+      })
+
+      await auditRepo.appendAuditLog({
+        workspaceId: currentWorkspace.id,
+        actorId: currentUserId,
+        action: 'draft_revision_approved',
+        targetType: 'social_draft',
+        targetId: approved.id,
+        metadata: { channel: approved.channel, source: approved.source },
+      })
+
+      await refreshWorkspaceData()
+      return approved
+    }
 
     return {
       isReady: isReady && authReady,
@@ -581,31 +640,32 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       },
 
       approveDraft: async (draftId) => {
-        if (!currentWorkspace || !currentUserId) throw new Error('Not ready')
-
         const currentDraft = drafts.find((d) => d.id === draftId)
         if (!currentDraft) throw new Error('Draft not found')
-
-        const approved = await draftsRepo.upsertSocialDraft(currentWorkspace.id, {
-          ...currentDraft,
-          status: 'approved',
-        })
-
-        await auditRepo.appendAuditLog({
-          workspaceId: currentWorkspace.id,
-          actorId: currentUserId,
-          action: 'draft_edited',
-          targetType: 'social_draft',
-          targetId: approved.id,
-          metadata: { approved: true, channel: approved.channel },
-        })
-
-        await refreshWorkspaceData()
-        return approved
+        return approveDraftContent(currentDraft)
       },
+
+      saveAndApproveDraft: async (draft) => approveDraftContent(draft),
 
       getDraftsForSeed: (seedId) => {
         return drafts.filter((draft) => draft.seedId === seedId)
+      },
+
+      generateChannelDrafts: async (seedId, channels, tone, length) => {
+        if (!currentWorkspace) throw new Error('Not ready')
+
+        const response = await fetch('/api/drafts/generate', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ workspaceId: currentWorkspace.id, seedId, channels, tone, length }),
+        })
+
+        const payload = await response.json()
+        if (!response.ok) {
+          throw new Error(payload.error ?? 'Unable to generate drafts.')
+        }
+
+        return payload as { source: 'ai' | 'template-fallback'; reason?: string; drafts: SocialDraft[] }
       },
     }
   }, [

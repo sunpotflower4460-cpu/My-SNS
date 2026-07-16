@@ -39,7 +39,7 @@ interface BrandProfileRow {
   updated_at: string
 }
 
-interface SeedRow {
+export interface SeedRow {
   id: string
   workspace_id: string
   title: string
@@ -87,7 +87,7 @@ function mapBrandProfile(row?: BrandProfileRow): BrandProfile | undefined {
   }
 }
 
-function mapSeed(row: SeedRow): Seed {
+export function mapSeed(row: SeedRow): Seed {
   const creator = firstRelation<Record<string, string | null>>(row.creator)
   const brandProfile = mapBrandProfile(firstRelation<BrandProfileRow>(row.brand_profile))
 
@@ -119,7 +119,7 @@ function mapSeed(row: SeedRow): Seed {
   }
 }
 
-const SEED_SELECT = `
+export const SEED_SELECT = `
   *,
   creator:profiles(*),
   brand_profile:brand_profiles(*)
