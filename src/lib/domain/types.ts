@@ -261,12 +261,31 @@ export interface InboxItem {
   authorAvatarUrl?: string
   text: string
   seedId?: string
+  /** The platform-native id (e.g. an Instagram comment id) — set for items ingested from a webhook or a sync, absent for anything else. */
+  externalId?: string
   receivedAt: string
   isRead: boolean
   needsAction: boolean
   isStarred: boolean
   aiSummary?: string
   relatedSeed?: Seed
+}
+
+// ─── Inbound Inbox Events (not yet persisted) ──────────────────────────────────
+/**
+ * One comment/mention/DM/reply as reported by a platform — a webhook payload
+ * or a connector's pull-based fetch — before it becomes an `InboxItem` row.
+ * `externalId` is the platform-native id used to dedupe: the same event can
+ * be delivered more than once (a webhook retry, an overlapping manual sync).
+ */
+export interface InboundInboxEvent {
+  platform: SocialPlatform
+  kind: InboxKind
+  externalId: string
+  authorHandle: string
+  authorAvatarUrl?: string
+  text: string
+  receivedAt: string
 }
 
 // ─── Inbox Notes ──────────────────────────────────────────────────────────────

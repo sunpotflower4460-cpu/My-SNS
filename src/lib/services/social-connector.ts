@@ -1,5 +1,5 @@
-import type { InboxItem, SocialPlatform } from '@/lib/domain/types'
-import type { ConnectedAccount, PublishRequest, PublishResult, SocialConnectorAdapter } from './interfaces'
+import type { InboundInboxEvent, SocialPlatform } from '@/lib/domain/types'
+import type { ConnectedAccount, InboxFetchRequest, PublishRequest, PublishResult, SocialConnectorAdapter } from './interfaces'
 
 function connectorUnavailable(operation: string, platform?: SocialPlatform): never {
   const target = platform ? ` for ${platform}` : ''
@@ -23,20 +23,20 @@ export class UnavailableSocialConnectorAdapter implements SocialConnectorAdapter
     return connectorUnavailable('Publishing', request.platform)
   }
 
-  async fetchInbox(platform: SocialPlatform): Promise<InboxItem[]> {
-    return connectorUnavailable('Inbox sync', platform)
+  async fetchInbox(request: InboxFetchRequest): Promise<InboundInboxEvent[]> {
+    return connectorUnavailable('Inbox sync', request.platform)
   }
 
-  async fetchComments(platform: SocialPlatform): Promise<InboxItem[]> {
-    return connectorUnavailable('Comment sync', platform)
+  async fetchComments(request: InboxFetchRequest & { postId: string }): Promise<InboundInboxEvent[]> {
+    return connectorUnavailable('Comment sync', request.platform)
   }
 
-  async fetchMentions(platform: SocialPlatform): Promise<InboxItem[]> {
-    return connectorUnavailable('Mention sync', platform)
+  async fetchMentions(request: InboxFetchRequest): Promise<InboundInboxEvent[]> {
+    return connectorUnavailable('Mention sync', request.platform)
   }
 
-  async fetchMessages(platform: SocialPlatform): Promise<InboxItem[]> {
-    return connectorUnavailable('Message sync', platform)
+  async fetchMessages(request: InboxFetchRequest): Promise<InboundInboxEvent[]> {
+    return connectorUnavailable('Message sync', request.platform)
   }
 
   generateOpenUrl(platform: SocialPlatform, handle: string): string {

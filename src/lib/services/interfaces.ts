@@ -1,4 +1,4 @@
-import type { BrandProfile, Seed, SocialDraft, PublishingChannel, SocialPlatform, InboxItem } from '@/lib/domain/types'
+import type { BrandProfile, Seed, SocialDraft, PublishingChannel, SocialPlatform, InboundInboxEvent } from '@/lib/domain/types'
 
 // ─── Draft Generator ──────────────────────────────────────────────────────────
 export interface DraftGenerationContext {
@@ -61,14 +61,26 @@ export interface ConnectedAccount {
   handle: string
 }
 
+/**
+ * Credentials the caller resolved for one connected account — mirrors
+ * PublishRequest's shape/philosophy: the adapter never touches the
+ * database itself, it just receives what it needs to call the platform.
+ */
+export interface InboxFetchRequest {
+  platform: SocialPlatform
+  accessToken: string
+  externalAccountId?: string
+  handle?: string
+}
+
 export interface SocialConnectorAdapter {
   connect(platform: SocialPlatform, authCode: string, options: ConnectOptions): Promise<ConnectedAccount>
   disconnect(platform: SocialPlatform): Promise<void>
   refreshAccessToken(platform: SocialPlatform, refreshToken: string): Promise<ConnectedAccount>
   publish(request: PublishRequest): Promise<PublishResult>
-  fetchInbox(platform: SocialPlatform, workspaceId: string): Promise<InboxItem[]>
-  fetchComments(platform: SocialPlatform, postId: string): Promise<InboxItem[]>
-  fetchMentions(platform: SocialPlatform, workspaceId: string): Promise<InboxItem[]>
-  fetchMessages(platform: SocialPlatform, workspaceId: string): Promise<InboxItem[]>
+  fetchInbox(request: InboxFetchRequest): Promise<InboundInboxEvent[]>
+  fetchComments(request: InboxFetchRequest & { postId: string }): Promise<InboundInboxEvent[]>
+  fetchMentions(request: InboxFetchRequest): Promise<InboundInboxEvent[]>
+  fetchMessages(request: InboxFetchRequest): Promise<InboundInboxEvent[]>
   generateOpenUrl(platform: SocialPlatform, handle: string): string
 }
