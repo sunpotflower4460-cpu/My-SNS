@@ -6,7 +6,9 @@ import StatCard from '@/components/ui/StatCard'
 import ChannelBadge from '@/components/ui/ChannelBadge'
 import EmptyState from '@/components/ui/EmptyState'
 import { useApp } from '@/lib/app/app-provider'
-import { wasRevisionEditedByHuman } from '@/lib/repositories/supabase/draft-revisions'
+import { wasRevisionEditedByHuman, WORKSPACE_DRAFT_REVISIONS_LIMIT } from '@/lib/repositories/supabase/draft-revisions'
+import { WORKSPACE_PUBLISH_ATTEMPTS_LIMIT } from '@/lib/repositories/supabase/publish-attempts'
+import { WORKSPACE_AI_GENERATIONS_LIMIT } from '@/lib/repositories/supabase/ai-generations'
 import type { PostMetrics, PublishFailureReason, PublishingChannel } from '@/lib/domain/types'
 
 const FAILURE_REASON_LABELS: Record<PublishFailureReason, string> = {
@@ -26,6 +28,15 @@ type MetricsState = { status: 'loading' } | { status: 'loaded'; metrics: PostMet
 export default function AnalyticsPage() {
   const { aiGenerations, currentWorkspace, draftRevisions, fetchPostMetrics, publishAttempts, publishJobs, seeds } = useApp()
   const [metricsByJob, setMetricsByJob] = useState<Record<string, MetricsState>>({})
+
+  // Every workspace-wide list below is capped (see each repo function) —
+  // when the loaded count hits its cap, older history may be missing from
+  // every stat derived from it. Rather than silently present a truncated
+  // window as if it were the complete record, say so.
+  const isTruncated =
+    publishAttempts.length >= WORKSPACE_PUBLISH_ATTEMPTS_LIMIT ||
+    aiGenerations.length >= WORKSPACE_AI_GENERATIONS_LIMIT ||
+    draftRevisions.length >= WORKSPACE_DRAFT_REVISIONS_LIMIT
 
   const successAttempts = useMemo(() => publishAttempts.filter((attempt) => attempt.status === 'success'), [publishAttempts])
   const failedAttempts = useMemo(() => publishAttempts.filter((attempt) => attempt.status === 'failed'), [publishAttempts])
@@ -97,6 +108,12 @@ export default function AnalyticsPage() {
         title="Analytics"
         description={`How publishing and AI proposals are actually going in ${currentWorkspace?.name ?? 'this workspace'} — derived from real attempt records, not estimates.`}
       />
+
+      {isTruncated && (
+        <div className="mb-6 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+          This workspace has more history than these stats cover — figures below reflect only the most recent activity, not the complete all-time record.
+        </div>
+      )}
 
       <div className="mb-8 grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <StatCard label="Publish success rate" value={successRate === null ? '—' : `${successRate}%`} icon="✅" trend={`${successAttempts.length} of ${totalAttempts} attempts`} />

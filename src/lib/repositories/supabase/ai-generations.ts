@@ -69,8 +69,12 @@ export async function recordAiGeneration(
   return mapGeneration(data as AiGenerationRow)
 }
 
+// See WORKSPACE_PUBLISH_ATTEMPTS_LIMIT's comment in publish-attempts.ts —
+// same reasoning, exported for the same truncation-labeling purpose.
+export const WORKSPACE_AI_GENERATIONS_LIMIT = 2000
+
 /** For the Analytics page (PR7): total AI cost/usage, and how it breaks down by model/channel. */
-export async function listWorkspaceAiGenerations(workspaceId: string, limit = 500): Promise<AiGeneration[]> {
+export async function listWorkspaceAiGenerations(workspaceId: string, limit = WORKSPACE_AI_GENERATIONS_LIMIT): Promise<AiGeneration[]> {
   const supabase = createClient()
 
   const { data, error } = await supabase

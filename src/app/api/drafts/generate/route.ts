@@ -137,7 +137,12 @@ export async function POST(request: NextRequest) {
       action: 'draft_ai_generated',
       target_type: 'seed',
       target_id: seedId,
-      metadata: { channels: typedChannels, model: result.model, aiGenerationId: generation.id },
+      // styleExamplesUsed: traceability for PR7's cross-Seed style learning —
+      // this generation's prompt may have included wording a human approved
+      // on a *different* Seed (see listRecentAiRevisionsForStyleLearning),
+      // so the audit log should say when that happened, not just that a
+      // generation occurred.
+      metadata: { channels: typedChannels, model: result.model, aiGenerationId: generation.id, styleExamplesUsed: styleExamples.length },
     })
 
     return NextResponse.json({

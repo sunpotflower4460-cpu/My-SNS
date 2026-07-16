@@ -45,4 +45,22 @@ describe('wasRevisionEditedByHuman', () => {
     const revision = { ...baseRevision, title: undefined, cta: undefined, aiOriginalSnapshot: { body: baseRevision.body, hashtags: [] } }
     expect(wasRevisionEditedByHuman(revision)).toBe(false)
   })
+
+  it('is true when only the hashtags changed, even if body/title/cta did not', () => {
+    const revision = {
+      ...baseRevision,
+      hashtags: ['music'],
+      aiOriginalSnapshot: { body: baseRevision.body, hashtags: ['music', 'offbrand'] },
+    }
+    expect(wasRevisionEditedByHuman(revision)).toBe(true)
+  })
+
+  it('treats reordered hashtags as unedited, not as a diff', () => {
+    const revision = {
+      ...baseRevision,
+      hashtags: ['b', 'a'],
+      aiOriginalSnapshot: { body: baseRevision.body, hashtags: ['a', 'b'] },
+    }
+    expect(wasRevisionEditedByHuman(revision)).toBe(false)
+  })
 })

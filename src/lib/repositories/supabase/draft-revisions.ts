@@ -117,7 +117,11 @@ export async function listSeedRevisions(workspaceId: string, seedId: string): Pr
   return (data ?? []).map((row) => mapRevision(row as DraftRevisionRow))
 }
 
-export async function listWorkspaceDraftRevisions(workspaceId: string, limit = 200): Promise<DraftRevision[]> {
+// See WORKSPACE_PUBLISH_ATTEMPTS_LIMIT's comment in publish-attempts.ts —
+// same reasoning, exported for the same truncation-labeling purpose.
+export const WORKSPACE_DRAFT_REVISIONS_LIMIT = 1000
+
+export async function listWorkspaceDraftRevisions(workspaceId: string, limit = WORKSPACE_DRAFT_REVISIONS_LIMIT): Promise<DraftRevision[]> {
   const supabase = createClient()
 
   const { data, error } = await supabase
@@ -135,14 +139,19 @@ export async function listWorkspaceDraftRevisions(workspaceId: string, limit = 2
   return (data ?? []).map((row) => mapRevision(row as DraftRevisionRow))
 }
 
-/** True when the approved content actually differs from what the AI originally proposed — false for template-sourced Revisions and anything approved unedited. */
+function sortedHashtags(hashtags: string[]): string {
+  return [...hashtags].sort().join(',')
+}
+
+/** True when the approved content actually differs from what the AI originally proposed — false for template-sourced Revisions and anything approved unedited. Compares every field the snapshot carries, including hashtags (order-insensitive) — a hashtag-only correction is still a real, learnable edit. */
 export function wasRevisionEditedByHuman(revision: DraftRevision): boolean {
   const snapshot = revision.aiOriginalSnapshot
   if (!snapshot) return false
   return (
     revision.body !== snapshot.body ||
     (revision.title ?? '') !== (snapshot.title ?? '') ||
-    (revision.cta ?? '') !== (snapshot.cta ?? '')
+    (revision.cta ?? '') !== (snapshot.cta ?? '') ||
+    sortedHashtags(revision.hashtags) !== sortedHashtags(snapshot.hashtags)
   )
 }
 
