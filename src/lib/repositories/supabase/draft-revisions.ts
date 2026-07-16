@@ -77,6 +77,24 @@ export async function getLatestDraftRevision(workspaceId: string, socialDraftId:
   return data ? mapRevision(data as DraftRevisionRow) : null
 }
 
+export async function getDraftRevisionById(workspaceId: string, revisionId: string): Promise<DraftRevision | null> {
+  const supabase = createClient()
+
+  const { data, error } = await supabase
+    .from('draft_revisions')
+    .select('*')
+    .eq('workspace_id', workspaceId)
+    .eq('id', revisionId)
+    .maybeSingle()
+
+  if (error) {
+    console.error('Error fetching draft revision:', error)
+    return null
+  }
+
+  return data ? mapRevision(data as DraftRevisionRow) : null
+}
+
 export async function listSeedRevisions(workspaceId: string, seedId: string): Promise<DraftRevision[]> {
   const supabase = createClient()
 

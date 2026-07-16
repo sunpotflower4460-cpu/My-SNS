@@ -33,7 +33,8 @@
 - PR2: AI提案＋承認（`/api/drafts/generate`、`draft_revisions`、`ai_generations`） — マージ済み
 - PR3: Scheduling Engine（`publish_jobs.publish_mode`/`revision_id`、`publish_attempts`、Worker `/api/publish/run`） — マージ済み。実コネクタは未接続のため`auto`投稿は`unavailable`で安全に失敗する。
 - PR4: X＋Instagram コネクタ（OAuth接続、トークン暗号化保存`social_account_credentials`、実投稿アダプタ） — マージ済み。Instagramはメディア添付機能が未実装のため投稿時は明示的なエラーで安全に停止する。
-- 次: PR5 YouTube＋TikTok＋note handoff（ここまででMVP完成）
+- PR5: YouTube＋TikTok コネクタ＋noteハンドオフ — マージ済み。**MVP完成**（`docs/master-plan.md` §4）。YouTube（assisted）・TikTok（draft）はWorkerが自動実行せず、Queueの「Publish now」で人間が明示的に実行する。YouTube/TikTokもメディア添付が未実装のため投稿時は明示的なエラーで安全に停止する。noteはMarkdownコピー＋手動完了記録で完結。
+- 次: PR6 Webhook＋Unified Inbox（MVP後の拡張フェーズ）
 
 ## 最後にまとめて行う本人操作
 

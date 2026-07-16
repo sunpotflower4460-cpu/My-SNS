@@ -7,7 +7,9 @@ import StatusBadge from '@/components/ui/StatusBadge'
 import EmptyState from '@/components/ui/EmptyState'
 import { useApp } from '@/lib/app/app-provider'
 import { hasPermission } from '@/lib/permissions'
-import type { PublishJobStatus } from '@/lib/domain/types'
+import { getDraftRevisionById } from '@/lib/repositories/supabase/draft-revisions'
+import { formatRevisionForNote } from '@/lib/services/note-handoff'
+import type { PublishJob, PublishJobStatus } from '@/lib/domain/types'
 
 const STATUS_FILTERS: Array<{ label: string; value: PublishJobStatus | 'all' }> = [
   { label: 'All', value: 'all' },
@@ -18,8 +20,10 @@ const STATUS_FILTERS: Array<{ label: string; value: PublishJobStatus | 'all' }> 
   { label: 'Cancelled', value: 'cancelled' },
 ]
 
+const ACTIVE_STATUSES: PublishJobStatus[] = ['scheduled', 'draft', 'failed']
+
 export default function QueuePage() {
-  const { cancelQueueJob, completeManualPublish, currentMember, publishJobs, retryQueueJob, seeds } = useApp()
+  const { cancelQueueJob, completeManualPublish, currentMember, currentWorkspace, publishJobs, retryQueueJob, seeds, triggerPublishJob } = useApp()
   const canManageQueue = Boolean(currentMember && hasPermission(currentMember.role, 'manage_queue'))
   const [activeStatus, setActiveStatus] = useState<PublishJobStatus | 'all'>('all')
   const [feedback, setFeedback] = useState('')
@@ -76,6 +80,37 @@ export default function QueuePage() {
     }
   }
 
+  const handleTrigger = async (jobId: string) => {
+    setBusyJobId(jobId)
+    try {
+      const result = await triggerPublishJob(jobId)
+      setFeedback(result.success ? 'Published.' : 'Publish attempt failed — see the error below.')
+      setError('')
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'Unable to publish this job.')
+      setFeedback('')
+    } finally {
+      setBusyJobId(null)
+    }
+  }
+
+  const handleCopyForNote = async (job: PublishJob) => {
+    if (!currentWorkspace) return
+    setBusyJobId(job.id)
+    try {
+      const revision = await getDraftRevisionById(currentWorkspace.id, job.revisionId)
+      if (!revision) throw new Error('Could not find the approved content for this job.')
+      await navigator.clipboard.writeText(formatRevisionForNote(revision))
+      setFeedback('Copied — paste it into note.com, then Mark as posted once it is live.')
+      setError('')
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'Unable to copy this draft.')
+      setFeedback('')
+    } finally {
+      setBusyJobId(null)
+    }
+  }
+
   return (
     <div>
       <PageHeader title="Publish Queue" description="Track scheduled, failed, and draft publish jobs in this workspace." />
@@ -103,7 +138,9 @@ export default function QueuePage() {
       ) : (
         <div className="overflow-hidden rounded-[2rem] border border-stone-200 bg-white shadow-sm shadow-stone-100/80">
           <div className="divide-y divide-stone-100">
-            {filtered.map((job) => (
+            {filtered.map((job) => {
+              const isActive = ACTIVE_STATUSES.includes(job.status)
+              return (
               <div key={job.id} className="flex flex-col gap-4 px-6 py-5 lg:flex-row lg:items-center">
                 <div className="flex items-center gap-3">
                   <ChannelBadge channel={job.channel} />
@@ -121,14 +158,34 @@ export default function QueuePage() {
                           ? job.publishedAt ? `Published: ${new Date(job.publishedAt).toLocaleString()}` : 'Published'
                           : job.publishMode === 'manual'
                             ? 'Waiting for you to post it and record completion'
-                            : job.scheduledAt
-                              ? `Scheduled: ${new Date(job.scheduledAt).toLocaleString()}`
-                              : 'Not scheduled yet'}
+                            : job.publishMode === 'assisted' || job.publishMode === 'draft'
+                              ? 'Needs a manual "Publish now" — not picked up automatically'
+                              : job.scheduledAt
+                                ? `Scheduled: ${new Date(job.scheduledAt).toLocaleString()}`
+                                : 'Not scheduled yet'}
                   </p>
                   {job.errorMessage && <p className="mt-2 text-xs text-red-500">{job.errorMessage}</p>}
                 </div>
                 <div className="flex flex-wrap items-center gap-2 lg:justify-end">
-                  {canManageQueue && job.publishMode === 'manual' && (job.status === 'draft' || job.status === 'scheduled') && (
+                  {canManageQueue && job.channel === 'note' && isActive && (
+                    <button
+                      onClick={() => void handleCopyForNote(job)}
+                      disabled={busyJobId === job.id}
+                      className="rounded-2xl border border-stone-200 px-3 py-2 text-xs font-medium text-gray-600 transition hover:bg-stone-50 disabled:cursor-wait disabled:opacity-50"
+                    >
+                      Copy for note.com
+                    </button>
+                  )}
+                  {canManageQueue && (job.publishMode === 'assisted' || job.publishMode === 'draft') && isActive && (
+                    <button
+                      onClick={() => handleTrigger(job.id)}
+                      disabled={busyJobId === job.id}
+                      className="rounded-2xl bg-violet-600 px-3 py-2 text-xs font-medium text-white transition hover:bg-violet-700 disabled:cursor-wait disabled:opacity-50"
+                    >
+                      Publish now
+                    </button>
+                  )}
+                  {canManageQueue && isActive && job.publishMode !== 'auto' && (
                     <button
                       onClick={() => handleCompleteManually(job.id)}
                       disabled={busyJobId === job.id}
@@ -137,7 +194,7 @@ export default function QueuePage() {
                       Mark as posted
                     </button>
                   )}
-                  {canManageQueue && job.status === 'failed' && (
+                  {canManageQueue && job.status === 'failed' && job.publishMode === 'auto' && (
                     <button
                       onClick={() => handleRetry(job.id)}
                       disabled={busyJobId === job.id}
@@ -146,7 +203,7 @@ export default function QueuePage() {
                       Retry
                     </button>
                   )}
-                  {canManageQueue && (job.status === 'scheduled' || job.status === 'draft' || job.status === 'failed') && (
+                  {canManageQueue && isActive && (
                     <button
                       onClick={() => handleCancel(job.id)}
                       disabled={busyJobId === job.id}
@@ -157,7 +214,8 @@ export default function QueuePage() {
                   )}
                 </div>
               </div>
-            ))}
+              )
+            })}
           </div>
         </div>
       )}

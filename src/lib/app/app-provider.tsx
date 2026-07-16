@@ -96,6 +96,7 @@ interface AppContextValue {
   cancelQueueJob: (jobId: string) => Promise<PublishJob>
   scheduleDraft: (draftId: string, scheduledAt?: string) => Promise<PublishJob>
   completeManualPublish: (jobId: string, externalUrl?: string) => Promise<PublishJob>
+  triggerPublishJob: (jobId: string) => Promise<{ success: boolean }>
   saveDraft: (draft: Omit<SocialDraft, 'id' | 'createdAt' | 'updatedAt'> & { id?: string }) => Promise<SocialDraft>
   approveDraft: (draftId: string) => Promise<SocialDraft>
   saveAndApproveDraft: (draft: Omit<SocialDraft, 'id' | 'createdAt' | 'updatedAt'> & { id?: string }) => Promise<SocialDraft>
@@ -703,6 +704,21 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
         await refreshWorkspaceData()
         return job
+      },
+
+      triggerPublishJob: async (jobId) => {
+        if (!currentWorkspace) throw new Error('Not ready')
+
+        const response = await fetch('/api/publish/trigger', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ workspaceId: currentWorkspace.id, jobId }),
+        })
+        const payload = await response.json()
+        if (!response.ok) throw new Error(payload.error ?? 'Unable to publish this job.')
+
+        await refreshWorkspaceData()
+        return payload as { success: boolean }
       },
 
       saveDraft: async (draft) => {
