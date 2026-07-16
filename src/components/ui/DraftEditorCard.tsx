@@ -44,8 +44,8 @@ export default function DraftEditorCard({ draft, onEdit, onApprove, onRegenerate
       <div className="flex items-center gap-2 mb-3 flex-wrap">
         <ChannelBadge channel={draft.channel} />
         <StatusBadge status={draft.status} />
-        <span className={`rounded-full px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.14em] ${draft.source === 'ai' ? 'border border-violet-200 bg-violet-50 text-violet-700' : 'border border-stone-200 bg-stone-50 text-stone-500'}`}>
-          {draft.source === 'ai' ? 'AI proposal' : 'Template'}
+        <span className={`rounded-full px-2.5 py-1 text-[11px] font-semibold ${draft.source === 'ai' ? 'border border-violet-200 bg-violet-50 text-violet-700' : 'border border-stone-200 bg-stone-50 text-stone-500'}`}>
+          {draft.source === 'ai' ? 'AI提案' : 'テンプレート'}
         </span>
         <span className="text-xs text-gray-400 ml-auto">
           {draft.tone} · {draft.length}
@@ -67,7 +67,7 @@ export default function DraftEditorCard({ draft, onEdit, onApprove, onRegenerate
 
       {draft.assumptions.length > 0 && (
         <div className="mt-3 rounded-2xl border border-amber-200 bg-amber-50 p-3">
-          <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-amber-700">Assumptions to check</p>
+          <p className="text-[11px] font-semibold text-amber-700">確認が必要な前提</p>
           <ul className="mt-1.5 space-y-1 text-xs leading-5 text-amber-800">
             {draft.assumptions.map((assumption, index) => <li key={index}>• {assumption}</li>)}
           </ul>
@@ -76,7 +76,7 @@ export default function DraftEditorCard({ draft, onEdit, onApprove, onRegenerate
 
       {onSchedule && draft.status === 'approved' && (
         <div className="mt-3 flex flex-wrap items-center gap-2 rounded-2xl border border-stone-200 bg-stone-50 p-3">
-          <label className="text-xs font-medium text-gray-600" htmlFor={`schedule-${draft.id}`}>Publish at</label>
+          <label className="text-xs font-medium text-gray-600" htmlFor={`schedule-${draft.id}`}>公開日時</label>
           <input
             id={`schedule-${draft.id}`}
             type="datetime-local"
@@ -88,19 +88,19 @@ export default function DraftEditorCard({ draft, onEdit, onApprove, onRegenerate
             onClick={() => onSchedule(draft.id, new Date(scheduleInput).toISOString())}
             className="rounded-xl bg-violet-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-violet-700"
           >
-            Schedule
+            予約する
           </button>
         </div>
       )}
 
       <div className="flex items-center gap-2 mt-3">
-        {isDirty && <span className="rounded-full border border-amber-200 bg-amber-50 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.14em] text-amber-700">Unsaved</span>}
+        {isDirty && <span className="rounded-full border border-amber-200 bg-amber-50 px-2.5 py-1 text-[11px] font-semibold text-amber-700">未保存</span>}
         {isDirty && onEdit && (
           <button
             onClick={handleSave}
             className="rounded-xl bg-gray-900 px-3 py-1.5 text-xs text-white hover:bg-gray-700"
           >
-            Save
+            保存
           </button>
         )}
         {onApprove && draft.status === 'draft' && (
@@ -108,7 +108,7 @@ export default function DraftEditorCard({ draft, onEdit, onApprove, onRegenerate
             onClick={() => onApprove(draft.id)}
             className="rounded-xl bg-green-600 px-3 py-1.5 text-xs text-white hover:bg-green-700"
           >
-            Approve
+            承認する
           </button>
         )}
         {onRegenerate && (
@@ -116,10 +116,10 @@ export default function DraftEditorCard({ draft, onEdit, onApprove, onRegenerate
             onClick={() => onRegenerate(draft.id)}
             className="rounded-xl border border-stone-200 px-3 py-1.5 text-xs text-gray-500 hover:bg-stone-50"
           >
-            Reset template
+            テンプレートに戻す
           </button>
         )}
-        <span className="ml-auto text-xs text-gray-400">{text.length} chars</span>
+        <span className="ml-auto text-xs text-gray-400">{text.length}文字</span>
       </div>
     </div>
   )

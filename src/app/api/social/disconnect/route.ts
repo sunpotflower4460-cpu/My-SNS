@@ -17,12 +17,12 @@ export async function POST(request: NextRequest) {
   try {
     body = await request.json()
   } catch {
-    return NextResponse.json({ error: 'Invalid JSON body.' }, { status: 400 })
+    return NextResponse.json({ error: 'リクエストの形式が正しくありません。' }, { status: 400 })
   }
 
   const { workspaceId, accountId } = body
   if (!workspaceId || !accountId) {
-    return NextResponse.json({ error: 'workspaceId and accountId are required.' }, { status: 400 })
+    return NextResponse.json({ error: 'workspaceIdとaccountIdは必須です。' }, { status: 400 })
   }
 
   const supabase = await createClient()
@@ -30,7 +30,7 @@ export async function POST(request: NextRequest) {
     data: { user },
   } = await supabase.auth.getUser()
   if (!user) {
-    return NextResponse.json({ error: 'Not authenticated.' }, { status: 401 })
+    return NextResponse.json({ error: 'ログインしていません。' }, { status: 401 })
   }
 
   // RLS (owner/admin only) both scopes this to the caller's workspace and
@@ -44,7 +44,7 @@ export async function POST(request: NextRequest) {
     .single()
 
   if (updateError || !account) {
-    return NextResponse.json({ error: 'Not found, or not permitted to disconnect this account.' }, { status: 404 })
+    return NextResponse.json({ error: 'アカウントが見つからないか、接続を解除する権限がありません。' }, { status: 404 })
   }
 
   const serviceClient = createServiceClient()

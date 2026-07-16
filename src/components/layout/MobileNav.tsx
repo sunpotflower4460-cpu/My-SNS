@@ -24,7 +24,7 @@ export default function MobileNav({ workspace, user, isOpen, onClose }: MobileNa
   return (
     <div className="fixed inset-0 z-40 xl:hidden">
       <button
-        aria-label="Close navigation"
+        aria-label="メニューを閉じる"
         onClick={onClose}
         className="absolute inset-0 bg-gray-900/40 backdrop-blur-sm"
       />
@@ -36,12 +36,12 @@ export default function MobileNav({ workspace, user, isOpen, onClose }: MobileNa
             </div>
             <div className="min-w-0">
               <p className="truncate text-sm font-semibold text-gray-900">{workspace.name}</p>
-              <p className="text-xs text-gray-500">Quiet creator workspace</p>
+              <p className="text-xs text-gray-500">落ち着いて発信できるワークスペース</p>
             </div>
           </div>
           <button
             onClick={onClose}
-            aria-label="Close navigation"
+            aria-label="メニューを閉じる"
             className="rounded-xl border border-stone-200 p-2 text-gray-500 transition hover:bg-stone-50"
           >
             ✕

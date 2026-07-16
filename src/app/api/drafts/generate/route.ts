@@ -32,32 +32,32 @@ export async function POST(request: NextRequest) {
   try {
     body = await request.json()
   } catch {
-    return NextResponse.json({ error: 'Invalid JSON body.' }, { status: 400 })
+    return NextResponse.json({ error: 'リクエストの形式が正しくありません。' }, { status: 400 })
   }
 
   const { workspaceId, seedId, channels, tone, length } = body
 
   if (!workspaceId || !seedId) {
-    return NextResponse.json({ error: 'workspaceId and seedId are required.' }, { status: 400 })
+    return NextResponse.json({ error: 'workspaceIdとseedIdは必須です。' }, { status: 400 })
   }
   if (!Array.isArray(channels) || channels.length === 0) {
-    return NextResponse.json({ error: 'At least one channel is required.' }, { status: 400 })
+    return NextResponse.json({ error: '媒体を1つ以上選択してください。' }, { status: 400 })
   }
   if (channels.length > MAX_CHANNELS_PER_REQUEST) {
     return NextResponse.json(
-      { error: `At most ${MAX_CHANNELS_PER_REQUEST} channels can be generated in one request.` },
+      { error: `一度に生成できる媒体は最大${MAX_CHANNELS_PER_REQUEST}件までです。` },
       { status: 400 },
     )
   }
   const invalidChannels = channels.filter((channel) => !VALID_CHANNELS.has(channel))
   if (invalidChannels.length > 0) {
-    return NextResponse.json({ error: `Unknown channels: ${invalidChannels.join(', ')}` }, { status: 400 })
+    return NextResponse.json({ error: `不明な媒体です: ${invalidChannels.join(', ')}` }, { status: 400 })
   }
   if (typeof tone !== 'string' || !tone.trim()) {
-    return NextResponse.json({ error: 'tone is required.' }, { status: 400 })
+    return NextResponse.json({ error: 'トーンを指定してください。' }, { status: 400 })
   }
   if (typeof length !== 'string' || !VALID_LENGTHS.has(length)) {
-    return NextResponse.json({ error: 'length must be short, medium, or long.' }, { status: 400 })
+    return NextResponse.json({ error: '長さはshort・medium・longのいずれかにしてください。' }, { status: 400 })
   }
 
   const supabase = await createClient()
@@ -66,7 +66,7 @@ export async function POST(request: NextRequest) {
     data: { user },
   } = await supabase.auth.getUser()
   if (!user) {
-    return NextResponse.json({ error: 'Not authenticated.' }, { status: 401 })
+    return NextResponse.json({ error: 'ログインしていません。' }, { status: 401 })
   }
 
   const { data: member } = await supabase
@@ -78,7 +78,7 @@ export async function POST(request: NextRequest) {
 
   const role = member?.role as WorkspaceRole | undefined
   if (!role || !hasPermission(role, 'create_drafts')) {
-    return NextResponse.json({ error: 'Not permitted to generate drafts in this workspace.' }, { status: 403 })
+    return NextResponse.json({ error: 'このワークスペースで下書きを生成する権限がありません。' }, { status: 403 })
   }
 
   const { data: seedRow, error: seedError } = await supabase
@@ -89,7 +89,7 @@ export async function POST(request: NextRequest) {
     .single()
 
   if (seedError || !seedRow) {
-    return NextResponse.json({ error: 'Seed not found.' }, { status: 404 })
+    return NextResponse.json({ error: 'シードが見つかりません。' }, { status: 404 })
   }
 
   const seed = mapSeed(seedRow as unknown as SeedRow)
@@ -111,7 +111,7 @@ export async function POST(request: NextRequest) {
     const drafts = await new TemplateDraftGeneratorService().generateDrafts(seed, typedChannels, tone, typedLength, context)
     return NextResponse.json({
       source: 'template-fallback',
-      reason: 'ANTHROPIC_API_KEY is not configured yet. Showing deterministic templates instead of AI proposals.',
+      reason: 'ANTHROPIC_API_KEYが未設定のため、AI提案の代わりに固定テンプレートを表示しています。',
       drafts,
     })
   }
@@ -128,7 +128,7 @@ export async function POST(request: NextRequest) {
     if (spentUsd >= monthlyBudgetUsd) {
       return NextResponse.json(
         {
-          error: `This workspace's AI budget for this month ($${monthlyBudgetUsd.toFixed(2)}) has been reached (spent $${spentUsd.toFixed(2)}). Raise ANTHROPIC_MONTHLY_BUDGET_USD, or wait until next month.`,
+          error: `このワークスペースの今月のAI予算（$${monthlyBudgetUsd.toFixed(2)}）に達しました（使用額 $${spentUsd.toFixed(2)}）。ANTHROPIC_MONTHLY_BUDGET_USDを引き上げるか、来月まで待ってください。`,
         },
         { status: 402 },
       )
@@ -171,7 +171,7 @@ export async function POST(request: NextRequest) {
       drafts: result.drafts,
     })
   } catch (cause) {
-    const message = cause instanceof Error ? cause.message : 'AI draft generation failed.'
+    const message = cause instanceof Error ? cause.message : 'AIによる下書き生成に失敗しました。'
 
     // The Anthropic call itself may have succeeded (and been billed) even
     // though the response couldn't be turned into valid drafts. Record what

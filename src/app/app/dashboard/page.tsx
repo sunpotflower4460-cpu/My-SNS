@@ -25,33 +25,33 @@ export default function DashboardPage() {
   return (
     <div>
       <PageHeader
-        title="Dashboard"
-        description={`Welcome back to ${currentWorkspace?.name ?? 'your workspace'} — a calm snapshot of what needs attention next.`}
+        title="ダッシュボード"
+        description={`${currentWorkspace?.name ?? 'ワークスペース'}へようこそ。次に対応が必要なことを、落ち着いてひと目で確認できます。`}
       />
 
       <div className="mb-8 grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        <StatCard label="Total Seeds" value={seeds.length} icon="🌱" />
-        <StatCard label="Captured" value={capturedCount} icon="✍️" trend={`${readyCount} ready for proposals`} />
-        <StatCard label="Scheduled Jobs" value={queueCount} icon="📅" trend="Queue moving" />
-        <StatCard label="Unread Inbox" value={unreadCount} icon="📬" trend="Needs attention" />
+        <StatCard label="シード数" value={seeds.length} icon="🌱" />
+        <StatCard label="取り込み済み" value={capturedCount} icon="✍️" trend={`提案準備完了 ${readyCount}件`} />
+        <StatCard label="予約中のジョブ" value={queueCount} icon="📅" trend="キュー稼働中" />
+        <StatCard label="受信箱の未読" value={unreadCount} icon="📬" trend="要対応" />
       </div>
 
       <div className="grid gap-6 xl:grid-cols-[minmax(0,2fr)_minmax(320px,1fr)]">
         <section>
           <div className="mb-3 flex items-center justify-between gap-3">
-            <h2 className="text-base font-semibold text-gray-900">Recent Seeds</h2>
+            <h2 className="text-base font-semibold text-gray-900">最近のシード</h2>
             <Link href="/app/seeds" className="text-sm font-medium text-violet-600 hover:text-violet-800">
-              View all →
+              すべて見る →
             </Link>
           </div>
 
           {recentSeeds.length === 0 ? (
             <EmptyState
-              title="No Seeds yet"
-              description="Capture one rough source idea or file. It does not need to be publication-ready."
+              title="シードはまだありません"
+              description="ラフなアイデアや素材をひとつ取り込んでみましょう。公開できる状態になっている必要はありません。"
               action={
                 <Link href="/app/seeds/new" className="rounded-2xl bg-violet-600 px-4 py-2 text-sm font-medium text-white hover:bg-violet-700">
-                  + New Seed
+                  + 新しいシード
                 </Link>
               }
             />
@@ -68,28 +68,28 @@ export default function DashboardPage() {
               href="/app/seeds/new"
               className="inline-flex items-center gap-2 rounded-2xl bg-violet-600 px-4 py-2.5 text-sm font-medium text-white transition hover:bg-violet-700"
             >
-              + New Seed
+              + 新しいシード
             </Link>
             <Link
               href="/app/inbox"
               className="inline-flex items-center gap-2 rounded-2xl border border-stone-200 bg-white px-4 py-2.5 text-sm font-medium text-gray-700 transition hover:bg-stone-50"
             >
-              Open Inbox
+              受信箱を開く
             </Link>
           </div>
         </section>
 
         <section className="rounded-[2rem] border border-stone-200 bg-white p-5 shadow-sm shadow-stone-100/80">
           <div className="mb-4 flex items-center justify-between gap-3">
-            <h2 className="text-base font-semibold text-gray-900">Recent activity</h2>
+            <h2 className="text-base font-semibold text-gray-900">最近のアクティビティ</h2>
             <span className="rounded-full border border-stone-200 bg-stone-50 px-2.5 py-1 text-xs text-gray-500">
-              {recentActivity.length} events
+              {recentActivity.length}件のイベント
             </span>
           </div>
           {recentActivity.length === 0 ? (
             <EmptyState
-              title="No recent activity yet"
-              description="Recent Seed, inbox, queue, and team actions will appear here for this workspace."
+              title="最近のアクティビティはまだありません"
+              description="このワークスペースにおけるシード・受信箱・キュー・チームの操作がここに表示されます。"
               icon="🕊️"
             />
           ) : (

@@ -33,7 +33,7 @@ export default function SeedCard({ seed, onClick }: SeedCardProps) {
         {seed.title}
       </h2>
       <p className="mt-2 line-clamp-3 min-h-[3.75rem] text-sm leading-5 text-gray-500">
-        {seed.sourceText || 'An asset-only Seed. Add context now or let the proposal step identify what is missing.'}
+        {seed.sourceText || 'アセットのみのシードです。今すぐ文脈を追加するか、提案ステップで不足点を特定させましょう。'}
       </p>
 
       <div className="mt-4 flex flex-wrap gap-1.5">
@@ -48,8 +48,8 @@ export default function SeedCard({ seed, onClick }: SeedCardProps) {
       </div>
 
       <div className="mt-4 flex items-center justify-between border-t border-stone-100 pt-4 text-xs text-gray-400">
-        <span>{seed.brandProfile?.name ?? 'Brand Profile missing'}</span>
-        <span>{new Date(seed.updatedAt).toLocaleDateString()}</span>
+        <span>{seed.brandProfile?.name ?? 'ブランドプロフィール未設定'}</span>
+        <span>{new Date(seed.updatedAt).toLocaleDateString('ja-JP', { timeZone: 'Asia/Tokyo' })}</span>
       </div>
     </button>
   )

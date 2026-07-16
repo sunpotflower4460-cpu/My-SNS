@@ -22,7 +22,7 @@ export default function LoginPage() {
   }, [isAuthenticated, isReady, router])
 
   if (!isReady) {
-    return <div className="flex min-h-screen items-center justify-center bg-stone-50 text-sm text-gray-500">Loading…</div>
+    return <div className="flex min-h-screen items-center justify-center bg-stone-50 text-sm text-gray-500">読み込み中…</div>
   }
 
   const handleSignIn = async (event: React.FormEvent) => {
@@ -33,7 +33,7 @@ export default function LoginPage() {
 
     const normalizedEmail = email.trim().toLowerCase()
     if (!normalizedEmail) {
-      setError('Please enter your email address')
+      setError('メールアドレスを入力してください')
       setIsLoading(false)
       return
     }
@@ -50,11 +50,11 @@ export default function LoginPage() {
       if (error) {
         setError(error.message)
       } else {
-        setSuccess('Check your email for the magic link!')
+        setSuccess('メールをご確認ください。マジックリンクをお送りしました。')
         setEmail('')
       }
     } catch (err) {
-      setError('An unexpected error occurred. Please try again.')
+      setError('予期しないエラーが発生しました。もう一度お試しください。')
       console.error('Sign in error:', err)
     } finally {
       setIsLoading(false)
@@ -71,7 +71,7 @@ export default function LoginPage() {
             </div>
             <h1 className="text-3xl font-semibold tracking-tight text-gray-900 sm:text-4xl">Creator Hub</h1>
             <p className="mt-3 text-sm leading-6 text-gray-500">
-              Sign in with your email to access your workspace. We&apos;ll send you a magic link to sign in securely.
+              メールアドレスを入力するだけで、あなたのワークスペースにログインできます。パスワードは不要です。ご入力のメールアドレス宛てに安全なマジックリンクをお送りしますので、届いたリンクをクリックしてください。
             </p>
           </div>
 
@@ -87,7 +87,7 @@ export default function LoginPage() {
               </div>
             )}
             <label htmlFor="email" className="mb-2 block text-sm font-medium text-gray-700">
-              Email address
+              メールアドレス
             </label>
             <div className="flex flex-col gap-3 sm:flex-row">
               <input
@@ -104,23 +104,23 @@ export default function LoginPage() {
                 disabled={isLoading}
                 className="rounded-2xl bg-violet-600 px-5 py-3 text-sm font-medium text-white transition hover:bg-violet-700 disabled:opacity-50"
               >
-                {isLoading ? 'Sending...' : 'Send magic link'}
+                {isLoading ? '送信中...' : 'マジックリンクを送る'}
               </button>
             </div>
           </form>
         </section>
 
         <aside className="rounded-[2rem] border border-stone-200 bg-white p-8 shadow-sm shadow-stone-200/70 sm:p-10">
-          <h2 className="text-sm font-semibold uppercase tracking-[0.2em] text-gray-400">Supabase Auth</h2>
+          <h2 className="text-sm font-semibold tracking-[0.05em] text-gray-400">Supabaseによる認証</h2>
           <div className="mt-5 space-y-5 text-sm leading-6 text-gray-600">
-            <p>• <strong className="text-gray-900">Magic link</strong> authentication for secure, passwordless sign-in.</p>
-            <p>• Your session is managed by Supabase Auth with automatic refresh.</p>
-            <p>• <strong className="text-gray-900">/app</strong> routes are protected and require authentication.</p>
-            <p>• All data is now backed by a real Supabase database.</p>
+            <p>• <strong className="text-gray-900">マジックリンク</strong>認証により、パスワードなしで安全にログインできます。</p>
+            <p>• ログイン状態はSupabase Authが管理し、自動的に更新されます。</p>
+            <p>• <strong className="text-gray-900">/app</strong> 配下のページは保護されており、ログインが必要です。</p>
+            <p>• すべてのデータは実際のSupabaseデータベースに保存されています。</p>
           </div>
           {user && (
             <div className="mt-6 rounded-3xl border border-violet-200 bg-violet-50 p-4 text-sm text-violet-800">
-              Signed in as {user.name}. Redirecting to your workspace...
+              {user.name} としてログイン中です。ワークスペースへ移動しています...
             </div>
           )}
         </aside>

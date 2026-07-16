@@ -7,13 +7,13 @@ export interface NavItem {
 }
 
 export const NAV_ITEMS: NavItem[] = [
-  { label: 'Dashboard', href: '/app/dashboard', icon: '⊞' },
-  { label: 'Seeds', href: '/app/seeds', icon: '🌱' },
-  { label: 'Brand Profile', href: '/app/brand', icon: '◌' },
-  { label: 'Drafts', href: '/app/drafts', icon: '✏️' },
-  { label: 'Queue', href: '/app/queue', icon: '📅' },
-  { label: 'Analytics', href: '/app/analytics', icon: '📊' },
-  { label: 'Inbox', href: '/app/inbox', icon: '📬' },
-  { label: 'Team', href: '/app/team', icon: '👥' },
-  { label: 'Settings', href: '/app/settings', icon: '⚙️' },
+  { label: 'ダッシュボード', href: '/app/dashboard', icon: '⊞' },
+  { label: 'シード', href: '/app/seeds', icon: '🌱' },
+  { label: 'ブランドプロフィール', href: '/app/brand', icon: '◌' },
+  { label: '下書き', href: '/app/drafts', icon: '✏️' },
+  { label: '公開キュー', href: '/app/queue', icon: '📅' },
+  { label: '分析', href: '/app/analytics', icon: '📊' },
+  { label: '受信箱', href: '/app/inbox', icon: '📬' },
+  { label: 'チーム', href: '/app/team', icon: '👥' },
+  { label: '設定', href: '/app/settings', icon: '⚙️' },
 ]

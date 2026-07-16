@@ -22,12 +22,12 @@ export async function POST(request: NextRequest) {
   try {
     body = await request.json()
   } catch {
-    return NextResponse.json({ error: 'Invalid JSON body.' }, { status: 400 })
+    return NextResponse.json({ error: 'リクエストの形式が正しくありません。' }, { status: 400 })
   }
 
   const { workspaceId, jobId } = body
   if (!workspaceId || !jobId) {
-    return NextResponse.json({ error: 'workspaceId and jobId are required.' }, { status: 400 })
+    return NextResponse.json({ error: 'workspaceIdとjobIdは必須です。' }, { status: 400 })
   }
 
   const supabase = await createClient()
@@ -35,7 +35,7 @@ export async function POST(request: NextRequest) {
     data: { user },
   } = await supabase.auth.getUser()
   if (!user) {
-    return NextResponse.json({ error: 'Not authenticated.' }, { status: 401 })
+    return NextResponse.json({ error: 'ログインしていません。' }, { status: 401 })
   }
 
   const { data: member } = await supabase
@@ -47,7 +47,7 @@ export async function POST(request: NextRequest) {
 
   const role = member?.role as WorkspaceRole | undefined
   if (!role || !hasPermission(role, 'view_queue')) {
-    return NextResponse.json({ error: 'Not permitted to view this workspace.' }, { status: 403 })
+    return NextResponse.json({ error: 'このワークスペースを閲覧する権限がありません。' }, { status: 403 })
   }
 
   const { data: job, error: jobError } = await supabase
@@ -58,7 +58,7 @@ export async function POST(request: NextRequest) {
     .single()
 
   if (jobError || !job) {
-    return NextResponse.json({ error: 'Job not found.' }, { status: 404 })
+    return NextResponse.json({ error: 'ジョブが見つかりません。' }, { status: 404 })
   }
 
   const { data: attempt } = await supabase
@@ -72,7 +72,7 @@ export async function POST(request: NextRequest) {
     .maybeSingle()
 
   if (!attempt?.external_post_id) {
-    return NextResponse.json({ error: 'This job has no recorded successful post to fetch metrics for.' }, { status: 400 })
+    return NextResponse.json({ error: 'このジョブには指標を取得できる公開済みの投稿記録がありません。' }, { status: 400 })
   }
 
   const serviceClient = createServiceClient()
@@ -81,10 +81,10 @@ export async function POST(request: NextRequest) {
   try {
     credentials = await resolveCredentials(serviceClient, workspaceId, job.channel)
   } catch (cause) {
-    return NextResponse.json({ error: cause instanceof Error ? cause.message : 'Unable to resolve credentials.' }, { status: 502 })
+    return NextResponse.json({ error: cause instanceof Error ? cause.message : '認証情報を取得できませんでした。' }, { status: 502 })
   }
   if (!credentials) {
-    return NextResponse.json({ error: `No connected ${job.channel} account for this workspace.` }, { status: 400 })
+    return NextResponse.json({ error: `このワークスペースには接続済みの${job.channel}アカウントがありません。` }, { status: 400 })
   }
 
   try {
@@ -97,6 +97,6 @@ export async function POST(request: NextRequest) {
     })
     return NextResponse.json(metrics)
   } catch (cause) {
-    return NextResponse.json({ error: cause instanceof Error ? cause.message : 'Unable to fetch metrics.' }, { status: 502 })
+    return NextResponse.json({ error: cause instanceof Error ? cause.message : '指標を取得できませんでした。' }, { status: 502 })
   }
 }

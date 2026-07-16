@@ -24,7 +24,7 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
     return NextResponse.redirect(settingsUrl)
   }
   if (!isConnectablePlatform(platform) || !code || !state) {
-    settingsUrl.searchParams.set('error', 'Missing or invalid OAuth callback parameters.')
+    settingsUrl.searchParams.set('error', 'OAuthコールバックのパラメーターが不正です。')
     return NextResponse.redirect(settingsUrl)
   }
 
@@ -33,13 +33,13 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
     data: { user },
   } = await supabase.auth.getUser()
   if (!user) {
-    settingsUrl.searchParams.set('error', 'Please sign in first.')
+    settingsUrl.searchParams.set('error', '先にログインしてください。')
     return NextResponse.redirect(settingsUrl)
   }
 
   const consumed = await consumeOAuthState(supabase, state)
   if (!consumed || consumed.platform !== platform) {
-    settingsUrl.searchParams.set('error', 'This connection attempt expired or was already used. Please try again.')
+    settingsUrl.searchParams.set('error', 'この接続試行は期限切れか、すでに使用されています。もう一度お試しください。')
     return NextResponse.redirect(settingsUrl)
   }
 
@@ -81,7 +81,7 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
     settingsUrl.searchParams.set('connected', platform)
     return NextResponse.redirect(settingsUrl)
   } catch (cause) {
-    const message = cause instanceof Error ? cause.message : 'Unable to complete the connection.'
+    const message = cause instanceof Error ? cause.message : '接続を完了できませんでした。'
     settingsUrl.searchParams.set('error', message)
     return NextResponse.redirect(settingsUrl)
   }

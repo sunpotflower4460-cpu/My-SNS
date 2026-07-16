@@ -22,7 +22,7 @@ export const PUBLISHING_CHANNEL_CONFIG: Record<PublishingChannel, PublishingChan
     shortLabel: 'YouTube',
     icon: '▶',
     delivery: 'api-later',
-    description: 'Video title, description, and supporting copy.',
+    description: '動画のタイトル・概要欄・補足コピーを作成します。',
     mvpPublishMode: 'assisted',
   },
   note: {
@@ -30,7 +30,7 @@ export const PUBLISHING_CHANNEL_CONFIG: Record<PublishingChannel, PublishingChan
     shortLabel: 'note',
     icon: 'n',
     delivery: 'manual-copy',
-    description: 'Long-form draft prepared for review and copy.',
+    description: '確認してコピーするための、長文向けの下書きを作成します。',
     mvpPublishMode: 'manual',
   },
   instagram: {
@@ -38,7 +38,7 @@ export const PUBLISHING_CHANNEL_CONFIG: Record<PublishingChannel, PublishingChan
     shortLabel: 'Instagram',
     icon: '◎',
     delivery: 'api-later',
-    description: 'Caption, tags, and visual framing.',
+    description: 'キャプション・タグ・見せ方の構成を作成します。',
     mvpPublishMode: 'auto',
   },
   x: {
@@ -46,7 +46,7 @@ export const PUBLISHING_CHANNEL_CONFIG: Record<PublishingChannel, PublishingChan
     shortLabel: 'X',
     icon: '𝕏',
     delivery: 'api-later',
-    description: 'A concise post or thread proposal.',
+    description: '簡潔な投稿、またはスレッド形式の案を作成します。',
     mvpPublishMode: 'auto',
   },
   tiktok: {
@@ -54,7 +54,7 @@ export const PUBLISHING_CHANNEL_CONFIG: Record<PublishingChannel, PublishingChan
     shortLabel: 'TikTok',
     icon: '♪',
     delivery: 'api-later',
-    description: 'Short-video caption and hook.',
+    description: 'ショート動画向けのキャプションと冒頭のフックを作成します。',
     mvpPublishMode: 'draft',
   },
   threads: {
@@ -62,7 +62,7 @@ export const PUBLISHING_CHANNEL_CONFIG: Record<PublishingChannel, PublishingChan
     shortLabel: 'Threads',
     icon: '@',
     delivery: 'api-later',
-    description: 'Conversational social copy.',
+    description: '会話調のソーシャルコピーを作成します。',
     // Not one of the 5 core MVP channels — master-plan §3 has no explicit
     // strategy for it yet, so default to a human review gate rather than auto.
     mvpPublishMode: 'assisted',
@@ -72,7 +72,7 @@ export const PUBLISHING_CHANNEL_CONFIG: Record<PublishingChannel, PublishingChan
     shortLabel: 'Facebook',
     icon: 'f',
     delivery: 'api-later',
-    description: 'Community-oriented post copy.',
+    description: 'コミュニティ向けの投稿コピーを作成します。',
     mvpPublishMode: 'assisted',
   },
   website: {
@@ -80,7 +80,7 @@ export const PUBLISHING_CHANNEL_CONFIG: Record<PublishingChannel, PublishingChan
     shortLabel: 'Website',
     icon: '⌂',
     delivery: 'owned-channel',
-    description: 'Copy for the creator-owned home base.',
+    description: 'クリエイター自身のサイト向けのコピーを作成します。',
     mvpPublishMode: 'owned',
   },
 }

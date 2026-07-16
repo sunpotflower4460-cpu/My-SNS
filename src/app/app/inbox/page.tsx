@@ -10,14 +10,14 @@ import type { InboxItem, InboxKind } from '@/lib/domain/types'
 type FilterTab = 'all' | InboxKind | 'unread' | 'needs_action' | 'starred'
 
 const TABS: Array<{ label: string; value: FilterTab }> = [
-  { label: 'All', value: 'all' },
-  { label: 'DMs', value: 'dm' },
-  { label: 'Comments', value: 'comment' },
-  { label: 'Replies', value: 'reply' },
-  { label: 'Mentions', value: 'mention' },
-  { label: 'Unread', value: 'unread' },
-  { label: 'Needs Action', value: 'needs_action' },
-  { label: 'Starred', value: 'starred' },
+  { label: 'すべて', value: 'all' },
+  { label: 'DM', value: 'dm' },
+  { label: 'コメント', value: 'comment' },
+  { label: '返信', value: 'reply' },
+  { label: 'メンション', value: 'mention' },
+  { label: '未読', value: 'unread' },
+  { label: '要対応', value: 'needs_action' },
+  { label: 'スター付き', value: 'starred' },
 ]
 
 function filterItems(items: InboxItem[], tab: FilterTab): InboxItem[] {
@@ -50,7 +50,7 @@ export default function InboxPage() {
 
   return (
     <div>
-      <PageHeader title="Inbox" description={`${unreadCount} unread conversation${unreadCount !== 1 ? 's' : ''} in the active workspace.`} />
+      <PageHeader title="受信箱" description={`現在のワークスペースに未読の会話が${unreadCount}件あります。`} />
 
       {feedback && (
         <div className="mb-5 rounded-2xl border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-700">
@@ -71,7 +71,7 @@ export default function InboxPage() {
       </div>
 
       {filtered.length === 0 ? (
-        <EmptyState title="Nothing here" description="No inbox items match the current filter." />
+        <EmptyState title="該当する項目がありません" description="現在のフィルター条件に一致する受信箱の項目はありません。" />
       ) : (
         <div className="space-y-4">
           {filtered.map((item) => {
@@ -84,7 +84,7 @@ export default function InboxPage() {
                 noteDraft={draftNotes[item.id] ?? ''}
                 relatedSeedTitle={
                   item.seedId
-                    ? seeds.find((seed) => seed.id === item.seedId)?.title ?? 'Linked Seed'
+                    ? seeds.find((seed) => seed.id === item.seedId)?.title ?? 'リンクされたシード'
                     : null
                 }
                 relatedSeedHref={item.seedId ? `/app/seeds/${item.seedId}` : null}
@@ -93,19 +93,19 @@ export default function InboxPage() {
                   if (!draftNotes[item.id]?.trim()) return
                   await addInboxNote(item.id, draftNotes[item.id])
                   setDraftNotes((prev) => ({ ...prev, [item.id]: '' }))
-                  setFeedback('Internal note saved to this workspace.')
+                  setFeedback('内部メモをこのワークスペースに保存しました。')
                 }}
                 onToggleRead={async () => {
                   await toggleInboxRead(item.id)
-                  setFeedback(item.isRead ? 'Marked as unread.' : 'Marked as read.')
+                  setFeedback(item.isRead ? '未読にしました。' : '既読にしました。')
                 }}
                 onToggleStar={async () => {
                   await toggleInboxStar(item.id)
-                  setFeedback(item.isStarred ? 'Removed star.' : 'Starred for follow-up.')
+                  setFeedback(item.isStarred ? 'スターを外しました。' : 'フォローアップ用にスターを付けました。')
                 }}
                 onToggleNeedsAction={async () => {
                   await toggleInboxNeedsAction(item.id)
-                  setFeedback(item.needsAction ? 'Cleared needs action.' : 'Flagged for action.')
+                  setFeedback(item.needsAction ? '要対応を解除しました。' : '要対応としてフラグを立てました。')
                 }}
               />
             )

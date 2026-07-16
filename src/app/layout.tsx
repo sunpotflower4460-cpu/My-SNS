@@ -4,14 +4,14 @@ import Providers from './providers'
 
 export const metadata: Metadata = {
   title: 'Creator Hub',
-  description: 'Your creator home hub',
+  description: 'クリエイターのための発信管制ホーム',
 }
 
 export const dynamic = 'force-dynamic'
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en">
+    <html lang="ja">
       <body className="bg-stone-50 text-gray-900 antialiased">
         <Providers>{children}</Providers>
       </body>

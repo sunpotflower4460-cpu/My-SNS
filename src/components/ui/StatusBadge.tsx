@@ -19,11 +19,31 @@ const STATUS_STYLES: Record<string, string> = {
   revoked: 'bg-red-100 text-red-500 border-red-200',
 }
 
+// Spans Seed / draft / publish job / invitation statuses — kept in one map
+// since none of these domains ever share a status value with a different
+// meaning (e.g. "draft" only ever means the draft-content status).
+const STATUS_LABELS: Record<string, string> = {
+  captured: '取り込み済み',
+  draft: '下書き',
+  ready: '準備完了',
+  published: '公開済み',
+  archived: 'アーカイブ済み',
+  scheduled: '予約済み',
+  failed: '失敗',
+  cancelled: 'キャンセル済み',
+  approved: '承認済み',
+  rejected: '却下済み',
+  pending: '保留中',
+  accepted: '参加済み',
+  expired: '期限切れ',
+  revoked: '取り消し済み',
+}
+
 export default function StatusBadge({ status }: StatusBadgeProps) {
   const style = STATUS_STYLES[status] ?? 'bg-gray-100 text-gray-600 border-gray-200'
   return (
-    <span className={`inline-flex items-center rounded-full border px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.14em] ${style}`}>
-      {status.charAt(0).toUpperCase() + status.slice(1)}
+    <span className={`inline-flex items-center rounded-full border px-2.5 py-1 text-[11px] font-semibold tracking-[0.05em] ${style}`}>
+      {STATUS_LABELS[status] ?? status}
     </span>
   )
 }

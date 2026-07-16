@@ -30,7 +30,7 @@ export default function TopBar({ workspace, pageTitle, onMenuClick }: TopBarProp
         {onMenuClick && (
           <button
             onClick={onMenuClick}
-            aria-label="Open navigation"
+            aria-label="メニューを開く"
             className="mr-1 rounded-xl border border-stone-200 p-2 text-gray-600 transition hover:bg-stone-50 xl:hidden"
           >
             ☰
@@ -53,7 +53,7 @@ export default function TopBar({ workspace, pageTitle, onMenuClick }: TopBarProp
           </div>
           <div className="min-w-0">
             <p className="truncate text-sm font-medium text-gray-900">{currentUser?.name}</p>
-            <p className="truncate text-xs text-gray-500">{currentUser?.email ?? 'No email'}</p>
+            <p className="truncate text-xs text-gray-500">{currentUser?.email ?? 'メールアドレス未登録'}</p>
           </div>
           <div className="hidden sm:block">
             <RoleBadge role={currentMember?.role ?? 'viewer'} />
@@ -62,7 +62,7 @@ export default function TopBar({ workspace, pageTitle, onMenuClick }: TopBarProp
             onClick={handleSignOut}
             className="rounded-xl border border-stone-200 bg-white px-3 py-1.5 text-xs font-medium text-gray-600 transition hover:border-stone-300 hover:text-gray-900"
           >
-            Log out
+            ログアウト
           </button>
         </div>
       </div>

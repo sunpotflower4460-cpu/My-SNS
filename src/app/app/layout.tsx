@@ -22,7 +22,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-stone-50 px-6">
         <div className="rounded-3xl border border-stone-200 bg-white px-6 py-5 text-sm text-gray-500 shadow-sm">
-          Loading workspace…
+          ワークスペースを読み込み中…
         </div>
       </div>
     )
@@ -37,8 +37,8 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
       <div className="flex min-h-screen items-center justify-center bg-stone-50 px-6">
         <div className="w-full max-w-xl">
           <EmptyState
-            title="No workspace available"
-            description="This account does not have an active workspace yet, or the saved workspace is no longer available."
+            title="利用できるワークスペースがありません"
+            description="このアカウントにはまだ有効なワークスペースがないか、保存されていたワークスペースが利用できなくなっています。"
             action={
               <button
                 onClick={() => {
@@ -47,7 +47,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
                 }}
                 className="rounded-2xl border border-stone-200 bg-white px-4 py-2 text-sm text-gray-700 transition hover:bg-stone-50"
               >
-                Back to login
+                ログイン画面に戻る
               </button>
             }
           />

@@ -3,7 +3,7 @@
 import { useMemo, useState } from 'react'
 import type { Workspace } from '@/lib/domain/types'
 import { useCurrentWorkspace } from '@/hooks/useCurrentWorkspace'
-import RoleBadge from '@/components/ui/RoleBadge'
+import RoleBadge, { ROLE_LABELS } from '@/components/ui/RoleBadge'
 
 interface WorkspaceSwitcherProps {
   workspace: Workspace
@@ -32,7 +32,7 @@ export default function WorkspaceSwitcher({ workspace }: WorkspaceSwitcherProps)
         <div className="min-w-0 flex-1">
           <p className="truncate text-sm font-semibold text-gray-900">{workspace.name}</p>
           <p className="truncate text-xs text-gray-500">
-            {workspace.slug} · {currentMember?.role ?? 'member'}
+            {workspace.slug} · {ROLE_LABELS[currentMember?.role ?? 'viewer']}
           </p>
         </div>
         <span className="text-xs text-gray-400">▾</span>
@@ -41,9 +41,9 @@ export default function WorkspaceSwitcher({ workspace }: WorkspaceSwitcherProps)
       {open && (
         <div className="absolute right-0 top-full z-50 mt-2 w-80 rounded-3xl border border-stone-200 bg-white p-2 shadow-xl shadow-stone-200/70">
           <div className="px-3 py-2">
-            <p className="text-xs font-medium uppercase tracking-[0.2em] text-gray-400">Workspaces</p>
+            <p className="text-xs font-medium text-gray-400">ワークスペース一覧</p>
             <p className="mt-1 text-xs text-gray-500">
-              Switch the full workspace context for Seeds, Brand Profile, inbox, queue, and team activity.
+              シード・ブランドプロフィール・受信箱・公開キュー・チームの表示先を切り替えます。
             </p>
           </div>
           {workspaces.map((ws) => (
@@ -76,7 +76,7 @@ export default function WorkspaceSwitcher({ workspace }: WorkspaceSwitcherProps)
             <button className="flex w-full items-center gap-3 rounded-2xl px-3 py-3 text-left text-sm text-gray-500 transition hover:bg-stone-50">
               <span className="flex h-9 w-9 items-center justify-center rounded-2xl border border-dashed border-stone-300 text-xs text-gray-400">+</span>
               <span>
-                Create workspace <span className="text-gray-400">(Phase 2)</span>
+                ワークスペースを作成 <span className="text-gray-400">(今後のアップデートで対応予定)</span>
               </span>
             </button>
           </div>

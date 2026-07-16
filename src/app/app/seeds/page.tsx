@@ -10,12 +10,12 @@ import { useApp } from '@/lib/app/app-provider'
 import type { SeedKind } from '@/lib/domain/types'
 
 const KIND_FILTERS: Array<{ label: string; value: SeedKind | 'all' }> = [
-  { label: 'All', value: 'all' },
-  { label: 'Music', value: 'music' },
-  { label: 'Video', value: 'video' },
-  { label: 'Image', value: 'image' },
-  { label: 'Text', value: 'text' },
-  { label: 'Mixed', value: 'mixed' },
+  { label: 'すべて', value: 'all' },
+  { label: '音楽', value: 'music' },
+  { label: '動画', value: 'video' },
+  { label: '画像', value: 'image' },
+  { label: 'テキスト', value: 'text' },
+  { label: '複合', value: 'mixed' },
 ]
 
 export default function SeedsPage() {
@@ -50,9 +50,9 @@ export default function SeedsPage() {
   return (
     <div>
       <PageHeader
-        title="Seed Library"
-        description={`Raw ideas and assets for ${currentWorkspace?.name ?? 'this workspace'}, captured once before channel adaptation.`}
-        actions={<Link href="/app/seeds/new" className="rounded-2xl bg-violet-600 px-4 py-2.5 text-sm font-medium text-white transition hover:bg-violet-700">+ New Seed</Link>}
+        title="シードライブラリ"
+        description={`${currentWorkspace?.name ?? 'このワークスペース'}のための生のアイデアや素材を、媒体ごとの調整前にまとめて保管します。`}
+        actions={<Link href="/app/seeds/new" className="rounded-2xl bg-violet-600 px-4 py-2.5 text-sm font-medium text-white transition hover:bg-violet-700">+ 新しいシード</Link>}
       />
 
       <div className="mb-5 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
@@ -63,14 +63,14 @@ export default function SeedsPage() {
             </button>
           ))}
         </div>
-        <input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search Seeds, source text, or tags…" className="w-full rounded-2xl border border-stone-200 bg-white px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-violet-300 lg:max-w-xs" />
+        <input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="シード・原文・タグを検索…" className="w-full rounded-2xl border border-stone-200 bg-white px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-violet-300 lg:max-w-xs" />
       </div>
 
       {filtered.length === 0 ? (
         <EmptyState
-          title="No Seeds found"
-          description={seeds.length === 0 ? 'Capture one rough idea, file, or announcement. It does not need to be publication-ready.' : 'Try another filter or search term.'}
-          action={<Link href="/app/seeds/new" className="rounded-2xl bg-violet-600 px-4 py-2 text-sm font-medium text-white hover:bg-violet-700">Capture a Seed</Link>}
+          title="シードが見つかりません"
+          description={seeds.length === 0 ? 'ざっくりとしたアイデア、ファイル、告知などを1つ取り込んでみましょう。公開できる完成度である必要はありません。' : '別のフィルターや検索語をお試しください。'}
+          action={<Link href="/app/seeds/new" className="rounded-2xl bg-violet-600 px-4 py-2 text-sm font-medium text-white hover:bg-violet-700">シードを取り込む</Link>}
         />
       ) : (
         <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
