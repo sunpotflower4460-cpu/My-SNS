@@ -26,10 +26,22 @@ export function describeAuditLog(log: AuditLog): string {
       return `${actor} changed a teammate role${typeof log.metadata?.role === 'string' ? ` to ${log.metadata.role}` : ''}.`
     case 'draft_edited':
       return `${actor} updated a channel draft${typeof log.metadata?.channel === 'string' ? ` for ${log.metadata.channel}` : typeof log.metadata?.platform === 'string' ? ` for ${log.metadata.platform}` : ''}.`
+    case 'draft_ai_generated':
+      return `${actor} generated AI draft proposals${Array.isArray(log.metadata?.channels) ? ` for ${log.metadata.channels.join(', ')}` : ''}.`
+    case 'draft_revision_approved':
+      return `${actor} approved a draft${typeof log.metadata?.channel === 'string' ? ` for ${log.metadata.channel}` : ''} and recorded a Revision.`
     case 'queue_item_scheduled':
-      return `${actor} moved a queue item back into the schedule.`
+      return log.metadata?.retried
+        ? `${actor} moved a queue item back into the schedule.`
+        : `${actor} scheduled a draft for publishing${typeof log.metadata?.channel === 'string' ? ` on ${log.metadata.channel}` : ''}.`
     case 'queue_item_cancelled':
       return `${actor} cancelled a queue item.`
+    case 'queue_item_published':
+      return `A job ${actor} scheduled was published${typeof log.metadata?.channel === 'string' ? ` to ${log.metadata.channel}` : ''}.`
+    case 'queue_item_failed':
+      return `A job ${actor} scheduled failed to publish${typeof log.metadata?.failureReason === 'string' ? ` (${log.metadata.failureReason})` : ''}.`
+    case 'queue_item_manual_completed':
+      return `${actor} recorded a manual publish${typeof log.metadata?.channel === 'string' ? ` for ${log.metadata.channel}` : ''}.`
     case 'inbox_item_read':
       return `${actor} updated read state on an inbox item.`
     case 'inbox_item_starred':

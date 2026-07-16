@@ -6,6 +6,14 @@ export interface PublishingChannelConfig {
   icon: string
   delivery: 'api-later' | 'manual-copy' | 'owned-channel'
   description: string
+  /**
+   * The publish_jobs.publish_mode a freshly scheduled job starts in for this
+   * channel, per docs/master-plan.md §3's per-platform MVP strategy. Not
+   * simply derived from `delivery`: two "api-later" channels intentionally
+   * start below auto (YouTube waits for quota/upload review, TikTok starts
+   * as an inbox draft) until PR4/PR5 connect a real, audited connector.
+   */
+  mvpPublishMode: PublishMode
 }
 
 export const PUBLISHING_CHANNEL_CONFIG: Record<PublishingChannel, PublishingChannelConfig> = {
@@ -15,6 +23,7 @@ export const PUBLISHING_CHANNEL_CONFIG: Record<PublishingChannel, PublishingChan
     icon: '▶',
     delivery: 'api-later',
     description: 'Video title, description, and supporting copy.',
+    mvpPublishMode: 'assisted',
   },
   note: {
     label: 'note',
@@ -22,6 +31,7 @@ export const PUBLISHING_CHANNEL_CONFIG: Record<PublishingChannel, PublishingChan
     icon: 'n',
     delivery: 'manual-copy',
     description: 'Long-form draft prepared for review and copy.',
+    mvpPublishMode: 'manual',
   },
   instagram: {
     label: 'Instagram',
@@ -29,6 +39,7 @@ export const PUBLISHING_CHANNEL_CONFIG: Record<PublishingChannel, PublishingChan
     icon: '◎',
     delivery: 'api-later',
     description: 'Caption, tags, and visual framing.',
+    mvpPublishMode: 'auto',
   },
   x: {
     label: 'X',
@@ -36,6 +47,7 @@ export const PUBLISHING_CHANNEL_CONFIG: Record<PublishingChannel, PublishingChan
     icon: '𝕏',
     delivery: 'api-later',
     description: 'A concise post or thread proposal.',
+    mvpPublishMode: 'auto',
   },
   tiktok: {
     label: 'TikTok',
@@ -43,6 +55,7 @@ export const PUBLISHING_CHANNEL_CONFIG: Record<PublishingChannel, PublishingChan
     icon: '♪',
     delivery: 'api-later',
     description: 'Short-video caption and hook.',
+    mvpPublishMode: 'draft',
   },
   threads: {
     label: 'Threads',
@@ -50,6 +63,9 @@ export const PUBLISHING_CHANNEL_CONFIG: Record<PublishingChannel, PublishingChan
     icon: '@',
     delivery: 'api-later',
     description: 'Conversational social copy.',
+    // Not one of the 5 core MVP channels — master-plan §3 has no explicit
+    // strategy for it yet, so default to a human review gate rather than auto.
+    mvpPublishMode: 'assisted',
   },
   facebook: {
     label: 'Facebook',
@@ -57,6 +73,7 @@ export const PUBLISHING_CHANNEL_CONFIG: Record<PublishingChannel, PublishingChan
     icon: 'f',
     delivery: 'api-later',
     description: 'Community-oriented post copy.',
+    mvpPublishMode: 'assisted',
   },
   website: {
     label: 'Website',
@@ -64,6 +81,7 @@ export const PUBLISHING_CHANNEL_CONFIG: Record<PublishingChannel, PublishingChan
     icon: '⌂',
     delivery: 'owned-channel',
     description: 'Copy for the creator-owned home base.',
+    mvpPublishMode: 'owned',
   },
 }
 
@@ -73,12 +91,5 @@ export function isManualCopyChannel(channel: PublishingChannel): boolean {
 
 /** The publish_jobs.publish_mode a freshly scheduled job should start in for this channel. */
 export function derivePublishMode(channel: PublishingChannel): PublishMode {
-  switch (PUBLISHING_CHANNEL_CONFIG[channel].delivery) {
-    case 'manual-copy':
-      return 'manual'
-    case 'owned-channel':
-      return 'owned'
-    case 'api-later':
-      return 'auto'
-  }
+  return PUBLISHING_CHANNEL_CONFIG[channel].mvpPublishMode
 }
