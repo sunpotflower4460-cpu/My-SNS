@@ -36,7 +36,7 @@ function filterItems(items: InboxItem[], tab: FilterTab): InboxItem[] {
 }
 
 export default function InboxPage() {
-  const { addInboxNote, contents, getInboxNotes, inboxItems, toggleInboxNeedsAction, toggleInboxRead, toggleInboxStar } = useApp()
+  const { addInboxNote, getInboxNotes, inboxItems, seeds, toggleInboxNeedsAction, toggleInboxRead, toggleInboxStar } = useApp()
   const [activeTab, setActiveTab] = useState<FilterTab>('all')
   const [draftNotes, setDraftNotes] = useState<Record<string, string>>({})
   const [feedback, setFeedback] = useState('')
@@ -82,12 +82,12 @@ export default function InboxPage() {
                 item={item}
                 notes={notes}
                 noteDraft={draftNotes[item.id] ?? ''}
-                relatedContentTitle={
-                  item.contentId
-                    ? contents.find((content) => content.id === item.contentId)?.title ?? 'Linked content'
+                relatedSeedTitle={
+                  item.seedId
+                    ? seeds.find((seed) => seed.id === item.seedId)?.title ?? 'Linked Seed'
                     : null
                 }
-                relatedContentHref={item.contentId ? `/app/content/${item.contentId}` : null}
+                relatedSeedHref={item.seedId ? `/app/seeds/${item.seedId}` : null}
                 onChangeNote={(value) => setDraftNotes((prev) => ({ ...prev, [item.id]: value }))}
                 onSaveNote={async () => {
                   if (!draftNotes[item.id]?.trim()) return

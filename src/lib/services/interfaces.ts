@@ -1,10 +1,10 @@
-import type { Content, SocialDraft, SocialPlatform, InboxItem } from '@/lib/domain/types'
+import type { Seed, SocialDraft, PublishingChannel, SocialPlatform, InboxItem } from '@/lib/domain/types'
 
 // ─── Draft Generator ──────────────────────────────────────────────────────────
 export interface DraftGeneratorService {
   generateDrafts(
-    content: Content,
-    platforms: SocialPlatform[],
+    seed: Seed,
+    channels: PublishingChannel[],
     tone: string,
     length: 'short' | 'medium' | 'long',
     context?: {

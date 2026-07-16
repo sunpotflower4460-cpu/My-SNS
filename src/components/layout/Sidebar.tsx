@@ -12,7 +12,8 @@ interface NavItem {
 
 const NAV_ITEMS: NavItem[] = [
   { label: 'Dashboard', href: '/app/dashboard', icon: '⊞' },
-  { label: 'Content', href: '/app/content', icon: '📄' },
+  { label: 'Seeds', href: '/app/seeds', icon: '🌱' },
+  { label: 'Brand Profile', href: '/app/brand', icon: '◌' },
   { label: 'Drafts', href: '/app/drafts', icon: '✏️' },
   { label: 'Queue', href: '/app/queue', icon: '📅' },
   { label: 'Inbox', href: '/app/inbox', icon: '📬' },

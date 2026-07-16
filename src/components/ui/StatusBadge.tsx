@@ -3,6 +3,7 @@ interface StatusBadgeProps {
 }
 
 const STATUS_STYLES: Record<string, string> = {
+  captured: 'bg-amber-50 text-amber-700 border-amber-200',
   draft: 'bg-gray-100 text-gray-600 border-gray-200',
   ready: 'bg-blue-100 text-blue-700 border-blue-200',
   published: 'bg-green-100 text-green-700 border-green-200',

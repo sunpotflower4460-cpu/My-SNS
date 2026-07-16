@@ -4,13 +4,16 @@ import { createContext, useContext, useEffect, useMemo, useState, useCallback } 
 import type {
   Asset,
   AuditLog,
-  Content,
-  ContentStatus,
-  ContentType,
+  BrandProfile,
+  BrandProfileInput,
   InboxItem,
   InboxNote,
   Invitation,
+  PublishingChannel,
   PublishJob,
+  Seed,
+  SeedKind,
+  SeedStatus,
   SocialAccount,
   SocialDraft,
   Workspace,
@@ -19,7 +22,8 @@ import type {
 } from '@/lib/domain/types'
 import { useAuth } from '@/lib/auth/auth-provider'
 import * as workspacesRepo from '@/lib/repositories/supabase/workspaces'
-import * as contentRepo from '@/lib/repositories/supabase/content'
+import * as seedsRepo from '@/lib/repositories/supabase/seeds'
+import * as brandProfilesRepo from '@/lib/repositories/supabase/brand-profiles'
 import * as draftsRepo from '@/lib/repositories/supabase/drafts'
 import * as inboxRepo from '@/lib/repositories/supabase/inbox'
 import * as queueRepo from '@/lib/repositories/supabase/queue'
@@ -36,27 +40,35 @@ interface AppContextValue {
   members: WorkspaceMember[]
   invitations: Invitation[]
   socialAccounts: SocialAccount[]
-  contents: Content[]
+  brandProfiles: BrandProfile[]
+  defaultBrandProfile: BrandProfile | null
+  seeds: Seed[]
   publishJobs: PublishJob[]
   inboxItems: InboxItem[]
   auditLogs: AuditLog[]
   drafts: SocialDraft[]
   setActiveWorkspaceId: (workspaceId: string) => void
   refreshWorkspaceData: () => Promise<void>
-  createContentItem: (input: {
+  createSeedItem: (input: {
     title: string
-    body: string
-    type: ContentType
-    status: ContentStatus
+    sourceText: string
+    kind: SeedKind
+    status: SeedStatus
+    goal?: string
+    audience?: string
+    keyPoints: string[]
+    callToAction?: string
+    targetChannels: PublishingChannel[]
+    brandProfileId: string
     tags: string[] | string
     assets?: AssetUploadInput[]
-  }) => Promise<Content>
-  updateContentItem: (
-    contentId: string,
-    patch: Partial<Pick<Content, 'title' | 'body' | 'status' | 'tags'>>
-  ) => Promise<Content>
-  getContentDetail: (contentId: string) => {
-    content: Content | null
+  }) => Promise<Seed>
+  updateSeedItem: (
+    seedId: string,
+    patch: seedsRepo.SeedPatch
+  ) => Promise<Seed>
+  getSeedDetail: (seedId: string) => {
+    seed: Seed | null
     assets: Asset[]
     drafts: SocialDraft[]
     jobs: PublishJob[]
@@ -67,6 +79,7 @@ interface AppContextValue {
   changeMemberRole: (userId: string, role: WorkspaceRole) => Promise<WorkspaceMember>
   removeMember: (userId: string) => Promise<void>
   saveWorkspaceSettings: (name: string, slug: string) => Promise<Workspace>
+  saveDefaultBrandProfile: (input: BrandProfileInput) => Promise<BrandProfile>
   toggleInboxRead: (inboxItemId: string) => Promise<InboxItem>
   toggleInboxStar: (inboxItemId: string) => Promise<InboxItem>
   toggleInboxNeedsAction: (inboxItemId: string) => Promise<InboxItem>
@@ -76,7 +89,7 @@ interface AppContextValue {
   cancelQueueJob: (jobId: string) => Promise<PublishJob>
   saveDraft: (draft: Omit<SocialDraft, 'id' | 'createdAt' | 'updatedAt'> & { id?: string }) => Promise<SocialDraft>
   approveDraft: (draftId: string) => Promise<SocialDraft>
-  getDraftsForContent: (contentId: string) => SocialDraft[]
+  getDraftsForSeed: (seedId: string) => SocialDraft[]
 }
 
 const AppContext = createContext<AppContextValue | null>(null)
@@ -91,7 +104,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const [members, setMembers] = useState<WorkspaceMember[]>([])
   const [invitations, setInvitations] = useState<Invitation[]>([])
   const [socialAccounts, setSocialAccounts] = useState<SocialAccount[]>([])
-  const [contents, setContents] = useState<Content[]>([])
+  const [brandProfiles, setBrandProfiles] = useState<BrandProfile[]>([])
+  const [seeds, setSeeds] = useState<Seed[]>([])
   const [workspaceAssets, setWorkspaceAssets] = useState<Asset[]>([])
   const [publishJobs, setPublishJobs] = useState<PublishJob[]>([])
   const [inboxItems, setInboxItems] = useState<InboxItem[]>([])
@@ -139,7 +153,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         membersList,
         invitationsList,
         socialAccountsList,
-        contentsList,
+        brandProfilesList,
+        seedsList,
         assetsList,
         publishJobsList,
         inboxItemsList,
@@ -152,8 +167,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         workspacesRepo.listWorkspaceMembers(activeWorkspaceId),
         workspacesRepo.listWorkspaceInvitations(activeWorkspaceId),
         workspacesRepo.listWorkspaceSocialAccounts(activeWorkspaceId),
-        contentRepo.listWorkspaceContent(activeWorkspaceId),
-        contentRepo.listWorkspaceAssets(activeWorkspaceId),
+        brandProfilesRepo.listWorkspaceBrandProfiles(activeWorkspaceId),
+        seedsRepo.listWorkspaceSeeds(activeWorkspaceId),
+        seedsRepo.listWorkspaceAssets(activeWorkspaceId),
         queueRepo.listWorkspacePublishJobs(activeWorkspaceId),
         inboxRepo.listWorkspaceInbox(activeWorkspaceId),
         inboxRepo.listWorkspaceInboxNotes(activeWorkspaceId),
@@ -166,7 +182,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       setMembers(membersList)
       setInvitations(invitationsList)
       setSocialAccounts(socialAccountsList)
-      setContents(contentsList)
+      setBrandProfiles(brandProfilesList)
+      setSeeds(seedsList)
       setWorkspaceAssets(assetsList)
       setPublishJobs(publishJobsList)
       setInboxItems(inboxItemsList)
@@ -210,7 +227,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       members,
       invitations,
       socialAccounts,
-      contents,
+      brandProfiles,
+      defaultBrandProfile: brandProfiles.find((profile) => profile.isDefault) ?? brandProfiles[0] ?? null,
+      seeds,
       publishJobs,
       inboxItems,
       auditLogs,
@@ -218,38 +237,44 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       setActiveWorkspaceId,
       refreshWorkspaceData,
 
-      createContentItem: async (input) => {
+      createSeedItem: async (input) => {
         if (!currentWorkspace || !currentUserId) throw new Error('Not ready')
 
-        const content = await contentRepo.createContent({
+        const seed = await seedsRepo.createSeed({
           workspaceId: currentWorkspace.id,
-          authorId: currentUserId,
+          createdBy: currentUserId,
           title: input.title,
-          body: input.body,
-          type: input.type,
+          sourceText: input.sourceText,
+          kind: input.kind,
           status: input.status,
+          goal: input.goal,
+          audience: input.audience,
+          keyPoints: input.keyPoints,
+          callToAction: input.callToAction,
+          targetChannels: input.targetChannels,
+          brandProfileId: input.brandProfileId,
           tags: input.tags,
         })
 
         await auditRepo.appendAuditLog({
           workspaceId: currentWorkspace.id,
           actorId: currentUserId,
-          action: 'content_created',
-          targetType: 'content',
-          targetId: content.id,
-          metadata: { title: content.title, status: content.status },
+          action: 'seed_created',
+          targetType: 'seed',
+          targetId: seed.id,
+          metadata: { title: seed.title, status: seed.status, targetChannels: seed.targetChannels },
         })
 
         if (input.assets && input.assets.length > 0) {
           const preparedAssets = await assetStorage.prepareFiles(input.assets, {
             workspaceId: currentWorkspace.id,
-            contentId: content.id,
+            seedId: seed.id,
           })
 
           for (const preparedAsset of preparedAssets) {
             await assetStorage.saveAssetMetadata({
               workspaceId: currentWorkspace.id,
-              contentId: content.id,
+              seedId: seed.id,
               uploadedBy: currentUserId,
               preparedAsset,
             })
@@ -257,43 +282,43 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         }
 
         await refreshWorkspaceData()
-        return content
+        return seed
       },
 
-      updateContentItem: async (contentId, patch) => {
+      updateSeedItem: async (seedId, patch) => {
         if (!currentWorkspace || !currentUserId) throw new Error('Not ready')
 
-        const content = await contentRepo.updateContent(currentWorkspace.id, contentId, patch)
+        const seed = await seedsRepo.updateSeed(currentWorkspace.id, seedId, patch)
 
         await auditRepo.appendAuditLog({
           workspaceId: currentWorkspace.id,
           actorId: currentUserId,
-          action: 'content_updated',
-          targetType: 'content',
-          targetId: content.id,
+          action: 'seed_updated',
+          targetType: 'seed',
+          targetId: seed.id,
           metadata: patch,
         })
 
         await refreshWorkspaceData()
-        return content
+        return seed
       },
 
-      getContentDetail: (contentId) => {
+      getSeedDetail: (seedId) => {
         if (!currentWorkspace) {
-          return { content: null, assets: [], drafts: [], jobs: [], inboxItems: [], auditLogs: [] }
+          return { seed: null, assets: [], drafts: [], jobs: [], inboxItems: [], auditLogs: [] }
         }
 
-        const content = contents.find((c) => c.id === contentId) || null
-        const assets = workspaceAssets.filter((asset) => asset.contentId === contentId)
-        const contentDrafts = drafts.filter((d) => d.contentId === contentId)
-        const jobs = publishJobs.filter((j) => j.contentId === contentId)
-        const relatedInbox = inboxItems.filter((item) => item.contentId === contentId)
-        const logs = auditLogs.filter((log) => log.targetId === contentId).slice(0, 10)
+        const seed = seeds.find((entry) => entry.id === seedId) || null
+        const assets = workspaceAssets.filter((asset) => asset.seedId === seedId)
+        const seedDrafts = drafts.filter((draft) => draft.seedId === seedId)
+        const jobs = publishJobs.filter((job) => job.seedId === seedId)
+        const relatedInbox = inboxItems.filter((item) => item.seedId === seedId)
+        const logs = auditLogs.filter((log) => log.targetId === seedId).slice(0, 10)
 
         return {
-          content,
+          seed,
           assets,
-          drafts: contentDrafts,
+          drafts: seedDrafts,
           jobs,
           inboxItems: relatedInbox,
           auditLogs: logs,
@@ -385,6 +410,30 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
         await refreshWorkspaceData()
         return updated
+      },
+
+      saveDefaultBrandProfile: async (input) => {
+        if (!currentWorkspace || !currentUserId) throw new Error('Not ready')
+
+        const currentDefault = brandProfiles.find((profile) => profile.isDefault) ?? brandProfiles[0]
+        const saved = await brandProfilesRepo.saveBrandProfile({
+          workspaceId: currentWorkspace.id,
+          createdBy: currentUserId,
+          profileId: currentDefault?.id,
+          input,
+        })
+
+        await auditRepo.appendAuditLog({
+          workspaceId: currentWorkspace.id,
+          actorId: currentUserId,
+          action: 'brand_profile_updated',
+          targetType: 'brand_profile',
+          targetId: saved.id,
+          metadata: { name: saved.name, language: saved.language },
+        })
+
+        await refreshWorkspaceData()
+        return saved
       },
 
       toggleInboxRead: async (inboxItemId) => {
@@ -524,7 +573,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           action: 'draft_edited',
           targetType: 'social_draft',
           targetId: saved.id,
-          metadata: { platform: saved.platform, status: saved.status },
+          metadata: { channel: saved.channel, status: saved.status },
         })
 
         await refreshWorkspaceData()
@@ -548,15 +597,15 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           action: 'draft_edited',
           targetType: 'social_draft',
           targetId: approved.id,
-          metadata: { approved: true, platform: approved.platform },
+          metadata: { approved: true, channel: approved.channel },
         })
 
         await refreshWorkspaceData()
         return approved
       },
 
-      getDraftsForContent: (contentId) => {
-        return drafts.filter((d) => d.contentId === contentId)
+      getDraftsForSeed: (seedId) => {
+        return drafts.filter((draft) => draft.seedId === seedId)
       },
     }
   }, [
@@ -569,7 +618,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     members,
     invitations,
     socialAccounts,
-    contents,
+    brandProfiles,
+    seeds,
     workspaceAssets,
     publishJobs,
     inboxItems,

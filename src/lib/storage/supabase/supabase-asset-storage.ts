@@ -1,7 +1,7 @@
 import type { AssetStorageAdapter, AssetUploadContext, AssetUploadInput, PreparedAssetUpload } from '../interfaces'
 import { createClient } from '@/lib/supabase/client'
 import type { Asset } from '@/lib/domain/types'
-import { inferAssetType } from '@/lib/content/utils'
+import { inferAssetType } from '@/lib/seeds/input'
 import { buildAssetStoragePath } from '@/lib/storage/asset-path'
 
 export class SupabaseAssetStorage implements AssetStorageAdapter {
@@ -16,7 +16,7 @@ export class SupabaseAssetStorage implements AssetStorageAdapter {
       const assetType = inferAssetType(file.name, file.type)
       const filePath = buildAssetStoragePath({
         workspaceId: context.workspaceId,
-        contentId: context.contentId,
+        seedId: context.seedId,
         assetId: crypto.randomUUID(),
         fileName: file.name,
       })
@@ -52,7 +52,7 @@ export class SupabaseAssetStorage implements AssetStorageAdapter {
 
   async saveAssetMetadata(params: {
     workspaceId: string
-    contentId?: string
+    seedId?: string
     uploadedBy: string
     preparedAsset: PreparedAssetUpload
   }): Promise<Asset> {
@@ -60,7 +60,7 @@ export class SupabaseAssetStorage implements AssetStorageAdapter {
       .from('assets')
       .insert({
         workspace_id: params.workspaceId,
-        content_id: params.contentId,
+        seed_id: params.seedId,
         name: params.preparedAsset.name,
         url: '',
         storage_path: params.preparedAsset.storagePath,
@@ -79,7 +79,7 @@ export class SupabaseAssetStorage implements AssetStorageAdapter {
     return {
       id: data.id,
       workspaceId: data.workspace_id,
-      contentId: data.content_id,
+      seedId: data.seed_id,
       name: data.name,
       url: params.preparedAsset.url || data.url,
       storagePath: data.storage_path,

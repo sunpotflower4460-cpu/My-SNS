@@ -12,6 +12,12 @@ export function describeAuditLog(log: AuditLog): string {
       return `${actor} created content${typeof log.metadata?.title === 'string' ? ` “${log.metadata.title}”` : ''}.`
     case 'content_updated':
       return `${actor} updated a content entry.`
+    case 'seed_created':
+      return `${actor} captured a Seed${typeof log.metadata?.title === 'string' ? ` “${log.metadata.title}”` : ''}.`
+    case 'seed_updated':
+      return `${actor} updated a Seed.`
+    case 'brand_profile_updated':
+      return `${actor} updated the Brand Profile${typeof log.metadata?.name === 'string' ? ` “${log.metadata.name}”` : ''}.`
     case 'member_invited':
       return `${actor} invited ${typeof log.metadata?.email === 'string' ? log.metadata.email : 'a teammate'}.`
     case 'member_removed':
@@ -19,7 +25,7 @@ export function describeAuditLog(log: AuditLog): string {
     case 'role_changed':
       return `${actor} changed a teammate role${typeof log.metadata?.role === 'string' ? ` to ${log.metadata.role}` : ''}.`
     case 'draft_edited':
-      return `${actor} updated a social draft${typeof log.metadata?.platform === 'string' ? ` for ${log.metadata.platform}` : ''}.`
+      return `${actor} updated a channel draft${typeof log.metadata?.channel === 'string' ? ` for ${log.metadata.channel}` : typeof log.metadata?.platform === 'string' ? ` for ${log.metadata.platform}` : ''}.`
     case 'queue_item_scheduled':
       return `${actor} moved a queue item back into the schedule.`
     case 'queue_item_cancelled':

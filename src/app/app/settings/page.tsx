@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
+import Link from 'next/link'
 import PageHeader from '@/components/ui/PageHeader'
 import PermissionGate from '@/components/ui/PermissionGate'
 import RoleBadge from '@/components/ui/RoleBadge'
@@ -18,7 +19,7 @@ const PLATFORM_ICONS: Record<SocialPlatform, string> = {
 }
 
 export default function SettingsPage() {
-  const { currentMember, currentWorkspace, saveWorkspaceSettings, socialAccounts } = useApp()
+  const { currentMember, currentWorkspace, defaultBrandProfile, saveWorkspaceSettings, socialAccounts } = useApp()
   const { currentUser } = useCurrentUser()
   const [workspaceName, setWorkspaceName] = useState(currentWorkspace?.name ?? '')
   const [workspaceSlug, setWorkspaceSlug] = useState(currentWorkspace?.slug ?? '')
@@ -62,6 +63,16 @@ export default function SettingsPage() {
         </div>
 
         <div className="rounded-[2rem] border border-stone-200 bg-white p-6 shadow-sm shadow-stone-100/80">
+          <div className="flex flex-wrap items-center justify-between gap-4">
+            <div>
+              <h2 className="text-base font-semibold text-gray-900">Brand Profile</h2>
+              <p className="mt-1 text-sm text-gray-500">{defaultBrandProfile?.name ?? 'Not configured'} · reusable voice and wording boundaries</p>
+            </div>
+            <Link href="/app/brand" className="rounded-2xl border border-violet-200 px-4 py-2.5 text-sm font-medium text-violet-700 hover:bg-violet-50">Edit Brand Profile</Link>
+          </div>
+        </div>
+
+        <div className="rounded-[2rem] border border-stone-200 bg-white p-6 shadow-sm shadow-stone-100/80">
           <h2 className="mb-4 text-base font-semibold text-gray-900">Workspace</h2>
           {saved && <div className="mb-4 rounded-2xl border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-700">Changes saved.</div>}
           {error && <div className="mb-4 rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div>}
@@ -101,7 +112,7 @@ export default function SettingsPage() {
         <div className="rounded-[2rem] border border-stone-200 bg-white p-6 shadow-sm shadow-stone-100/80">
           <h2 className="mb-2 text-base font-semibold text-gray-900">Current scope</h2>
           <p className="text-sm leading-6 text-gray-500">
-            Settings, memberships, content, queue updates, inbox interactions, and private asset metadata are stored in Supabase. Social OAuth and destructive workspace actions remain disabled until their reviewed implementation phases.
+            Settings, memberships, Seeds, Brand Profile, queue updates, inbox interactions, and private asset metadata are stored in Supabase. Social OAuth and destructive workspace actions remain disabled until their reviewed implementation phases.
           </p>
         </div>
       </div>

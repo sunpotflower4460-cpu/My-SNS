@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
-import { formatBytes, inferAssetType, normalizeTags } from './utils'
+import { formatBytes, inferAssetType, normalizeTags } from './input'
 
-describe('content utilities', () => {
+describe('Seed input utilities', () => {
   it('normalizes and deduplicates comma-separated tags', () => {
     expect(normalizeTags(' Music, release, MUSIC,  ')).toEqual(['music', 'release'])
   })

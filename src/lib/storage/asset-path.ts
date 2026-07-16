@@ -7,11 +7,11 @@ export function getSafeAssetExtension(fileName: string): string {
 
 export function buildAssetStoragePath(params: {
   workspaceId: string
-  contentId: string
+  seedId: string
   assetId: string
   fileName: string
 }): string {
   const extension = getSafeAssetExtension(params.fileName)
   const suffix = extension ? '.' + extension : ''
-  return [params.workspaceId, params.contentId, params.assetId + suffix].join('/')
+  return [params.workspaceId, params.seedId, params.assetId + suffix].join('/')
 }

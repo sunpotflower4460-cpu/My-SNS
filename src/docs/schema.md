@@ -1,234 +1,102 @@
-# Database Schema Proposal
+# Database schema
 
-> This schema is designed for Supabase (PostgreSQL). Phase 2 will implement the actual migrations.
+Supabase PostgreSQL is the source of truth. The migrations in `supabase/migrations/` are authoritative; this document describes the current application-facing model after PR1.
 
----
+## Ownership boundary
 
-## Tables
+Every creator-owned row is scoped by `workspace_id`. Supabase Row Level Security uses workspace membership plus the `owner`, `admin`, `editor`, `contributor`, and `viewer` roles.
 
-### `users`
-Managed by Supabase Auth. Extended with a `profiles` table.
+## Core creator tables
 
-| Column | Type | Notes |
-|--------|------|-------|
-| id | uuid | PK, from auth.users |
-| email | text | Unique |
-| name | text | Display name |
-| avatar_url | text | Optional |
-| created_at | timestamptz | Default now() |
+### `brand_profiles`
 
----
-
-### `workspaces`
+Reusable editorial context kept separate from individual Seeds.
 
 | Column | Type | Notes |
-|--------|------|-------|
-| id | uuid | PK |
-| name | text | Not null |
-| slug | text | Unique |
-| logo_url | text | Optional |
-| owner_id | uuid | FK → users.id |
-| created_at | timestamptz | |
-| updated_at | timestamptz | |
+| --- | --- | --- |
+| id | uuid | Primary key |
+| workspace_id | uuid | Workspace FK |
+| name | text | Non-blank profile name |
+| description | text | Purpose and worldview |
+| audience | text | Default audience |
+| voice_traits | text[] | Reusable voice qualities |
+| values | text[] | Editorial values |
+| preferred_terms | text[] | Preferred wording/spelling |
+| avoided_terms | text[] | Claims or wording to avoid |
+| default_call_to_action | text | Optional fallback CTA |
+| language | text | Default `ja` |
+| is_default | boolean | At most one default per workspace |
+| created_by | uuid | Profile FK |
+| created_at / updated_at | timestamptz | Audit timestamps |
 
-**Indexes:** `slug` (unique), `owner_id`
+Owners, admins, and editors can edit Brand Profiles. Every workspace receives a default profile through the workspace trigger.
 
----
+### `seeds`
 
-### `workspace_members`
-
-| Column | Type | Notes |
-|--------|------|-------|
-| id | uuid | PK |
-| workspace_id | uuid | FK → workspaces.id |
-| user_id | uuid | FK → users.id |
-| role | text | enum: owner/admin/editor/contributor/viewer |
-| joined_at | timestamptz | |
-
-**Indexes:** `(workspace_id, user_id)` unique
-
----
-
-### `invitations`
+One raw creator input captured before channel-specific proposals are produced. PR1 renames the original `contents` table and preserves all existing rows and relationships.
 
 | Column | Type | Notes |
-|--------|------|-------|
-| id | uuid | PK |
-| workspace_id | uuid | FK → workspaces.id |
-| email | text | |
-| role | text | WorkspaceRole |
-| status | text | pending/accepted/expired/revoked |
-| invited_by | uuid | FK → users.id |
-| created_at | timestamptz | |
-| expires_at | timestamptz | |
+| --- | --- | --- |
+| id | uuid | Primary key |
+| workspace_id | uuid | Workspace FK |
+| brand_profile_id | uuid | Same-workspace Brand Profile FK |
+| title | text | Working title |
+| source_text | text | Optional when files carry the source |
+| kind | seed_kind | music/video/image/text/mixed |
+| status | seed_status | captured/ready/archived |
+| goal | text | Desired outcome |
+| audience | text | Optional override of Brand Profile |
+| key_points | text[] | Facts/details that must stay exact |
+| call_to_action | text | Optional override of Brand Profile |
+| target_channels | publishing_channel[] | Desired output channels |
+| tags | text[] | Search and draft context |
+| created_by | uuid | Profile FK |
+| created_at / updated_at | timestamptz | Audit timestamps |
 
----
-
-### `social_accounts`
-
-| Column | Type | Notes |
-|--------|------|-------|
-| id | uuid | PK |
-| workspace_id | uuid | FK → workspaces.id |
-| platform | text | SocialPlatform enum |
-| handle | text | |
-| connected | boolean | |
-| access_token | text | Encrypted in Phase 2 |
-| refresh_token | text | Encrypted in Phase 2 |
-| connected_at | timestamptz | Optional |
-
-**Indexes:** `(workspace_id, platform)` unique
-
----
-
-### `contents`
-
-| Column | Type | Notes |
-|--------|------|-------|
-| id | uuid | PK |
-| workspace_id | uuid | FK → workspaces.id |
-| title | text | |
-| body | text | Optional |
-| type | text | music/video/image/text/mixed |
-| status | text | draft/ready/published/archived |
-| tags | text[] | |
-| author_id | uuid | FK → users.id |
-| created_at | timestamptz | |
-| updated_at | timestamptz | |
-
-**Indexes:** `workspace_id`, `status`, `type`
-
----
+The five default target channels are YouTube, note, Instagram, X, and TikTok. The enum also leaves room for Threads, Facebook, and the creator-owned website. note is explicitly a review-and-copy channel.
 
 ### `assets`
 
 | Column | Type | Notes |
-|--------|------|-------|
-| id | uuid | PK |
-| workspace_id | uuid | FK → workspaces.id |
-| content_id | uuid | Optional FK → contents.id |
-| name | text | |
-| url | text | Legacy URL fallback; new private assets store an empty value |
-| storage_path | text | Private `assets` bucket object path |
-| type | text | image/video/audio/document |
+| --- | --- | --- |
+| id | uuid | Primary key |
+| workspace_id | uuid | Workspace FK |
+| seed_id | uuid | Optional Seed FK |
+| name | text | Original file name |
+| url | text | Legacy fallback only |
+| storage_path | text | Unique path in private `assets` bucket |
+| type | asset_type | image/video/audio/document |
 | size | bigint | Bytes |
-| uploaded_by | uuid | FK → users.id |
-| created_at | timestamptz | |
+| uploaded_by | uuid | Profile FK |
+| created_at | timestamptz | Upload time |
 
----
+Objects use `<workspace-id>/<seed-id>/<asset-id>.<extension>` and are read through short-lived signed URLs.
+
+## Downstream workflow tables
 
 ### `social_drafts`
 
-| Column | Type | Notes |
-|--------|------|-------|
-| id | uuid | PK |
-| workspace_id | uuid | FK → workspaces.id |
-| content_id | uuid | FK → contents.id |
-| platform | text | SocialPlatform |
-| draft_text | text | |
-| tone | text | |
-| length | text | short/medium/long |
-| status | text | draft/approved/rejected |
-| created_by | uuid | FK → users.id |
-| created_at | timestamptz | |
-| updated_at | timestamptz | |
-
----
+Drafts reference `seed_id`. Their `channel` uses `publishing_channel`, which allows note drafts without pretending note is an OAuth-connected social account. Status remains draft/approved/rejected.
 
 ### `publish_jobs`
 
-| Column | Type | Notes |
-|--------|------|-------|
-| id | uuid | PK |
-| workspace_id | uuid | FK → workspaces.id |
-| content_id | uuid | FK → contents.id |
-| draft_id | uuid | FK → social_drafts.id |
-| platform | text | SocialPlatform |
-| status | text | draft/scheduled/published/failed/cancelled |
-| scheduled_at | timestamptz | Optional |
-| published_at | timestamptz | Optional |
-| error_message | text | Optional |
-| created_by | uuid | FK → users.id |
-| created_at | timestamptz | |
+Jobs reference `seed_id`, a draft, and a `channel`. The current UI can inspect, retry, and cancel stored jobs; PR3 supplies immutable approved revisions and a real worker boundary.
 
-**Indexes:** `workspace_id`, `status`, `scheduled_at`
+### `inbox_items` and `inbox_notes`
 
----
-
-### `inbox_items`
-
-| Column | Type | Notes |
-|--------|------|-------|
-| id | uuid | PK |
-| workspace_id | uuid | FK → workspaces.id |
-| platform | text | SocialPlatform |
-| kind | text | dm/comment/reply/mention |
-| author_handle | text | |
-| author_avatar_url | text | Optional |
-| text | text | |
-| content_id | uuid | Optional FK → contents.id |
-| received_at | timestamptz | |
-| is_read | boolean | |
-| needs_action | boolean | |
-| is_starred | boolean | |
-| ai_summary | text | Optional |
-
-**Indexes:** `workspace_id`, `is_read`, `needs_action`, `platform`
-
----
-
-### `inbox_notes`
-
-| Column | Type | Notes |
-|--------|------|-------|
-| id | uuid | PK |
-| inbox_item_id | uuid | FK → inbox_items.id |
-| author_id | uuid | FK → users.id |
-| text | text | |
-| created_at | timestamptz | |
-
----
-
-### `ai_reply_suggestions`
-
-| Column | Type | Notes |
-|--------|------|-------|
-| id | uuid | PK |
-| inbox_item_id | uuid | FK → inbox_items.id |
-| suggested_text | text | |
-| tone | text | |
-| created_at | timestamptz | |
-
----
+External-style inbox items remain tied to a real `social_platform` and may optionally reference a `seed_id`. Notes are internal workspace records. External sync is not implemented yet.
 
 ### `audit_logs`
 
-| Column | Type | Notes |
-|--------|------|-------|
-| id | uuid | PK |
-| workspace_id | uuid | FK → workspaces.id |
-| actor_id | uuid | FK → users.id |
-| action | text | AuditAction enum |
-| target_type | text | Optional |
-| target_id | uuid | Optional |
-| metadata | jsonb | Optional |
-| created_at | timestamptz | |
+Workspace-scoped append-only activity records. PR1 adds `seed_created`, `seed_updated`, and `brand_profile_updated` application actions while retaining historical content action rendering.
 
-**Indexes:** `workspace_id`, `actor_id`, `created_at DESC`
+## Supporting tables
 
----
+- `profiles` mirrors authenticated users.
+- `workspaces`, `workspace_members`, and `workspace_invitations` define ownership and roles.
+- `social_accounts` remains restricted to real social platforms; note is never stored as an OAuth account.
+- `ai_reply_suggestions` is reserved for reviewed inbox-assistance work.
 
-## Row Level Security (Phase 2)
+## Deferred schemas
 
-All tables will use Supabase RLS to ensure:
-- Users can only access data in workspaces they belong to
-- Role checks will be enforced at the database level via `workspace_members`
-- Audit log writes are restricted to server-side service role
-
----
-
-## Phase 2 Additions
-- `ai_jobs` table for tracking async AI generation jobs
-- `webhooks` table for platform event ingestion
-- `notifications` table for in-app alerts
-- Encryption for `access_token` / `refresh_token` in `social_accounts`
+PR2 and PR3 will add structured proposal provenance, model/cost tracking, immutable approvals, delivery attempts, and scheduler idempotency. Provider credentials and webhook payloads are intentionally not modeled as plaintext application fields.

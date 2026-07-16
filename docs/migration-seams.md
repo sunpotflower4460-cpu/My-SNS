@@ -1,12 +1,13 @@
 # Remaining migration seams
 
-PR0 closes the prototype seams for auth, application persistence, asset upload, content detail assets, inbox notes, and audit detail.
+PR0 closes the prototype seams for auth, application persistence, asset upload, Seed detail assets, inbox notes, and audit detail. PR1 adds the Seed and Brand Profile boundary consumed by later AI and publishing work.
 
 ## Draft generation
 
 - Current: deterministic templates in `src/lib/services/ai-draft.ts`
 - Behavior: clearly labeled as templates; no invented AI or viral claims
-- Next: PR2 adds a reviewed provider with structured output, proposal cards, and explicit approval
+- Input: one Seed plus its separate Brand Profile and selected publishing channels
+- Next: PR2 adds a reviewed provider with structured output, missing-information suggestions, proposal cards, and explicit approval
 
 ## Social connectors
 

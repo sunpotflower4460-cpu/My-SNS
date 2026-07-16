@@ -47,6 +47,16 @@ export interface Invitation {
 // ─── Social Accounts ──────────────────────────────────────────────────────────
 export type SocialPlatform = 'youtube' | 'instagram' | 'threads' | 'x' | 'tiktok' | 'facebook'
 
+export type PublishingChannel = SocialPlatform | 'note' | 'website'
+
+export const CORE_PUBLISHING_CHANNELS = [
+  'youtube',
+  'note',
+  'instagram',
+  'x',
+  'tiktok',
+] as const satisfies readonly PublishingChannel[]
+
 export interface SocialAccount {
   id: string
   workspaceId: string
@@ -56,22 +66,61 @@ export interface SocialAccount {
   connectedAt?: string
 }
 
-// ─── Contents ─────────────────────────────────────────────────────────────────
-export type ContentType = 'music' | 'video' | 'image' | 'text' | 'mixed'
-export type ContentStatus = 'draft' | 'ready' | 'published' | 'archived'
+// ─── Brand profiles ──────────────────────────────────────────────────────────
+export interface BrandProfile {
+  id: string
+  workspaceId: string
+  name: string
+  description?: string
+  audience?: string
+  voiceTraits: string[]
+  values: string[]
+  preferredTerms: string[]
+  avoidedTerms: string[]
+  defaultCallToAction?: string
+  language: string
+  isDefault: boolean
+  createdBy: string
+  createdAt: string
+  updatedAt: string
+}
 
-export interface Content {
+export type BrandProfileInput = Pick<
+  BrandProfile,
+  | 'name'
+  | 'description'
+  | 'audience'
+  | 'voiceTraits'
+  | 'values'
+  | 'preferredTerms'
+  | 'avoidedTerms'
+  | 'defaultCallToAction'
+  | 'language'
+>
+
+// ─── Seeds ───────────────────────────────────────────────────────────────────
+export type SeedKind = 'music' | 'video' | 'image' | 'text' | 'mixed'
+export type SeedStatus = 'captured' | 'ready' | 'archived'
+
+export interface Seed {
   id: string
   workspaceId: string
   title: string
-  body?: string
-  type: ContentType
-  status: ContentStatus
+  sourceText?: string
+  kind: SeedKind
+  status: SeedStatus
+  goal?: string
+  audience?: string
+  keyPoints: string[]
+  callToAction?: string
+  targetChannels: PublishingChannel[]
+  brandProfileId?: string
   tags: string[]
-  authorId: string
+  createdBy: string
   createdAt: string
   updatedAt: string
-  author?: User
+  creator?: User
+  brandProfile?: BrandProfile
 }
 
 // ─── Assets ───────────────────────────────────────────────────────────────────
@@ -80,7 +129,7 @@ export type AssetType = 'image' | 'video' | 'audio' | 'document'
 export interface Asset {
   id: string
   workspaceId: string
-  contentId?: string
+  seedId?: string
   name: string
   url: string
   storagePath?: string
@@ -94,8 +143,8 @@ export interface Asset {
 export interface SocialDraft {
   id: string
   workspaceId: string
-  contentId: string
-  platform: SocialPlatform
+  seedId: string
+  channel: PublishingChannel
   draftText: string
   tone: string
   length: 'short' | 'medium' | 'long'
@@ -111,9 +160,9 @@ export type PublishJobStatus = 'draft' | 'scheduled' | 'published' | 'failed' | 
 export interface PublishJob {
   id: string
   workspaceId: string
-  contentId: string
+  seedId: string
   draftId: string
-  platform: SocialPlatform
+  channel: PublishingChannel
   status: PublishJobStatus
   scheduledAt?: string
   publishedAt?: string
@@ -133,13 +182,13 @@ export interface InboxItem {
   authorHandle: string
   authorAvatarUrl?: string
   text: string
-  contentId?: string
+  seedId?: string
   receivedAt: string
   isRead: boolean
   needsAction: boolean
   isStarred: boolean
   aiSummary?: string
-  relatedContent?: Content
+  relatedSeed?: Seed
 }
 
 // ─── Inbox Notes ──────────────────────────────────────────────────────────────
@@ -167,6 +216,9 @@ export type AuditAction =
   | 'role_changed'
   | 'content_created'
   | 'content_updated'
+  | 'seed_created'
+  | 'seed_updated'
+  | 'brand_profile_updated'
   | 'draft_edited'
   | 'queue_item_scheduled'
   | 'queue_item_cancelled'

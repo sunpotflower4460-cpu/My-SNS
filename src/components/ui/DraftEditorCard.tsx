@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import type { SocialDraft } from '@/lib/domain/types'
-import PlatformBadge from './PlatformBadge'
+import ChannelBadge from './ChannelBadge'
 import StatusBadge from './StatusBadge'
 
 interface DraftEditorCardProps {
@@ -34,7 +34,7 @@ export default function DraftEditorCard({ draft, onEdit, onApprove, onRegenerate
   return (
     <div className="rounded-3xl border border-stone-200 bg-white p-5 shadow-sm shadow-stone-100/70">
       <div className="flex items-center gap-2 mb-3 flex-wrap">
-        <PlatformBadge platform={draft.platform} />
+        <ChannelBadge channel={draft.channel} />
         <StatusBadge status={draft.status} />
         <span className="text-xs text-gray-400 ml-auto">
           {draft.tone} · {draft.length}

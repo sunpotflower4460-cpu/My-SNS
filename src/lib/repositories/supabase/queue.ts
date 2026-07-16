@@ -18,9 +18,9 @@ export async function listWorkspacePublishJobs(workspaceId: string): Promise<Pub
   return (data || []).map((j) => ({
     id: j.id,
     workspaceId: j.workspace_id,
-    contentId: j.content_id,
+    seedId: j.seed_id,
     draftId: j.draft_id,
-    platform: j.platform,
+    channel: j.channel,
     status: j.status,
     scheduledAt: j.scheduled_at,
     publishedAt: j.published_at,
@@ -30,9 +30,9 @@ export async function listWorkspacePublishJobs(workspaceId: string): Promise<Pub
   }))
 }
 
-export async function listContentPublishJobs(
+export async function listSeedPublishJobs(
   workspaceId: string,
-  contentId: string
+  seedId: string
 ): Promise<PublishJob[]> {
   const supabase = createClient()
 
@@ -40,20 +40,20 @@ export async function listContentPublishJobs(
     .from('publish_jobs')
     .select('*')
     .eq('workspace_id', workspaceId)
-    .eq('content_id', contentId)
+    .eq('seed_id', seedId)
     .order('created_at', { ascending: false })
 
   if (error) {
-    console.error('Error fetching content publish jobs:', error)
+    console.error('Error fetching Seed publish jobs:', error)
     return []
   }
 
   return (data || []).map((j) => ({
     id: j.id,
     workspaceId: j.workspace_id,
-    contentId: j.content_id,
+    seedId: j.seed_id,
     draftId: j.draft_id,
-    platform: j.platform,
+    channel: j.channel,
     status: j.status,
     scheduledAt: j.scheduled_at,
     publishedAt: j.published_at,
@@ -91,9 +91,9 @@ export async function retryPublishJob(
   return {
     id: data.id,
     workspaceId: data.workspace_id,
-    contentId: data.content_id,
+    seedId: data.seed_id,
     draftId: data.draft_id,
-    platform: data.platform,
+    channel: data.channel,
     status: data.status,
     scheduledAt: data.scheduled_at,
     publishedAt: data.published_at,
@@ -126,9 +126,9 @@ export async function cancelPublishJob(
   return {
     id: data.id,
     workspaceId: data.workspace_id,
-    contentId: data.content_id,
+    seedId: data.seed_id,
     draftId: data.draft_id,
-    platform: data.platform,
+    channel: data.channel,
     status: data.status,
     scheduledAt: data.scheduled_at,
     publishedAt: data.published_at,

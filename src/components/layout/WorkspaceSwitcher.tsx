@@ -43,7 +43,7 @@ export default function WorkspaceSwitcher({ workspace }: WorkspaceSwitcherProps)
           <div className="px-3 py-2">
             <p className="text-xs font-medium uppercase tracking-[0.2em] text-gray-400">Workspaces</p>
             <p className="mt-1 text-xs text-gray-500">
-              Switch the full prototype context for content, inbox, queue, and team activity.
+              Switch the full workspace context for Seeds, Brand Profile, inbox, queue, and team activity.
             </p>
           </div>
           {workspaces.map((ws) => (

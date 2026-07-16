@@ -8,7 +8,7 @@ export async function listWorkspaceInbox(workspaceId: string): Promise<InboxItem
     .from('inbox_items')
     .select(`
       *,
-      relatedContent:contents(*)
+      relatedSeed:seeds(*)
     `)
     .eq('workspace_id', workspaceId)
     .order('received_at', { ascending: false })
@@ -19,9 +19,9 @@ export async function listWorkspaceInbox(workspaceId: string): Promise<InboxItem
   }
 
   return (data || []).map((item) => {
-    const relatedContent = Array.isArray(item.relatedContent)
-      ? item.relatedContent[0]
-      : item.relatedContent
+    const relatedSeed = Array.isArray(item.relatedSeed)
+      ? item.relatedSeed[0]
+      : item.relatedSeed
 
     return {
       id: item.id,
@@ -31,23 +31,29 @@ export async function listWorkspaceInbox(workspaceId: string): Promise<InboxItem
       authorHandle: item.author_handle,
       authorAvatarUrl: item.author_avatar_url,
       text: item.text,
-      contentId: item.content_id,
+      seedId: item.seed_id,
       receivedAt: item.received_at,
       isRead: item.is_read,
       needsAction: item.needs_action,
       isStarred: item.is_starred,
       aiSummary: item.ai_summary,
-      relatedContent: relatedContent ? {
-        id: relatedContent.id,
-        workspaceId: relatedContent.workspace_id,
-        title: relatedContent.title,
-        body: relatedContent.body,
-        type: relatedContent.type,
-        status: relatedContent.status,
-        tags: relatedContent.tags || [],
-        authorId: relatedContent.author_id,
-        createdAt: relatedContent.created_at,
-        updatedAt: relatedContent.updated_at,
+      relatedSeed: relatedSeed ? {
+        id: relatedSeed.id,
+        workspaceId: relatedSeed.workspace_id,
+        title: relatedSeed.title,
+        sourceText: relatedSeed.source_text,
+        kind: relatedSeed.kind,
+        status: relatedSeed.status,
+        goal: relatedSeed.goal,
+        audience: relatedSeed.audience,
+        keyPoints: relatedSeed.key_points || [],
+        callToAction: relatedSeed.call_to_action,
+        targetChannels: relatedSeed.target_channels || [],
+        brandProfileId: relatedSeed.brand_profile_id,
+        tags: relatedSeed.tags || [],
+        createdBy: relatedSeed.created_by,
+        createdAt: relatedSeed.created_at,
+        updatedAt: relatedSeed.updated_at,
       } : undefined,
     }
   })
@@ -85,7 +91,7 @@ export async function updateInboxItem(
     authorHandle: data.author_handle,
     authorAvatarUrl: data.author_avatar_url,
     text: data.text,
-    contentId: data.content_id,
+    seedId: data.seed_id,
     receivedAt: data.received_at,
     isRead: data.is_read,
     needsAction: data.needs_action,
