@@ -1,0 +1,69 @@
+import type { SupabaseClient } from '@supabase/supabase-js'
+import type { AiGeneration, PublishingChannel } from '@/lib/domain/types'
+
+interface AiGenerationRow {
+  id: string
+  workspace_id: string
+  seed_id: string
+  channels: PublishingChannel[]
+  model: string
+  input_tokens: number
+  output_tokens: number
+  cost_usd: number
+  created_by: string
+  created_at: string
+}
+
+function mapGeneration(row: AiGenerationRow): AiGeneration {
+  return {
+    id: row.id,
+    workspaceId: row.workspace_id,
+    seedId: row.seed_id,
+    channels: row.channels,
+    model: row.model,
+    inputTokens: row.input_tokens,
+    outputTokens: row.output_tokens,
+    costUsd: row.cost_usd,
+    createdBy: row.created_by,
+    createdAt: row.created_at,
+  }
+}
+
+export interface RecordAiGenerationInput {
+  workspaceId: string
+  seedId: string
+  channels: PublishingChannel[]
+  model: string
+  inputTokens: number
+  outputTokens: number
+  costUsd: number
+  createdBy: string
+}
+
+/**
+ * Records one real AI generation call for cost/usage tracking. Requires a
+ * caller-provided Supabase client (the API route's authenticated server
+ * client) — this is never called for template fallbacks, which cost nothing.
+ */
+export async function recordAiGeneration(
+  supabase: SupabaseClient,
+  input: RecordAiGenerationInput,
+): Promise<AiGeneration> {
+  const { data, error } = await supabase
+    .from('ai_generations')
+    .insert({
+      workspace_id: input.workspaceId,
+      seed_id: input.seedId,
+      channels: input.channels,
+      model: input.model,
+      input_tokens: input.inputTokens,
+      output_tokens: input.outputTokens,
+      cost_usd: input.costUsd,
+      created_by: input.createdBy,
+    })
+    .select()
+    .single()
+
+  if (error) throw new Error(error.message)
+  return mapGeneration(data as AiGenerationRow)
+}

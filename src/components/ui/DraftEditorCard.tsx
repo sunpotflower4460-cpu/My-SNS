@@ -36,10 +36,15 @@ export default function DraftEditorCard({ draft, onEdit, onApprove, onRegenerate
       <div className="flex items-center gap-2 mb-3 flex-wrap">
         <ChannelBadge channel={draft.channel} />
         <StatusBadge status={draft.status} />
+        <span className={`rounded-full px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.14em] ${draft.source === 'ai' ? 'border border-violet-200 bg-violet-50 text-violet-700' : 'border border-stone-200 bg-stone-50 text-stone-500'}`}>
+          {draft.source === 'ai' ? 'AI proposal' : 'Template'}
+        </span>
         <span className="text-xs text-gray-400 ml-auto">
           {draft.tone} · {draft.length}
         </span>
       </div>
+
+      {draft.title && <p className="mb-2 text-sm font-semibold text-gray-900">{draft.title}</p>}
 
       <textarea
         value={text}
@@ -47,6 +52,19 @@ export default function DraftEditorCard({ draft, onEdit, onApprove, onRegenerate
         rows={4}
         className="w-full rounded-2xl border border-stone-200 p-3 text-sm text-gray-700 resize-none focus:outline-none focus:ring-2 focus:ring-violet-300"
       />
+
+      {draft.hashtags.length > 0 && (
+        <p className="mt-2 text-xs text-gray-400">{draft.hashtags.map((tag) => `#${tag}`).join(' ')}</p>
+      )}
+
+      {draft.assumptions.length > 0 && (
+        <div className="mt-3 rounded-2xl border border-amber-200 bg-amber-50 p-3">
+          <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-amber-700">Assumptions to check</p>
+          <ul className="mt-1.5 space-y-1 text-xs leading-5 text-amber-800">
+            {draft.assumptions.map((assumption, index) => <li key={index}>• {assumption}</li>)}
+          </ul>
+        </div>
+      )}
 
       <div className="flex items-center gap-2 mt-3">
         {isDirty && <span className="rounded-full border border-amber-200 bg-amber-50 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.14em] text-amber-700">Unsaved</span>}

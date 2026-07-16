@@ -30,7 +30,8 @@
 
 - PR0: Supabase基盤の正常化 — マージ済み
 - PR1: Seed / Brand Profile 基盤 — マージ済み
-- 次: PR2 AI提案＋承認 → PR3 Scheduling Engine → PR4 X＋Instagram → PR5 YouTube＋TikTok＋note handoff（ここまででMVP完成）
+- PR2: AI提案＋承認（`/api/drafts/generate`、`draft_revisions`、`ai_generations`） — マージ済み
+- 次: PR3 Scheduling Engine → PR4 X＋Instagram → PR5 YouTube＋TikTok＋note handoff（ここまででMVP完成）
 
 ## 最後にまとめて行う本人操作
 

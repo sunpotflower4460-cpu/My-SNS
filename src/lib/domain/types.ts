@@ -140,18 +140,63 @@ export interface Asset {
 }
 
 // ─── Social Drafts ────────────────────────────────────────────────────────────
+export type DraftSource = 'template' | 'ai'
+
 export interface SocialDraft {
   id: string
   workspaceId: string
   seedId: string
   channel: PublishingChannel
+  title?: string
   draftText: string
+  hashtags: string[]
+  cta?: string
+  /** Gaps the AI filled with a guess rather than a confirmed Seed/Brand Profile fact. */
+  assumptions: string[]
+  /** Channel-specific extras (YouTube chapters, X thread continuation, note eyecatch ideas, ...). */
+  metadata: Record<string, unknown>
+  source: DraftSource
   tone: string
   length: 'short' | 'medium' | 'long'
   status: 'draft' | 'approved' | 'rejected'
   createdBy: string
   createdAt: string
   updatedAt: string
+}
+
+// ─── Draft Revisions ──────────────────────────────────────────────────────────
+/** An immutable, approved snapshot of a SocialDraft. Never edited after creation. */
+export interface DraftRevision {
+  id: string
+  workspaceId: string
+  seedId: string
+  socialDraftId: string
+  aiGenerationId?: string
+  channel: PublishingChannel
+  title?: string
+  body: string
+  hashtags: string[]
+  cta?: string
+  assumptions: string[]
+  metadata: Record<string, unknown>
+  source: DraftSource
+  approvedBy: string
+  createdAt: string
+}
+
+// ─── AI Generations ───────────────────────────────────────────────────────────
+/** One row per real AI generation call. Never written for template fallbacks. */
+export interface AiGeneration {
+  id: string
+  workspaceId: string
+  seedId: string
+  channels: PublishingChannel[]
+  model: string
+  inputTokens: number
+  outputTokens: number
+  costUsd: number
+  createdBy: string
+  createdAt: string
 }
 
 // ─── Publish Jobs ─────────────────────────────────────────────────────────────
@@ -220,6 +265,8 @@ export type AuditAction =
   | 'seed_updated'
   | 'brand_profile_updated'
   | 'draft_edited'
+  | 'draft_ai_generated'
+  | 'draft_revision_approved'
   | 'queue_item_scheduled'
   | 'queue_item_cancelled'
   | 'inbox_item_read'

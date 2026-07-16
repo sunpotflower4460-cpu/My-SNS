@@ -7,19 +7,18 @@ import ChannelBadge from '@/components/ui/ChannelBadge'
 import DraftEditorCard from '@/components/ui/DraftEditorCard'
 import EmptyState from '@/components/ui/EmptyState'
 import PageHeader from '@/components/ui/PageHeader'
-import { useCurrentUser } from '@/hooks/useCurrentUser'
 import { PUBLISHING_CHANNEL_CONFIG } from '@/lib/channels/config'
 import { useApp } from '@/lib/app/app-provider'
 import { CORE_PUBLISHING_CHANNELS, type PublishingChannel, type SocialDraft } from '@/lib/domain/types'
-import { resetTemplateDraft, TemplateDraftGeneratorService } from '@/lib/services/ai-draft'
+import { hasPermission } from '@/lib/permissions'
+import { resetTemplateDraft } from '@/lib/services/ai-draft'
 
 const TONES = ['calm', 'casual', 'professional', 'playful']
-const draftService = new TemplateDraftGeneratorService()
 
 export default function DraftsPage() {
   const searchParams = useSearchParams()
-  const { approveDraft, currentWorkspace, drafts, getDraftsForSeed, saveDraft, seeds } = useApp()
-  const { currentUser } = useCurrentUser()
+  const { approveDraft, currentMember, drafts, generateChannelDrafts, getDraftsForSeed, saveAndApproveDraft, saveDraft, seeds } = useApp()
+  const canApprove = Boolean(currentMember && hasPermission(currentMember.role, 'approve_drafts'))
   const requestedSeedId = searchParams.get('seed')
   const [seedId, setSeedId] = useState(requestedSeedId ?? seeds[0]?.id ?? '')
   const [selectedChannels, setSelectedChannels] = useState<PublishingChannel[]>([])
@@ -61,31 +60,40 @@ export default function DraftsPage() {
     setLoading(true)
     setError('')
     try {
-      const nextDrafts = await draftService.generateDrafts(selectedSeed, selectedChannels, tone, length, {
-        workspaceName: currentWorkspace?.name,
-        createdBy: currentUser?.id ?? selectedSeed.createdBy,
-      })
-      setGeneratedDrafts(nextDrafts)
-      setFeedback(`Prepared ${nextDrafts.length} transparent templates. They are not AI proposals yet.`)
+      const result = await generateChannelDrafts(selectedSeed.id, selectedChannels, tone, length)
+      setGeneratedDrafts(result.drafts)
+      setFeedback(
+        result.source === 'ai'
+          ? `Prepared ${result.drafts.length} AI proposals. Review the assumptions before approving.`
+          : result.reason ?? `Prepared ${result.drafts.length} transparent templates. They are not AI proposals yet.`,
+      )
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : 'Unable to generate draft templates.')
+      setError(cause instanceof Error ? cause.message : 'Unable to generate drafts.')
       setFeedback('')
     } finally {
       setLoading(false)
     }
   }
 
-  const persistDraft = async (draft: SocialDraft) => saveDraft({
+  const toDraftInput = (draft: SocialDraft) => ({
     ...(draft.id.startsWith('generated-') ? {} : { id: draft.id }),
     workspaceId: draft.workspaceId,
     seedId: draft.seedId,
     channel: draft.channel,
+    title: draft.title,
     tone: draft.tone,
     length: draft.length,
     draftText: draft.draftText,
+    hashtags: draft.hashtags,
+    cta: draft.cta,
+    assumptions: draft.assumptions,
+    metadata: draft.metadata,
+    source: draft.source,
     status: draft.status,
     createdBy: draft.createdBy,
   })
+
+  const persistDraft = async (draft: SocialDraft) => saveDraft(toDraftInput(draft))
 
   const runDraftAction = async (action: () => Promise<unknown>, successMessage: string) => {
     try {
@@ -100,7 +108,7 @@ export default function DraftsPage() {
 
   return (
     <div>
-      <PageHeader title="Template Draft Studio" description="Preview deterministic channel shapes from one Seed. PR2 replaces this step with reviewed AI proposals." />
+      <PageHeader title="Draft Studio" description="Generate channel proposals from one Seed. AI drafts always show their assumptions; nothing is approved until you review it." />
 
       {(feedback || error) && <div className={`mb-5 rounded-2xl border px-4 py-3 text-sm ${error ? 'border-red-200 bg-red-50 text-red-700' : 'border-green-200 bg-green-50 text-green-700'}`}>{error || feedback}</div>}
 
@@ -116,13 +124,13 @@ export default function DraftsPage() {
 
           <div className="mt-4"><label className="mb-2 block text-sm font-medium text-gray-700">Channels from this Seed</label><div className="flex flex-wrap gap-2">{CORE_PUBLISHING_CHANNELS.map((channel) => <button key={channel} type="button" onClick={() => toggleChannel(channel)} className={`rounded-full transition ${selectedChannels.includes(channel) ? 'ring-2 ring-violet-400 ring-offset-2' : 'opacity-50 hover:opacity-80'}`}><ChannelBadge channel={channel} /></button>)}</div></div>
           {selectedChannels.includes('note') && <p className="mt-3 text-xs text-emerald-700">note remains review + copy only; this app will not claim an automatic publishing path.</p>}
-          <button onClick={() => void handleGenerate()} disabled={loading || selectedChannels.length === 0 || !selectedSeed} className="mt-5 rounded-2xl bg-violet-600 px-5 py-2.5 text-sm font-medium text-white transition hover:bg-violet-700 disabled:opacity-50">{loading ? 'Preparing…' : 'Prepare transparent templates'}</button>
+          <button onClick={() => void handleGenerate()} disabled={loading || selectedChannels.length === 0 || !selectedSeed} className="mt-5 rounded-2xl bg-violet-600 px-5 py-2.5 text-sm font-medium text-white transition hover:bg-violet-700 disabled:opacity-50">{loading ? 'Generating…' : 'Generate drafts'}</button>
         </div>
       )}
 
       {generatedDrafts.length > 0 && (
         <section className="mb-8">
-          <h2 className="mb-3 text-base font-semibold text-gray-900">Unsaved template drafts</h2>
+          <h2 className="mb-3 text-base font-semibold text-gray-900">Unsaved drafts</h2>
           <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
             {generatedDrafts.map((draft) => (
               <DraftEditorCard
@@ -133,12 +141,17 @@ export default function DraftsPage() {
                   setGeneratedDrafts((current) => current.map((entry) => entry.id === id ? { ...entry, draftText: text, updatedAt: new Date().toISOString() } : entry))
                   if (target) void runDraftAction(() => persistDraft({ ...target, draftText: text }), `Saved ${PUBLISHING_CHANNEL_CONFIG[target.channel].label} draft.`)
                 }}
-                onApprove={(id) => {
+                onApprove={canApprove ? (id) => {
                   const target = generatedDrafts.find((entry) => entry.id === id)
                   if (!target) return
-                  void runDraftAction(() => persistDraft({ ...target, status: 'approved' }), `Approved ${PUBLISHING_CHANNEL_CONFIG[target.channel].label} draft.`)
-                  setGeneratedDrafts((current) => current.map((entry) => entry.id === id ? { ...entry, status: 'approved' } : entry))
-                }}
+                  void runDraftAction(
+                    async () => {
+                      await saveAndApproveDraft(toDraftInput(target))
+                      setGeneratedDrafts((current) => current.map((entry) => entry.id === id ? { ...entry, status: 'approved' } : entry))
+                    },
+                    `Approved ${PUBLISHING_CHANNEL_CONFIG[target.channel].label} draft and recorded a Revision.`,
+                  )
+                } : undefined}
                 onRegenerate={(id) => {
                   if (!selectedSeed) return
                   setGeneratedDrafts((current) => current.map((entry) => entry.id === id ? { ...entry, draftText: resetTemplateDraft(entry, selectedSeed), updatedAt: new Date().toISOString() } : entry))
@@ -154,7 +167,7 @@ export default function DraftsPage() {
         <div className="mb-3 flex items-center justify-between gap-3"><h2 className="text-base font-semibold text-gray-900">Saved drafts</h2>{selectedSeed && <span className="text-sm text-gray-500">{selectedSeed.title}</span>}</div>
         {existingDrafts.length === 0 ? <EmptyState title="No drafts yet" description="Prepare a template and save the versions worth keeping." /> : (
           <div className="space-y-6">
-            {Object.entries(draftsByChannel).map(([channel, channelDrafts]) => <section key={channel}><div className="mb-3 flex items-center justify-between"><h3 className="text-sm font-semibold text-gray-700">{PUBLISHING_CHANNEL_CONFIG[channel as PublishingChannel].label}</h3><span className="text-xs text-gray-400">{channelDrafts.length} saved</span></div><div className="grid grid-cols-1 gap-4 xl:grid-cols-2">{channelDrafts.map((draft) => <DraftEditorCard key={draft.id} draft={draft} onEdit={(id, text) => { const target = existingDrafts.find((entry) => entry.id === id); if (target) void runDraftAction(() => persistDraft({ ...target, draftText: text }), `Saved ${PUBLISHING_CHANNEL_CONFIG[target.channel].label} draft.`) }} onApprove={(id) => { void runDraftAction(() => approveDraft(id), 'Draft approved.') }} onRegenerate={(id) => { if (!selectedSeed) return; const target = existingDrafts.find((entry) => entry.id === id); if (target) void runDraftAction(() => persistDraft({ ...target, draftText: resetTemplateDraft(target, selectedSeed) }), 'Reset and saved the source template.') }} />)}</div></section>)}
+            {Object.entries(draftsByChannel).map(([channel, channelDrafts]) => <section key={channel}><div className="mb-3 flex items-center justify-between"><h3 className="text-sm font-semibold text-gray-700">{PUBLISHING_CHANNEL_CONFIG[channel as PublishingChannel].label}</h3><span className="text-xs text-gray-400">{channelDrafts.length} saved</span></div><div className="grid grid-cols-1 gap-4 xl:grid-cols-2">{channelDrafts.map((draft) => <DraftEditorCard key={draft.id} draft={draft} onEdit={(id, text) => { const target = existingDrafts.find((entry) => entry.id === id); if (target) void runDraftAction(() => persistDraft({ ...target, draftText: text }), `Saved ${PUBLISHING_CHANNEL_CONFIG[target.channel].label} draft.`) }} onApprove={canApprove ? (id) => { void runDraftAction(() => approveDraft(id), 'Draft approved and recorded as a Revision.') } : undefined} onRegenerate={(id) => { if (!selectedSeed) return; const target = existingDrafts.find((entry) => entry.id === id); if (target) void runDraftAction(() => persistDraft({ ...target, draftText: resetTemplateDraft(target, selectedSeed) }), 'Reset and saved the source template.') }} />)}</div></section>)}
           </div>
         )}
       </section>

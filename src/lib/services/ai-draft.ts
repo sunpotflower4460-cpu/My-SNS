@@ -1,5 +1,5 @@
 import type { PublishingChannel, Seed, SocialDraft } from '@/lib/domain/types'
-import type { DraftGeneratorService } from './interfaces'
+import type { DraftGenerationContext, DraftGeneratorService } from './interfaces'
 
 type DraftLength = 'short' | 'medium' | 'long'
 
@@ -60,10 +60,7 @@ export class TemplateDraftGeneratorService implements DraftGeneratorService {
     channels: PublishingChannel[],
     tone: string,
     length: DraftLength,
-    context?: {
-      workspaceName?: string
-      createdBy?: string
-    },
+    context?: DraftGenerationContext,
   ): Promise<SocialDraft[]> {
     const now = new Date().toISOString()
 
@@ -72,7 +69,14 @@ export class TemplateDraftGeneratorService implements DraftGeneratorService {
       workspaceId: seed.workspaceId,
       seedId: seed.id,
       channel,
+      title: seed.title,
       draftText: CHANNEL_TEMPLATES[channel](seed, tone, length),
+      hashtags: [...seed.tags],
+      cta: seed.callToAction,
+      // Deterministic templates never guess — there is nothing to flag.
+      assumptions: [],
+      metadata: {},
+      source: 'template' as const,
       tone,
       length,
       status: 'draft' as const,
