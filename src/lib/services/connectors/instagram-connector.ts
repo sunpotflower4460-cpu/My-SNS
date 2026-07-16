@@ -1,4 +1,4 @@
-import type { InboundInboxEvent, SocialPlatform } from '@/lib/domain/types'
+import type { InboundInboxEvent, PostMetrics, SocialPlatform } from '@/lib/domain/types'
 import type {
   ConnectedAccount,
   ConnectOptions,
@@ -229,6 +229,15 @@ export class InstagramConnectorAdapter implements SocialConnectorAdapter {
 
   async fetchMessages(): Promise<InboundInboxEvent[]> {
     throw new Error('Instagram DMs arrive via webhook push (see /api/webhooks/meta) — no pull/backfill endpoint is implemented.')
+  }
+
+  async fetchMetrics(): Promise<PostMetrics> {
+    // Honest gap: Meta's media Insights API (impressions/reach/likes/comments)
+    // needs the instagram_manage_insights scope, which this app does not
+    // currently request (see SCOPES above) — adding it means every account
+    // must reconnect, and depending on Meta's current API version may also
+    // need Advanced Access review. Not attempted speculatively.
+    throw new Error('Instagram metrics are not available: reading Insights requires the instagram_manage_insights scope, which this app does not yet request.')
   }
 
   generateOpenUrl(_platform: SocialPlatform, handle: string): string {

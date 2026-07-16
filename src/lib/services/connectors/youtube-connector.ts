@@ -1,4 +1,4 @@
-import type { InboundInboxEvent, SocialPlatform } from '@/lib/domain/types'
+import type { InboundInboxEvent, PostMetrics, SocialPlatform } from '@/lib/domain/types'
 import type {
   ConnectedAccount,
   ConnectOptions,
@@ -16,6 +16,7 @@ const TOKEN_URL = 'https://oauth2.googleapis.com/token'
 const CHANNELS_URL = 'https://www.googleapis.com/youtube/v3/channels'
 const UPLOAD_URL = 'https://www.googleapis.com/upload/youtube/v3/videos'
 const COMMENT_THREADS_URL = 'https://www.googleapis.com/youtube/v3/commentThreads'
+const VIDEOS_URL = 'https://www.googleapis.com/youtube/v3/videos'
 const STUDIO_URL = 'https://studio.youtube.com'
 const SCOPES = ['https://www.googleapis.com/auth/youtube.upload', 'https://www.googleapis.com/auth/youtube.readonly']
 
@@ -152,6 +153,32 @@ async function fetchCommentThreads(accessToken: string, params: Record<string, s
   return mapCommentThreads((await response.json()) as CommentThreadsResponse)
 }
 
+interface VideoStatisticsResponse {
+  items?: Array<{
+    statistics?: { viewCount?: string; likeCount?: string; commentCount?: string }
+  }>
+}
+
+async function fetchVideoStatistics(accessToken: string, videoId: string): Promise<PostMetrics> {
+  const url = `${VIDEOS_URL}?${new URLSearchParams({ part: 'statistics', id: videoId }).toString()}`
+  const response = await fetch(url, { headers: { Authorization: `Bearer ${accessToken}` } })
+
+  if (!response.ok) {
+    const detail = await response.text().catch(() => '')
+    throw new Error(`YouTube metrics lookup failed (${response.status}): ${detail.slice(0, 300)}`)
+  }
+
+  const payload = (await response.json()) as VideoStatisticsResponse
+  const stats = payload.items?.[0]?.statistics
+  if (!stats) throw new Error(`YouTube returned no statistics for video ${videoId} — it may have been removed.`)
+
+  return {
+    views: stats.viewCount !== undefined ? Number(stats.viewCount) : undefined,
+    likes: stats.likeCount !== undefined ? Number(stats.likeCount) : undefined,
+    comments: stats.commentCount !== undefined ? Number(stats.commentCount) : undefined,
+  }
+}
+
 function toConnectedAccount(token: TokenResponse, channel: { id: string; title: string }): ConnectedAccount {
   return {
     accessToken: token.access_token,
@@ -275,6 +302,11 @@ export class YouTubeConnectorAdapter implements SocialConnectorAdapter {
 
   async fetchMessages(): Promise<InboundInboxEvent[]> {
     throw new Error('YouTube has no direct-message API for creators.')
+  }
+
+  /** `videos.list?part=statistics` — covered by the already-granted youtube.readonly scope, no new consent needed. */
+  async fetchMetrics(request: InboxFetchRequest & { postId: string }): Promise<PostMetrics> {
+    return fetchVideoStatistics(request.accessToken, request.postId)
   }
 
   generateOpenUrl(_platform: SocialPlatform, handle: string): string {

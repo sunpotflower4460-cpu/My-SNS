@@ -2,13 +2,17 @@
 
 import { createContext, useContext, useEffect, useMemo, useState, useCallback } from 'react'
 import type {
+  AiGeneration,
   Asset,
   AuditLog,
   BrandProfile,
   BrandProfileInput,
+  DraftRevision,
   InboxItem,
   InboxNote,
   Invitation,
+  PostMetrics,
+  PublishAttempt,
   PublishingChannel,
   PublishJob,
   Seed,
@@ -32,7 +36,8 @@ import * as draftsRepo from '@/lib/repositories/supabase/drafts'
 import * as draftRevisionsRepo from '@/lib/repositories/supabase/draft-revisions'
 import * as inboxRepo from '@/lib/repositories/supabase/inbox'
 import * as queueRepo from '@/lib/repositories/supabase/queue'
-import { recordPublishAttempt } from '@/lib/repositories/supabase/publish-attempts'
+import { recordPublishAttempt, listWorkspacePublishAttempts } from '@/lib/repositories/supabase/publish-attempts'
+import { listWorkspaceAiGenerations } from '@/lib/repositories/supabase/ai-generations'
 import * as auditRepo from '@/lib/repositories/supabase/audit'
 import { SupabaseAssetStorage } from '@/lib/storage/supabase/supabase-asset-storage'
 import type { AssetUploadInput } from '@/lib/storage/interfaces'
@@ -54,6 +59,9 @@ interface AppContextValue {
   inboxItems: InboxItem[]
   auditLogs: AuditLog[]
   drafts: SocialDraft[]
+  draftRevisions: DraftRevision[]
+  publishAttempts: PublishAttempt[]
+  aiGenerations: AiGeneration[]
   setActiveWorkspaceId: (workspaceId: string) => void
   refreshWorkspaceData: () => Promise<void>
   createSeedItem: (input: {
@@ -99,6 +107,8 @@ interface AppContextValue {
   scheduleDraft: (draftId: string, scheduledAt?: string) => Promise<PublishJob>
   completeManualPublish: (jobId: string, externalUrl?: string) => Promise<PublishJob>
   triggerPublishJob: (jobId: string) => Promise<{ success: boolean }>
+  /** Live engagement counts for one published job's post — not cached, see PostMetrics. Throws (does not return zeros) if the platform has no metrics endpoint available. */
+  fetchPostMetrics: (jobId: string) => Promise<PostMetrics>
   saveDraft: (draft: Omit<SocialDraft, 'id' | 'createdAt' | 'updatedAt'> & { id?: string }) => Promise<SocialDraft>
   approveDraft: (draftId: string) => Promise<SocialDraft>
   saveAndApproveDraft: (draft: Omit<SocialDraft, 'id' | 'createdAt' | 'updatedAt'> & { id?: string }) => Promise<SocialDraft>
@@ -131,6 +141,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const [inboxNotes, setInboxNotes] = useState<InboxNote[]>([])
   const [auditLogs, setAuditLogs] = useState<AuditLog[]>([])
   const [drafts, setDrafts] = useState<SocialDraft[]>([])
+  const [draftRevisions, setDraftRevisions] = useState<DraftRevision[]>([])
+  const [publishAttempts, setPublishAttempts] = useState<PublishAttempt[]>([])
+  const [aiGenerations, setAiGenerations] = useState<AiGeneration[]>([])
   const [isReady, setIsReady] = useState(false)
 
   // Load user workspaces
@@ -180,6 +193,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         inboxNotesList,
         auditLogsList,
         draftsList,
+        draftRevisionsList,
+        publishAttemptsList,
+        aiGenerationsList,
       ] = await Promise.all([
         workspacesRepo.getWorkspaceById(activeWorkspaceId),
         workspacesRepo.getCurrentMember(activeWorkspaceId, currentUserId),
@@ -194,6 +210,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         inboxRepo.listWorkspaceInboxNotes(activeWorkspaceId),
         auditRepo.listWorkspaceAuditLogs(activeWorkspaceId, 100),
         draftsRepo.listWorkspaceDrafts(activeWorkspaceId),
+        draftRevisionsRepo.listWorkspaceDraftRevisions(activeWorkspaceId),
+        listWorkspacePublishAttempts(activeWorkspaceId),
+        listWorkspaceAiGenerations(activeWorkspaceId),
       ])
 
       setCurrentWorkspace(workspace)
@@ -209,6 +228,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       setInboxNotes(inboxNotesList)
       setAuditLogs(auditLogsList)
       setDrafts(draftsList)
+      setDraftRevisions(draftRevisionsList)
+      setPublishAttempts(publishAttemptsList)
+      setAiGenerations(aiGenerationsList)
     } catch (error) {
       console.error('Error loading workspace data:', error)
     }
@@ -288,6 +310,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       inboxItems,
       auditLogs,
       drafts,
+      draftRevisions,
+      publishAttempts,
+      aiGenerations,
       setActiveWorkspaceId,
       refreshWorkspaceData,
 
@@ -744,6 +769,20 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         return payload as { success: boolean }
       },
 
+      fetchPostMetrics: async (jobId) => {
+        if (!currentWorkspace) throw new Error('Not ready')
+
+        const response = await fetch('/api/analytics/metrics', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ workspaceId: currentWorkspace.id, jobId }),
+        })
+        const payload = await response.json()
+        if (!response.ok) throw new Error(payload.error ?? 'Unable to fetch metrics for this post.')
+
+        return payload as PostMetrics
+      },
+
       saveDraft: async (draft) => {
         if (!currentWorkspace || !currentUserId) throw new Error('Not ready')
 
@@ -809,6 +848,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     inboxNotes,
     auditLogs,
     drafts,
+    draftRevisions,
+    publishAttempts,
+    aiGenerations,
     currentUserId,
     refreshWorkspaceData,
   ])

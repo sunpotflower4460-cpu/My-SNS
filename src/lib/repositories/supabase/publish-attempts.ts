@@ -50,6 +50,25 @@ export async function listJobAttempts(workspaceId: string, jobId: string): Promi
   return (data ?? []).map((row) => mapAttempt(row as PublishAttemptRow))
 }
 
+/** For the Analytics page (PR7): success/failure rates and failure-reason breakdowns across the whole workspace. */
+export async function listWorkspacePublishAttempts(workspaceId: string, limit = 500): Promise<PublishAttempt[]> {
+  const supabase = createClient()
+
+  const { data, error } = await supabase
+    .from('publish_attempts')
+    .select('*')
+    .eq('workspace_id', workspaceId)
+    .order('created_at', { ascending: false })
+    .limit(limit)
+
+  if (error) {
+    console.error('Error fetching workspace publish attempts:', error)
+    return []
+  }
+
+  return (data ?? []).map((row) => mapAttempt(row as PublishAttemptRow))
+}
+
 export interface RecordPublishAttemptInput {
   workspaceId: string
   publishJobId: string

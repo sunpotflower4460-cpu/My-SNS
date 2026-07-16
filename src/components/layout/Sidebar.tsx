@@ -16,6 +16,7 @@ const NAV_ITEMS: NavItem[] = [
   { label: 'Brand Profile', href: '/app/brand', icon: '◌' },
   { label: 'Drafts', href: '/app/drafts', icon: '✏️' },
   { label: 'Queue', href: '/app/queue', icon: '📅' },
+  { label: 'Analytics', href: '/app/analytics', icon: '📊' },
   { label: 'Inbox', href: '/app/inbox', icon: '📬' },
   { label: 'Team', href: '/app/team', icon: '👥' },
   { label: 'Settings', href: '/app/settings', icon: '⚙️' },
