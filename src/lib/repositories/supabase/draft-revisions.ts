@@ -56,6 +56,27 @@ export async function approveSocialDraft(draftId: string): Promise<DraftRevision
   return mapRevision(data as DraftRevisionRow)
 }
 
+/** The most recent approval for a draft — the content a new publish_job should schedule. */
+export async function getLatestDraftRevision(workspaceId: string, socialDraftId: string): Promise<DraftRevision | null> {
+  const supabase = createClient()
+
+  const { data, error } = await supabase
+    .from('draft_revisions')
+    .select('*')
+    .eq('workspace_id', workspaceId)
+    .eq('social_draft_id', socialDraftId)
+    .order('created_at', { ascending: false })
+    .limit(1)
+    .maybeSingle()
+
+  if (error) {
+    console.error('Error fetching the latest draft revision:', error)
+    return null
+  }
+
+  return data ? mapRevision(data as DraftRevisionRow) : null
+}
+
 export async function listSeedRevisions(workspaceId: string, seedId: string): Promise<DraftRevision[]> {
   const supabase = createClient()
 

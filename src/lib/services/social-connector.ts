@@ -1,5 +1,5 @@
 import type { InboxItem, SocialPlatform } from '@/lib/domain/types'
-import type { SocialConnectorAdapter } from './interfaces'
+import type { PublishRequest, PublishResult, SocialConnectorAdapter } from './interfaces'
 
 function connectorUnavailable(operation: string, platform?: SocialPlatform): never {
   const target = platform ? ` for ${platform}` : ''
@@ -19,8 +19,8 @@ export class UnavailableSocialConnectorAdapter implements SocialConnectorAdapter
     return connectorUnavailable('Token refresh', platform)
   }
 
-  async publish(): Promise<void> {
-    return connectorUnavailable('Publishing')
+  async publish(request: PublishRequest): Promise<PublishResult> {
+    return connectorUnavailable('Publishing', request.platform)
   }
 
   async fetchInbox(platform: SocialPlatform): Promise<InboxItem[]> {

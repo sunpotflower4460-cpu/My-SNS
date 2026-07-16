@@ -24,8 +24,8 @@
 | PR0 | Supabase基盤の正常化 | ✅ マージ済み (#6) |
 | PR1 | Seed / Brand Profile 基盤、5標準チャンネル、readiness、note review+copy方針 | ✅ マージ済み (#7) |
 | PR2 | AI提案＋承認 | ✅ マージ済み |
-| PR3 | Scheduling Engine | 次に着手 |
-| PR4 | X + Instagram コネクタ | PR3の後 |
+| PR3 | Scheduling Engine | ✅ マージ済み |
+| PR4 | X + Instagram コネクタ | 次に着手 |
 | PR5 | YouTube + TikTok コネクタ + note handoff（ここまででMVP） | PR4の後 |
 | PR6 | Webhook + Unified Inbox | MVP後 |
 | PR7 | Analytics + AIの学習 | MVP後 |
@@ -54,7 +54,7 @@
 - [ ] X・Instagram・YouTubeのうち利用可能な連携先へ予約または即時投稿できる（PR3〜PR5）
 - [ ] TikTokは権限に応じて自動投稿または承認済み受け渡しができる（PR5）
 - [ ] noteは完成原稿の確認・コピー・手動完了記録まで短い導線で行える（PR5）
-- [ ] 投稿成功・失敗・URL・再試行・手動完了がQueueで追跡できる（PR3）
+- [x] 投稿成功・失敗・URL・再試行・手動完了がQueueで追跡できる（PR3、`publish_attempts`。実URLはPR4/PR5の実コネクタ接続後に埋まる）
 - [ ] AIやconnectorが未設定・失敗した場合、偽の成功表示をせず安全に停止する（fail-closed、PR2〜PR5全体で維持）
 
 ## 5. 各PRの実装仕様

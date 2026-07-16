@@ -31,7 +31,8 @@
 - PR0: Supabase基盤の正常化 — マージ済み
 - PR1: Seed / Brand Profile 基盤 — マージ済み
 - PR2: AI提案＋承認（`/api/drafts/generate`、`draft_revisions`、`ai_generations`） — マージ済み
-- 次: PR3 Scheduling Engine → PR4 X＋Instagram → PR5 YouTube＋TikTok＋note handoff（ここまででMVP完成）
+- PR3: Scheduling Engine（`publish_jobs.publish_mode`/`revision_id`、`publish_attempts`、Worker `/api/publish/run`） — マージ済み。実コネクタは未接続のため`auto`投稿は`unavailable`で安全に失敗する。
+- 次: PR4 X＋Instagram → PR5 YouTube＋TikTok＋note handoff（ここまででMVP完成）
 
 ## 最後にまとめて行う本人操作
 

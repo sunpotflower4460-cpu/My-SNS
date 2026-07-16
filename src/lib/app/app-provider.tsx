@@ -22,6 +22,7 @@ import type {
 } from '@/lib/domain/types'
 import { useAuth } from '@/lib/auth/auth-provider'
 import { hasPermission } from '@/lib/permissions'
+import { derivePublishMode } from '@/lib/channels/config'
 import * as workspacesRepo from '@/lib/repositories/supabase/workspaces'
 import * as seedsRepo from '@/lib/repositories/supabase/seeds'
 import * as brandProfilesRepo from '@/lib/repositories/supabase/brand-profiles'
@@ -29,9 +30,11 @@ import * as draftsRepo from '@/lib/repositories/supabase/drafts'
 import * as draftRevisionsRepo from '@/lib/repositories/supabase/draft-revisions'
 import * as inboxRepo from '@/lib/repositories/supabase/inbox'
 import * as queueRepo from '@/lib/repositories/supabase/queue'
+import { recordPublishAttempt } from '@/lib/repositories/supabase/publish-attempts'
 import * as auditRepo from '@/lib/repositories/supabase/audit'
 import { SupabaseAssetStorage } from '@/lib/storage/supabase/supabase-asset-storage'
 import type { AssetUploadInput } from '@/lib/storage/interfaces'
+import { createClient } from '@/lib/supabase/client'
 
 interface AppContextValue {
   isReady: boolean
@@ -89,6 +92,8 @@ interface AppContextValue {
   getInboxNotes: (inboxItemId: string) => InboxNote[]
   retryQueueJob: (jobId: string) => Promise<PublishJob>
   cancelQueueJob: (jobId: string) => Promise<PublishJob>
+  scheduleDraft: (draftId: string, scheduledAt?: string) => Promise<PublishJob>
+  completeManualPublish: (jobId: string, externalUrl?: string) => Promise<PublishJob>
   saveDraft: (draft: Omit<SocialDraft, 'id' | 'createdAt' | 'updatedAt'> & { id?: string }) => Promise<SocialDraft>
   approveDraft: (draftId: string) => Promise<SocialDraft>
   saveAndApproveDraft: (draft: Omit<SocialDraft, 'id' | 'createdAt' | 'updatedAt'> & { id?: string }) => Promise<SocialDraft>
@@ -600,6 +605,77 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           targetType: 'publish_job',
           targetId: jobId,
           metadata: { status: job.status },
+        })
+
+        await refreshWorkspaceData()
+        return job
+      },
+
+      scheduleDraft: async (draftId, scheduledAt) => {
+        if (!currentWorkspace || !currentUserId) throw new Error('Not ready')
+        if (!currentMember || !hasPermission(currentMember.role, 'manage_queue')) {
+          throw new Error('Your role cannot schedule publishing.')
+        }
+
+        const draft = drafts.find((entry) => entry.id === draftId)
+        if (!draft) throw new Error('Draft not found')
+        if (draft.status !== 'approved') throw new Error('Only an approved draft can be scheduled.')
+
+        // Always the latest approval, not the (possibly since-edited) mutable
+        // draft row — a schedule always publishes an immutable Revision.
+        const revision = await draftRevisionsRepo.getLatestDraftRevision(currentWorkspace.id, draftId)
+        if (!revision) throw new Error('No approved Revision found for this draft.')
+
+        const publishMode = derivePublishMode(draft.channel)
+        const job = await queueRepo.createPublishJob({
+          workspaceId: currentWorkspace.id,
+          seedId: draft.seedId,
+          draftId: draft.id,
+          revisionId: revision.id,
+          channel: draft.channel,
+          publishMode,
+          scheduledAt,
+          createdBy: currentUserId,
+        })
+
+        await auditRepo.appendAuditLog({
+          workspaceId: currentWorkspace.id,
+          actorId: currentUserId,
+          action: 'queue_item_scheduled',
+          targetType: 'publish_job',
+          targetId: job.id,
+          metadata: { channel: job.channel, publishMode: job.publishMode, scheduledAt: job.scheduledAt },
+        })
+
+        await refreshWorkspaceData()
+        return job
+      },
+
+      completeManualPublish: async (jobId, externalUrl) => {
+        if (!currentWorkspace || !currentUserId) throw new Error('Not ready')
+        if (!currentMember || !hasPermission(currentMember.role, 'manage_queue')) {
+          throw new Error('Your role cannot complete a manual publish.')
+        }
+
+        // Record the attempt first: if this fails, the job is never marked
+        // published, so the Queue never shows a success with no record of it.
+        await recordPublishAttempt(createClient(), {
+          workspaceId: currentWorkspace.id,
+          publishJobId: jobId,
+          status: 'success',
+          externalUrl,
+          createdBy: currentUserId,
+        })
+
+        const job = await queueRepo.markPublishJobManuallyCompleted(currentWorkspace.id, jobId)
+
+        await auditRepo.appendAuditLog({
+          workspaceId: currentWorkspace.id,
+          actorId: currentUserId,
+          action: 'queue_item_manual_completed',
+          targetType: 'publish_job',
+          targetId: jobId,
+          metadata: { channel: job.channel, externalUrl },
         })
 
         await refreshWorkspaceData()
