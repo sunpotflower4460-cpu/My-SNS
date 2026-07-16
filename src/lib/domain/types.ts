@@ -224,6 +224,8 @@ export interface PublishJob {
   scheduledAt?: string
   publishedAt?: string
   errorMessage?: string
+  /** Set while a Worker run or manual "Publish now" is actively processing this job — see publish-worker.ts. */
+  claimedAt?: string
   createdBy: string
   createdAt: string
 }

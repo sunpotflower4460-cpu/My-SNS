@@ -1,6 +1,18 @@
 import type { PublishJob, PublishMode } from '@/lib/domain/types'
 import { createClient } from '@/lib/supabase/client'
 
+// A claim (see publish-worker.ts's claimPublishJob) older than this is
+// treated as abandoned — e.g. a serverless function was killed mid-publish
+// (a large YouTube upload outrunning the execution time limit) before it
+// could clear its own claim. Without this, a job like that would be stuck
+// forever: never cancellable, never reclaimable.
+const STALE_CLAIM_MINUTES = 10
+
+function notActivelyClaimedFilter(): string {
+  const staleBefore = new Date(Date.now() - STALE_CLAIM_MINUTES * 60_000).toISOString()
+  return `claimed_at.is.null,claimed_at.lt.${staleBefore}`
+}
+
 interface PublishJobRow {
   id: string
   workspace_id: string
@@ -13,6 +25,7 @@ interface PublishJobRow {
   scheduled_at?: string | null
   published_at?: string | null
   error_message?: string | null
+  claimed_at?: string | null
   created_by: string
   created_at: string
 }
@@ -30,6 +43,7 @@ function mapJob(row: PublishJobRow): PublishJob {
     scheduledAt: row.scheduled_at ?? undefined,
     publishedAt: row.published_at ?? undefined,
     errorMessage: row.error_message ?? undefined,
+    claimedAt: row.claimed_at ?? undefined,
     createdBy: row.created_by,
     createdAt: row.created_at,
   }
@@ -146,6 +160,10 @@ export async function cancelPublishJob(
 ): Promise<PublishJob> {
   const supabase = createClient()
 
+  // Refuses to cancel a job that's actively being published right now (a
+  // real platform call could already be in flight) — cancelling it would
+  // silently hide a post that actually succeeded. A stale/abandoned claim
+  // (see notActivelyClaimedFilter) doesn't block this.
   const { data, error } = await supabase
     .from('publish_jobs')
     .update({
@@ -153,22 +171,32 @@ export async function cancelPublishJob(
     })
     .eq('id', jobId)
     .eq('workspace_id', workspaceId)
+    .or(notActivelyClaimedFilter())
     .select()
-    .single()
+    .maybeSingle()
 
   if (error) {
     throw new Error(error.message)
+  }
+  if (!data) {
+    throw new Error('This job is currently being published — try cancelling again in a moment.')
   }
 
   return mapJob(data as PublishJobRow)
 }
 
 /**
- * Records that a human published this themselves — not restricted to
- * publish_mode='manual' (note). It's also the reconciliation path for a
- * channel like TikTok whose adapter can time out waiting for the platform
- * to confirm (see tiktok-connector.ts): the human checks the platform app
- * and marks it complete here rather than the app ever guessing at success.
+ * Records that a human published this themselves. Deliberately excludes
+ * publish_mode='auto': an auto job's success must only ever come from a
+ * real, confirmed adapter call (processPublishJob) — allowing a human to
+ * hand-wave one to "published" before the Worker even attempts it would let
+ * the Queue claim something was posted that never actually was.
+ *
+ * It IS the reconciliation path for manual (note), and for assisted/draft
+ * channels whose adapter can time out waiting for the platform to confirm
+ * (see tiktok-connector.ts): the human checks the platform app and marks it
+ * complete here rather than the app ever guessing at success. Also refuses
+ * while the job is actively claimed, for the same reason as cancelPublishJob.
  */
 export async function markPublishJobManuallyCompleted(
   workspaceId: string,
@@ -185,12 +213,17 @@ export async function markPublishJobManuallyCompleted(
     })
     .eq('id', jobId)
     .eq('workspace_id', workspaceId)
+    .neq('publish_mode', 'auto')
     .not('status', 'in', '(published,cancelled)')
+    .or(notActivelyClaimedFilter())
     .select()
-    .single()
+    .maybeSingle()
 
   if (error) {
     throw new Error(error.message)
+  }
+  if (!data) {
+    throw new Error('This job cannot be marked as posted right now (already finished, auto-mode, or currently being published).')
   }
 
   return mapJob(data as PublishJobRow)

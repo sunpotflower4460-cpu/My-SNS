@@ -9,6 +9,45 @@ import { getConnectorAdapter } from '@/lib/services/connectors'
 // one job at a time for assisted/draft-mode channels like YouTube/TikTok that
 // intentionally aren't picked up automatically — see PublishMode's doc comment).
 
+// A claim older than this is treated as abandoned (e.g. a serverless
+// function was killed mid-publish before it could clear its own claim) and
+// can be reclaimed — see queue.ts's matching STALE_CLAIM_MINUTES for the
+// same threshold applied to cancel/manual-complete.
+const STALE_CLAIM_MINUTES = 10
+
+function staleClaimFilter(): string {
+  const staleBefore = new Date(Date.now() - STALE_CLAIM_MINUTES * 60_000).toISOString()
+  return `claimed_at.is.null,claimed_at.lt.${staleBefore}`
+}
+
+/**
+ * Atomically marks a job as "being worked on right now". Returns false if
+ * another still-active claim already exists — the caller must not attempt
+ * to publish in that case (a real platform call could already be in
+ * flight for it). This is what makes "Publish now" safe to click twice, and
+ * what stops a cancel from racing an in-flight publish undetected.
+ */
+async function claimPublishJob(supabase: SupabaseClient, jobId: string): Promise<boolean> {
+  const { data, error } = await supabase
+    .from('publish_jobs')
+    .update({ claimed_at: new Date().toISOString() })
+    .eq('id', jobId)
+    .in('status', ['scheduled', 'draft', 'failed'])
+    .or(staleClaimFilter())
+    .select('id')
+    .maybeSingle()
+
+  if (error) throw new Error(error.message)
+  return Boolean(data)
+}
+
+async function releasePublishJobClaim(supabase: SupabaseClient, jobId: string, fields: Record<string, unknown>): Promise<void> {
+  await supabase
+    .from('publish_jobs')
+    .update({ ...fields, claimed_at: null })
+    .eq('id', jobId)
+}
+
 // The stub connector's exact wording (see UnavailableSocialConnectorAdapter).
 // Checked as a specific phrase, not a bare "unavailable" substring — a real
 // future adapter's transient "503 Service Unavailable" should classify as
@@ -98,13 +137,28 @@ export interface PublishableJob {
   }
 }
 
+export interface ProcessJobResult {
+  success: boolean
+  /** True when this call didn't attempt anything because another still-active claim already exists. */
+  skipped?: boolean
+}
+
 /**
- * Attempts one job end to end: resolve credentials, call the adapter,
- * record the attempt, update the job, write an audit log. Never throws —
- * callers (the batch Worker, the single-job manual trigger) don't need their
- * own try/catch around this; a failure here is always recorded, not lost.
+ * Attempts one job end to end: claim it, resolve credentials, call the
+ * adapter, record the attempt, update the job, write an audit log. Never
+ * throws — callers (the batch Worker, the single-job manual trigger) don't
+ * need their own try/catch around this; a failure here is always recorded,
+ * not lost.
  */
-export async function processPublishJob(supabase: SupabaseClient, job: PublishableJob): Promise<{ success: boolean }> {
+export async function processPublishJob(supabase: SupabaseClient, job: PublishableJob): Promise<ProcessJobResult> {
+  const claimed = await claimPublishJob(supabase, job.id)
+  if (!claimed) {
+    // Someone else (another admin's "Publish now", or an overlapping Worker
+    // tick) is already actively working this job — never attempt a second,
+    // possibly duplicate, real platform call.
+    return { success: false, skipped: true }
+  }
+
   try {
     const credentials = await resolveCredentials(supabase, job.workspaceId, job.channel)
     if (!credentials) {
@@ -132,14 +186,12 @@ export async function processPublishJob(supabase: SupabaseClient, job: Publishab
       externalUrl: result.externalUrl,
     })
 
-    // Guarded on status='scheduled' or 'draft': if a human cancelled this job
-    // while it was being processed, this no-ops instead of overwriting the
-    // cancellation back to "published".
-    await supabase
-      .from('publish_jobs')
-      .update({ status: 'published', published_at: new Date().toISOString(), error_message: null })
-      .eq('id', job.id)
-      .in('status', ['scheduled', 'draft', 'failed'])
+    // Guarded on status='scheduled'/'draft'/'failed' (i.e. not 'cancelled'):
+    // if a human cancelled this job right as the claim above was taken —
+    // there's a brief window between the two — this no-ops instead of
+    // overwriting the cancellation back to "published". The attempt above
+    // still recorded the real outcome either way.
+    await releasePublishJobClaim(supabase, job.id, { status: 'published', published_at: new Date().toISOString(), error_message: null })
 
     await supabase.from('audit_logs').insert({
       workspace_id: job.workspaceId,
@@ -167,11 +219,7 @@ export async function processPublishJob(supabase: SupabaseClient, job: Publishab
         errorMessage: message,
       })
 
-      await supabase
-        .from('publish_jobs')
-        .update({ status: 'failed', error_message: message })
-        .eq('id', job.id)
-        .in('status', ['scheduled', 'draft', 'failed'])
+      await releasePublishJobClaim(supabase, job.id, { status: 'failed', error_message: message })
 
       await supabase.from('audit_logs').insert({
         workspace_id: job.workspaceId,
@@ -184,7 +232,9 @@ export async function processPublishJob(supabase: SupabaseClient, job: Publishab
     } catch (unexpected) {
       // Safety net: a DB hiccup recording *why* this job failed must never
       // throw out of this function — the batch Worker relies on that to keep
-      // processing the rest of the due jobs in the same run.
+      // processing the rest of the due jobs in the same run. The claim may
+      // be left set here; it will still be treated as abandoned and
+      // reclaimable after STALE_CLAIM_MINUTES.
       console.error(`Unexpected error finishing publish_job ${job.id}:`, unexpected)
     }
 

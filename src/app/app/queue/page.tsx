@@ -185,7 +185,7 @@ export default function QueuePage() {
                       Publish now
                     </button>
                   )}
-                  {canManageQueue && isActive && (
+                  {canManageQueue && isActive && job.publishMode !== 'auto' && (
                     <button
                       onClick={() => handleCompleteManually(job.id)}
                       disabled={busyJobId === job.id}

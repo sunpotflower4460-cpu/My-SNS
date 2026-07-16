@@ -10,8 +10,11 @@ import type { WorkspaceRole } from '@/lib/domain/types'
 // never picked up by the scheduled Worker (/api/publish/run only processes
 // publish_mode='auto') — this is how a human actually pushes one of those
 // jobs to the platform. 'manual' channels (note) never come through here;
-// they're completed via /api/publish/run's sibling flow, marking the job
-// posted by hand from the Queue.
+// they're completed via the Queue's "Mark as posted" action instead.
+
+// See run/route.ts's comment on the same setting — a real video upload can
+// run long, and this is the route that actually performs it.
+export const maxDuration = 300
 
 interface TriggerRequestBody {
   workspaceId?: string
@@ -79,6 +82,13 @@ export async function POST(request: NextRequest) {
     createdBy: job.created_by,
     revision,
   })
+
+  if (result.skipped) {
+    return NextResponse.json(
+      { ...result, error: 'Already being published right now (by another admin or Worker run) — try again shortly.' },
+      { status: 409 },
+    )
+  }
 
   return NextResponse.json(result)
 }

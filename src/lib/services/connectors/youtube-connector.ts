@@ -17,6 +17,15 @@ const UPLOAD_URL = 'https://www.googleapis.com/upload/youtube/v3/videos'
 const STUDIO_URL = 'https://studio.youtube.com'
 const SCOPES = ['https://www.googleapis.com/auth/youtube.upload', 'https://www.googleapis.com/auth/youtube.readonly']
 
+// Deliberately shorter than the calling route's `maxDuration` (300s — see
+// api/publish/run and api/publish/trigger). A platform hard-kill on timeout
+// happens mid-execution with no chance to run our own catch block, which
+// would leave the job claimed and unrecorded until it's later treated as
+// abandoned. Timing out here first means processPublishJob's normal error
+// handling actually runs and records a real failure instead.
+const FETCH_MEDIA_TIMEOUT_MS = 30_000
+const UPLOAD_TIMEOUT_MS = 270_000
+
 function requireEnv(name: string): string {
   const value = process.env[name]?.trim()
   if (!value) throw new Error(`${name} is not configured.`)
@@ -166,7 +175,7 @@ export class YouTubeConnectorAdapter implements SocialConnectorAdapter {
     const uploadUrl = initResponse.headers.get('location')
     if (!uploadUrl) throw new Error('YouTube did not return a resumable upload URL.')
 
-    const videoResponse = await fetch(mediaUrl)
+    const videoResponse = await fetch(mediaUrl, { signal: AbortSignal.timeout(FETCH_MEDIA_TIMEOUT_MS) })
     if (!videoResponse.ok || !videoResponse.body) {
       throw new Error(`Could not read the video from its source URL (${videoResponse.status}).`)
     }
@@ -175,6 +184,7 @@ export class YouTubeConnectorAdapter implements SocialConnectorAdapter {
       method: 'PUT',
       headers: { 'Content-Type': videoResponse.headers.get('content-type') ?? 'video/*' },
       body: videoResponse.body,
+      signal: AbortSignal.timeout(UPLOAD_TIMEOUT_MS),
       // @ts-expect-error Node's fetch requires this for streaming request bodies.
       duplex: 'half',
     })
