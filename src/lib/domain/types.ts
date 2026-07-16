@@ -202,17 +202,46 @@ export interface AiGeneration {
 // ─── Publish Jobs ─────────────────────────────────────────────────────────────
 export type PublishJobStatus = 'draft' | 'scheduled' | 'published' | 'failed' | 'cancelled'
 
+/**
+ * auto = the Worker publishes it automatically once due.
+ * assisted/draft = queued, reserved for a future extra review step before the Worker acts.
+ * manual = the Worker never touches it (note); a human records completion.
+ * owned = the creator's own site/channel (future HP integration).
+ */
+export type PublishMode = 'auto' | 'assisted' | 'draft' | 'manual' | 'owned'
+
 export interface PublishJob {
   id: string
   workspaceId: string
   seedId: string
   draftId: string
+  revisionId: string
   channel: PublishingChannel
+  publishMode: PublishMode
   status: PublishJobStatus
   scheduledAt?: string
   publishedAt?: string
   errorMessage?: string
   createdBy: string
+  createdAt: string
+}
+
+// ─── Publish Attempts ─────────────────────────────────────────────────────────
+export type PublishAttemptStatus = 'success' | 'failed'
+export type PublishFailureReason = 'auth' | 'ratelimit' | 'validation' | 'network' | 'unavailable'
+
+/** Append-only attempt history for a PublishJob. Never edited after creation. */
+export interface PublishAttempt {
+  id: string
+  workspaceId: string
+  publishJobId: string
+  attemptNumber: number
+  status: PublishAttemptStatus
+  failureReason?: PublishFailureReason
+  errorMessage?: string
+  externalPostId?: string
+  externalUrl?: string
+  createdBy?: string
   createdAt: string
 }
 
@@ -269,6 +298,9 @@ export type AuditAction =
   | 'draft_revision_approved'
   | 'queue_item_scheduled'
   | 'queue_item_cancelled'
+  | 'queue_item_published'
+  | 'queue_item_failed'
+  | 'queue_item_manual_completed'
   | 'inbox_item_read'
   | 'inbox_item_starred'
   | 'inbox_item_needs_action'

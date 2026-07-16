@@ -5,16 +5,24 @@ import type { SocialDraft } from '@/lib/domain/types'
 import ChannelBadge from './ChannelBadge'
 import StatusBadge from './StatusBadge'
 
+function defaultScheduleInputValue(): string {
+  const now = new Date()
+  now.setMinutes(now.getMinutes() - now.getTimezoneOffset())
+  return now.toISOString().slice(0, 16)
+}
+
 interface DraftEditorCardProps {
   draft: SocialDraft
   onEdit?: (id: string, text: string) => void
   onApprove?: (id: string) => void
   onRegenerate?: (id: string) => void
+  onSchedule?: (id: string, scheduledAt: string) => void
 }
 
-export default function DraftEditorCard({ draft, onEdit, onApprove, onRegenerate }: DraftEditorCardProps) {
+export default function DraftEditorCard({ draft, onEdit, onApprove, onRegenerate, onSchedule }: DraftEditorCardProps) {
   const [text, setText] = useState(draft.draftText)
   const [isDirty, setIsDirty] = useState(false)
+  const [scheduleInput, setScheduleInput] = useState(defaultScheduleInputValue)
 
   useEffect(() => {
     setText(draft.draftText)
@@ -63,6 +71,25 @@ export default function DraftEditorCard({ draft, onEdit, onApprove, onRegenerate
           <ul className="mt-1.5 space-y-1 text-xs leading-5 text-amber-800">
             {draft.assumptions.map((assumption, index) => <li key={index}>• {assumption}</li>)}
           </ul>
+        </div>
+      )}
+
+      {onSchedule && draft.status === 'approved' && (
+        <div className="mt-3 flex flex-wrap items-center gap-2 rounded-2xl border border-stone-200 bg-stone-50 p-3">
+          <label className="text-xs font-medium text-gray-600" htmlFor={`schedule-${draft.id}`}>Publish at</label>
+          <input
+            id={`schedule-${draft.id}`}
+            type="datetime-local"
+            value={scheduleInput}
+            onChange={(event) => setScheduleInput(event.target.value)}
+            className="rounded-xl border border-stone-200 px-2.5 py-1.5 text-xs"
+          />
+          <button
+            onClick={() => onSchedule(draft.id, new Date(scheduleInput).toISOString())}
+            className="rounded-xl bg-violet-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-violet-700"
+          >
+            Schedule
+          </button>
         </div>
       )}
 

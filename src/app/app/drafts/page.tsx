@@ -17,8 +17,9 @@ const TONES = ['calm', 'casual', 'professional', 'playful']
 
 export default function DraftsPage() {
   const searchParams = useSearchParams()
-  const { approveDraft, currentMember, drafts, generateChannelDrafts, getDraftsForSeed, saveAndApproveDraft, saveDraft, seeds } = useApp()
+  const { approveDraft, currentMember, drafts, generateChannelDrafts, getDraftsForSeed, saveAndApproveDraft, saveDraft, scheduleDraft, seeds } = useApp()
   const canApprove = Boolean(currentMember && hasPermission(currentMember.role, 'approve_drafts'))
+  const canManageQueue = Boolean(currentMember && hasPermission(currentMember.role, 'manage_queue'))
   const requestedSeedId = searchParams.get('seed')
   const [seedId, setSeedId] = useState(requestedSeedId ?? seeds[0]?.id ?? '')
   const [selectedChannels, setSelectedChannels] = useState<PublishingChannel[]>([])
@@ -167,7 +168,7 @@ export default function DraftsPage() {
         <div className="mb-3 flex items-center justify-between gap-3"><h2 className="text-base font-semibold text-gray-900">Saved drafts</h2>{selectedSeed && <span className="text-sm text-gray-500">{selectedSeed.title}</span>}</div>
         {existingDrafts.length === 0 ? <EmptyState title="No drafts yet" description="Prepare a template and save the versions worth keeping." /> : (
           <div className="space-y-6">
-            {Object.entries(draftsByChannel).map(([channel, channelDrafts]) => <section key={channel}><div className="mb-3 flex items-center justify-between"><h3 className="text-sm font-semibold text-gray-700">{PUBLISHING_CHANNEL_CONFIG[channel as PublishingChannel].label}</h3><span className="text-xs text-gray-400">{channelDrafts.length} saved</span></div><div className="grid grid-cols-1 gap-4 xl:grid-cols-2">{channelDrafts.map((draft) => <DraftEditorCard key={draft.id} draft={draft} onEdit={(id, text) => { const target = existingDrafts.find((entry) => entry.id === id); if (target) void runDraftAction(() => persistDraft({ ...target, draftText: text }), `Saved ${PUBLISHING_CHANNEL_CONFIG[target.channel].label} draft.`) }} onApprove={canApprove ? (id) => { void runDraftAction(() => approveDraft(id), 'Draft approved and recorded as a Revision.') } : undefined} onRegenerate={(id) => { if (!selectedSeed) return; const target = existingDrafts.find((entry) => entry.id === id); if (target) void runDraftAction(() => persistDraft({ ...target, draftText: resetTemplateDraft(target, selectedSeed) }), 'Reset and saved the source template.') }} />)}</div></section>)}
+            {Object.entries(draftsByChannel).map(([channel, channelDrafts]) => <section key={channel}><div className="mb-3 flex items-center justify-between"><h3 className="text-sm font-semibold text-gray-700">{PUBLISHING_CHANNEL_CONFIG[channel as PublishingChannel].label}</h3><span className="text-xs text-gray-400">{channelDrafts.length} saved</span></div><div className="grid grid-cols-1 gap-4 xl:grid-cols-2">{channelDrafts.map((draft) => <DraftEditorCard key={draft.id} draft={draft} onEdit={(id, text) => { const target = existingDrafts.find((entry) => entry.id === id); if (target) void runDraftAction(() => persistDraft({ ...target, draftText: text }), `Saved ${PUBLISHING_CHANNEL_CONFIG[target.channel].label} draft.`) }} onApprove={canApprove ? (id) => { void runDraftAction(() => approveDraft(id), 'Draft approved and recorded as a Revision.') } : undefined} onRegenerate={(id) => { if (!selectedSeed) return; const target = existingDrafts.find((entry) => entry.id === id); if (target) void runDraftAction(() => persistDraft({ ...target, draftText: resetTemplateDraft(target, selectedSeed) }), 'Reset and saved the source template.') }} onSchedule={canManageQueue ? (id, scheduledAt) => { void runDraftAction(() => scheduleDraft(id, scheduledAt), 'Scheduled. Track it from the Queue.') } : undefined} />)}</div></section>)}
           </div>
         )}
       </section>

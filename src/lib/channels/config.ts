@@ -1,4 +1,4 @@
-import type { PublishingChannel } from '@/lib/domain/types'
+import type { PublishingChannel, PublishMode } from '@/lib/domain/types'
 
 export interface PublishingChannelConfig {
   label: string
@@ -69,4 +69,16 @@ export const PUBLISHING_CHANNEL_CONFIG: Record<PublishingChannel, PublishingChan
 
 export function isManualCopyChannel(channel: PublishingChannel): boolean {
   return PUBLISHING_CHANNEL_CONFIG[channel].delivery === 'manual-copy'
+}
+
+/** The publish_jobs.publish_mode a freshly scheduled job should start in for this channel. */
+export function derivePublishMode(channel: PublishingChannel): PublishMode {
+  switch (PUBLISHING_CHANNEL_CONFIG[channel].delivery) {
+    case 'manual-copy':
+      return 'manual'
+    case 'owned-channel':
+      return 'owned'
+    case 'api-later':
+      return 'auto'
+  }
 }

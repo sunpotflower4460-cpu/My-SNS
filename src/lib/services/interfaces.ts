@@ -19,11 +19,26 @@ export interface DraftGeneratorService {
 }
 
 // ─── Social Connector Adapter ─────────────────────────────────────────────────
+/** The already-approved Revision content a Worker hands to an adapter — the adapter never fetches its own data. */
+export interface PublishRequest {
+  platform: SocialPlatform
+  title?: string
+  body: string
+  hashtags: string[]
+  cta?: string
+  metadata: Record<string, unknown>
+}
+
+export interface PublishResult {
+  externalPostId?: string
+  externalUrl?: string
+}
+
 export interface SocialConnectorAdapter {
   connect(platform: SocialPlatform, authCode: string): Promise<void>
   disconnect(platform: SocialPlatform): Promise<void>
   refreshToken(platform: SocialPlatform): Promise<void>
-  publish(draftId: string): Promise<void>
+  publish(request: PublishRequest): Promise<PublishResult>
   fetchInbox(platform: SocialPlatform, workspaceId: string): Promise<InboxItem[]>
   fetchComments(platform: SocialPlatform, postId: string): Promise<InboxItem[]>
   fetchMentions(platform: SocialPlatform, workspaceId: string): Promise<InboxItem[]>

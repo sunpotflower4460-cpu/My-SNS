@@ -6,6 +6,7 @@ import ChannelBadge from '@/components/ui/ChannelBadge'
 import StatusBadge from '@/components/ui/StatusBadge'
 import EmptyState from '@/components/ui/EmptyState'
 import { useApp } from '@/lib/app/app-provider'
+import { hasPermission } from '@/lib/permissions'
 import type { PublishJobStatus } from '@/lib/domain/types'
 
 const STATUS_FILTERS: Array<{ label: string; value: PublishJobStatus | 'all' }> = [
@@ -18,7 +19,8 @@ const STATUS_FILTERS: Array<{ label: string; value: PublishJobStatus | 'all' }> 
 ]
 
 export default function QueuePage() {
-  const { cancelQueueJob, publishJobs, retryQueueJob, seeds } = useApp()
+  const { cancelQueueJob, completeManualPublish, currentMember, publishJobs, retryQueueJob, seeds } = useApp()
+  const canManageQueue = Boolean(currentMember && hasPermission(currentMember.role, 'manage_queue'))
   const [activeStatus, setActiveStatus] = useState<PublishJobStatus | 'all'>('all')
   const [feedback, setFeedback] = useState('')
   const [error, setError] = useState('')
@@ -59,6 +61,21 @@ export default function QueuePage() {
     }
   }
 
+  const handleCompleteManually = async (jobId: string) => {
+    const externalUrl = window.prompt('Optional: paste the published URL for your records.')?.trim() || undefined
+    setBusyJobId(jobId)
+    try {
+      await completeManualPublish(jobId, externalUrl)
+      setFeedback('Marked as posted.')
+      setError('')
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'Unable to record this as posted.')
+      setFeedback('')
+    } finally {
+      setBusyJobId(null)
+    }
+  }
+
   return (
     <div>
       <PageHeader title="Publish Queue" description="Track scheduled, failed, and draft publish jobs in this workspace." />
@@ -91,6 +108,7 @@ export default function QueuePage() {
                 <div className="flex items-center gap-3">
                   <ChannelBadge channel={job.channel} />
                   <StatusBadge status={job.status} />
+                  <span className="rounded-full border border-stone-200 bg-stone-50 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.14em] text-stone-500">{job.publishMode}</span>
                 </div>
                 <div className="min-w-0 flex-1">
                   <p className="truncate text-sm font-medium text-gray-900">{getSeedTitle(job.seedId)}</p>
@@ -99,14 +117,27 @@ export default function QueuePage() {
                       ? 'Needs retry or cancellation'
                       : job.status === 'cancelled'
                         ? 'Removed from the active queue'
-                        : job.scheduledAt
-                          ? `Scheduled: ${new Date(job.scheduledAt).toLocaleString()}`
-                          : 'Not scheduled yet'}
+                        : job.status === 'published'
+                          ? job.publishedAt ? `Published: ${new Date(job.publishedAt).toLocaleString()}` : 'Published'
+                          : job.publishMode === 'manual'
+                            ? 'Waiting for you to post it and record completion'
+                            : job.scheduledAt
+                              ? `Scheduled: ${new Date(job.scheduledAt).toLocaleString()}`
+                              : 'Not scheduled yet'}
                   </p>
                   {job.errorMessage && <p className="mt-2 text-xs text-red-500">{job.errorMessage}</p>}
                 </div>
                 <div className="flex flex-wrap items-center gap-2 lg:justify-end">
-                  {job.status === 'failed' && (
+                  {canManageQueue && job.publishMode === 'manual' && (job.status === 'draft' || job.status === 'scheduled') && (
+                    <button
+                      onClick={() => handleCompleteManually(job.id)}
+                      disabled={busyJobId === job.id}
+                      className="rounded-2xl border border-emerald-200 px-3 py-2 text-xs font-medium text-emerald-700 transition hover:bg-emerald-50 disabled:cursor-wait disabled:opacity-50"
+                    >
+                      Mark as posted
+                    </button>
+                  )}
+                  {canManageQueue && job.status === 'failed' && (
                     <button
                       onClick={() => handleRetry(job.id)}
                       disabled={busyJobId === job.id}
@@ -115,7 +146,7 @@ export default function QueuePage() {
                       Retry
                     </button>
                   )}
-                  {(job.status === 'scheduled' || job.status === 'draft' || job.status === 'failed') && (
+                  {canManageQueue && (job.status === 'scheduled' || job.status === 'draft' || job.status === 'failed') && (
                     <button
                       onClick={() => handleCancel(job.id)}
                       disabled={busyJobId === job.id}

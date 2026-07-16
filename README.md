@@ -2,7 +2,7 @@
 
 A calm, workspace-centric Creator OS for capturing one source Seed, preserving a reusable Brand Profile, preparing channel drafts, triaging inbox activity, and coordinating publishing.
 
-## Phase 2A + PR0 + PR1 + PR2 foundation ✅
+## Phase 2A + PR0 + PR1 + PR2 + PR3 foundation ✅
 
 The app is now backed by **real Supabase infrastructure** while preserving the existing UI and architecture.
 
@@ -19,15 +19,15 @@ The app is now backed by **real Supabase infrastructure** while preserving the e
 - **Real AI draft proposals** via `/api/drafts/generate` (Anthropic), with explicit `assumptions` surfaced for every guess and a labeled deterministic template fallback when no API key is configured
 - **Immutable Revisions**: approving a draft permanently snapshots what was approved into `draft_revisions`; later Seed or Brand Profile edits cannot change history
 - **AI cost/usage tracking** in `ai_generations` (model, token counts, estimated cost)
+- **Scheduling Engine**: schedule an approved draft's Revision to the Publish Queue, a Worker (`/api/publish/run`, run on a schedule — see `vercel.json`) executes due `auto`-mode jobs and records a `publish_attempts` history with classified failure reasons; `note` (and any future manual-copy channel) is `publish_mode: 'manual'` and is completed by a human from the Queue instead
 - **Dashboard, Seed detail, draft studio, queue, inbox, team, brand, and settings flows** with real persistence
 - **Audit events** logged to database
 - **Workspace roles** (owner, admin, editor, contributor, viewer) enforced via RLS
 
 ## What is still deferred
 
-- Real social platform connectors (Instagram, Threads, X, TikTok, YouTube)
+- Real social platform connectors (Instagram, Threads, X, TikTok, YouTube) — the Worker runs today, but every `auto` attempt fails closed with reason `unavailable` until PR4/PR5 land
 - Webhook ingestion from social platforms
-- Background publishing jobs and workers
 - Advanced notifications
 - Billing/usage metering
 - Deep analytics dashboards
@@ -54,6 +54,8 @@ SUPABASE_SECRET_KEY=your-service-role-key-here
 
 Optionally set `ANTHROPIC_API_KEY` to enable real AI draft proposals (server-only, never sent to the browser). Without it, `/api/drafts/generate` falls back to deterministic templates and says so explicitly in the response — it never presents a template as an AI proposal. See `.env.example` for the full list of AI-related variables (model override, optional cost-per-token for `ai_generations.cost_usd`).
 
+Set `CRON_SECRET` to enable the publish Worker (`/api/publish/run`). Without it, the Worker refuses every request rather than running unauthenticated.
+
 ### Setting up Supabase
 
 1. **Create a Supabase project** at [supabase.com](https://supabase.com)
@@ -67,8 +69,10 @@ Optionally set `ANTHROPIC_API_KEY` to enable real AI draft proposals (server-onl
      - `supabase/migrations/20260715000000_private_asset_storage.sql`
      - `supabase/migrations/20260715010000_seed_brand_profile_foundation.sql`
      - `supabase/migrations/20260716000000_ai_draft_generation.sql`
-3. The PR0 migration makes assets private; the PR1 migration preserves existing rows while promoting `contents` to `seeds` and adding `brand_profiles`; the PR2 migration adds structured proposal fields to `social_drafts` plus the append-only `draft_revisions` and `ai_generations` tables.
+     - `supabase/migrations/20260717000000_scheduling_engine.sql`
+3. The PR0 migration makes assets private; the PR1 migration preserves existing rows while promoting `contents` to `seeds` and adding `brand_profiles`; the PR2 migration adds structured proposal fields to `social_drafts` plus the append-only `draft_revisions` and `ai_generations` tables; the PR3 migration adds `publish_mode`/`revision_id` to `publish_jobs`, the append-only `publish_attempts` table, and tightens `publish_jobs` RLS to owner/admin (matching the `manage_queue` permission).
 4. **Copy your project credentials** to `.env.local`
+5. **(Optional) Enable the publish Worker** — if deploying to Vercel, `vercel.json` already schedules `/api/publish/run` every 5 minutes; set `CRON_SECRET` in your Vercel project's environment variables (Vercel then sends it automatically as the Worker's `Authorization` header). Any other host can call the same route on a schedule with `Authorization: Bearer $CRON_SECRET`.
 
 ## Local development
 
@@ -99,6 +103,7 @@ src/
     login/page.tsx             Magic link auth flow
     app/                       Protected app routes
     api/drafts/generate/       Server-only AI draft generation route
+    api/publish/run/           Server-only publish Worker route (CRON_SECRET-gated)
   components/
     layout/                    Sidebar, top bar, workspace switcher
     ui/                        Shared presentation components
@@ -107,11 +112,11 @@ src/
   lib/
     auth/                      Supabase Auth provider
     app/                       App provider with Supabase repositories
-    repositories/supabase/     Seed, Brand Profile, Draft/Revision, and workspace repositories
+    repositories/supabase/     Seed, Brand Profile, Draft/Revision, Queue/Attempt, and workspace repositories
     storage/supabase/          Supabase Storage adapter
-    supabase/                  Supabase client setup (browser + server)
+    supabase/                  Supabase client setup (browser, server, and service-role for the Worker)
     domain/                    Shared domain types
-    services/                  Template drafts, Anthropic-backed drafts (server-only), and disabled connector seams
+    services/                  Template drafts, Anthropic-backed drafts, the publish Worker's failure classifier (all server-only where relevant), and disabled connector seams
 ```
 
 ## Database schema
@@ -127,7 +132,8 @@ The app uses the following main tables:
 - **social_drafts** - Channel-specific draft variations (title, hashtags, CTA, assumptions, channel-specific metadata, source)
 - **draft_revisions** - Append-only, immutable snapshot of each approved draft
 - **ai_generations** - Model, token counts, and estimated cost for each real AI generation call
-- **publish_jobs** - Publishing queue
+- **publish_jobs** - Publishing queue; each job carries a `publish_mode` (`auto`/`manual`/`owned`/...) and points at the exact `draft_revisions` snapshot it publishes
+- **publish_attempts** - Append-only attempt history per job, with a classified `failure_reason` (`auth`/`ratelimit`/`validation`/`network`/`unavailable`) for failed attempts
 - **inbox_items** - Inbox messages (internal for now)
 - **inbox_notes** - Internal notes on inbox items
 - **audit_logs** - Activity audit trail
@@ -199,7 +205,7 @@ The **mock app provider** has been replaced by **Supabase app provider** that lo
 The delivery order intentionally leaves manual provider setup until the integration code is ready:
 
 1. ~~**PR2** — structured AI proposals, missing-information suggestions, and explicit approval~~ ✅
-2. **PR3** — scheduling engine (`publish_attempts`, Worker, retry/cancel, Queue state UI)
+2. ~~**PR3** — scheduling engine (`publish_attempts`, Worker, retry/cancel, Queue state UI)~~ ✅
 3. **PR4** — X and Instagram adapters
 4. **PR5** — YouTube and TikTok adapters plus note review/copy handoff
 
@@ -207,10 +213,10 @@ The delivery order intentionally leaves manual provider setup until the integrat
 
 ## Known limitations
 
-- Social connectors are placeholder (no real OAuth or posting yet)
+- Social connectors are placeholder (no real OAuth or posting yet) — the Worker runs and attempts every `auto` job, but every attempt fails closed with reason `unavailable` until PR4/PR5 land
 - AI draft generation requires `ANTHROPIC_API_KEY`; without it, `/api/drafts/generate` returns clearly labeled deterministic templates instead
 - Inbox syncing is internal only (no external platform messages yet)
-- Publishing is queued but not executed by background workers yet
+- The publish Worker requires `CRON_SECRET` and a scheduled trigger calling it (Vercel Cron via `vercel.json`, or any other host on the same schedule/auth contract)
 
 ## Security
 
