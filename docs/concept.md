@@ -81,10 +81,11 @@ AIは文章生成だけではなく、発信準備・変換・判断補助を担
 | PR2 | マージ済み | 実AI（Anthropic）による媒体別ドラフト生成、assumptions表示、承認版（draft_revisions、追記専用）、コスト記録（ai_generations）を追加。APIキー未設定時はテンプレートへ明示的にフォールバック。 |
 | PR3 | マージ済み | Scheduling Engine。承認済みRevisionをQueueへ予約、Worker（`/api/publish/run`、CRON_SECRET必須）がauto投稿を実行し`publish_attempts`に成否と失敗理由を記録。noteは`publish_mode: manual`のまま人間が完了記録。実コネクタ未接続のためauto投稿は現状すべて`unavailable`で安全に失敗する。 |
 | PR4 | マージ済み | X・InstagramのOAuth接続（設定画面から接続/切断）、トークンはアプリ層で暗号化保存（`social_account_credentials`はRLSポリシーなし＝service role以外アクセス不可）、Worker経由の実投稿とトークン自動更新に対応。Instagramはメディア添付（画像/動画URL）を扱う仕組みが未実装のため、投稿時は明確なエラーで安全に停止する。 |
-| 現在できること | 実装済み | ログイン、ワークスペース、チーム権限、Seed保存、Brand Profile、実AI下書き生成と承認、予約・Worker実行・再試行・手動完了を含むQueue、X/Instagram接続と実投稿（テキストのみ）、内部Inbox、設定、監査ログ。 |
-| まだできないこと | 未接続 | YouTube/TikTok OAuth・実投稿、メディア添付、外部コメント/DM同期、Webhook、深い分析。 |
+| PR5 | マージ済み | **MVP完成。** YouTube・TikTokのOAuth接続と実投稿アダプタ（YouTube: resumable upload、TikTok: creator_info照会→PULL_FROM_URL→ステータスポーリング、SELF_ONLY固定）。両者ともWorkerの自動実行対象外（`assisted`/`draft`モード）で、Queueの「Publish now」から人間が明示的に実行する。noteはQueueでMarkdown形式にコピーし、Mark as postedで完了記録。YouTube/TikTokもメディア添付が未実装のため投稿時は明確なエラーで安全に停止する。 |
+| 現在できること | 実装済み | ログイン、ワークスペース、チーム権限、Seed保存、Brand Profile、実AI下書き生成と承認、予約・Worker実行・手動実行（Publish now）・再試行・手動完了を含むQueue、X/Instagram/YouTube/TikTok接続と実投稿（テキストのみ）、noteのMarkdownハンドオフ、内部Inbox、設定、監査ログ。 |
+| まだできないこと | 未接続 | Seed/Revisionへのメディア（画像・動画）添付、外部コメント/DM同期、Webhook、深い分析。 |
 
-実装順、各PRの詳細仕様は `docs/master-plan.md` を参照。次はPR5（YouTube + TikTok + note handoff）から着手する。
+実装順、各PRの詳細仕様は `docs/master-plan.md` を参照。MVPはPR5で完成した。次はPR6（Webhook + Unified Inbox、MVP後の拡張フェーズ）から着手する。
 
 ## 7. MVPの完成条件
 

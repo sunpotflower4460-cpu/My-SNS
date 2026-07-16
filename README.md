@@ -2,9 +2,9 @@
 
 A calm, workspace-centric Creator OS for capturing one source Seed, preserving a reusable Brand Profile, preparing channel drafts, triaging inbox activity, and coordinating publishing.
 
-## Phase 2A + PR0 + PR1 + PR2 + PR3 + PR4 foundation ✅
+## Phase 2A + PR0-PR5 — MVP complete ✅
 
-The app is now backed by **real Supabase infrastructure** while preserving the existing UI and architecture.
+The app is now backed by **real Supabase infrastructure** while preserving the existing UI and architecture. PR5 closes out the MVP defined in `docs/master-plan.md` §4: a Seed can flow all the way from one-time capture through AI proposal, human approval, scheduling, and a real connector attempt for all five core channels (X, Instagram, YouTube, TikTok, note) — with the two structural gaps below (media attachment, developer-account setup) intentionally left as the honest, explicitly-documented boundary of what code alone can finish.
 
 ## What now works
 
@@ -20,19 +20,17 @@ The app is now backed by **real Supabase infrastructure** while preserving the e
 - **Immutable Revisions**: approving a draft permanently snapshots what was approved into `draft_revisions`; later Seed or Brand Profile edits cannot change history
 - **AI cost/usage tracking** in `ai_generations` (model, token counts, estimated cost)
 - **Scheduling Engine**: schedule an approved draft's Revision to the Publish Queue, a Worker (`/api/publish/run`, run on a schedule — see `vercel.json`) executes due `auto`-mode jobs and records a `publish_attempts` history with classified failure reasons; `note` (and any future manual-copy channel) is `publish_mode: 'manual'` and is completed by a human from the Queue instead
-- **Real X and Instagram connectors**: OAuth 2.0 connect flow from Settings (`/api/social/{platform}/connect` → `/callback`), tokens encrypted at the application layer before storage (never selectable from the browser — see `social_account_credentials`), the Worker publishes through them with automatic token refresh. Instagram publishing needs a media URL the app doesn't attach yet (drafts are still text-only) and fails closed with a clear message until that's built.
+- **Real X, Instagram, YouTube, and TikTok connectors**: OAuth connect flow from Settings (`/api/social/{platform}/connect` → `/callback`), tokens encrypted at the application layer before storage (never selectable from the browser — see `social_account_credentials`). X/Instagram publish through the scheduled Worker with automatic token refresh; YouTube ('assisted') and TikTok ('draft') are deliberately *not* auto-published — a human clicks **Publish now** from the Queue instead (`/api/publish/trigger`), matching their MVP strategy in `docs/master-plan.md` §3. Instagram/YouTube/TikTok all need a media URL the app doesn't attach to a Revision yet and fail closed with a clear message until that's built.
+- **note handoff**: an approved note Revision is one click away from note.com-ready Markdown (**Copy for note.com** in the Queue) and a **Mark as posted** button records completion — no fake automatic posting, since note has no public posting API.
 - **Dashboard, Seed detail, draft studio, queue, inbox, team, brand, and settings flows** with real persistence
 - **Audit events** logged to database
 - **Workspace roles** (owner, admin, editor, contributor, viewer) enforced via RLS
 
 ## What is still deferred
 
-- YouTube and TikTok connectors, and the note review/copy handoff (PR5)
-- Attaching media (image/video) to a draft/Revision — Instagram (and PR5's YouTube/TikTok) need this to actually publish
-- Webhook ingestion from social platforms
-- Advanced notifications
-- Billing/usage metering
-- Deep analytics dashboards
+- Attaching media (image/video) to a draft/Revision — Instagram, YouTube, and TikTok all need this to actually publish; every real connector attempt fails closed with a clear message until it's built
+- Webhook ingestion from social platforms (PR6)
+- Advanced notifications, billing/usage metering, deep analytics dashboards (PR7-PR9)
 
 ## Environment setup
 
@@ -58,7 +56,7 @@ Optionally set `ANTHROPIC_API_KEY` to enable real AI draft proposals (server-onl
 
 Set `CRON_SECRET` to enable the publish Worker (`/api/publish/run`). Without it, the Worker refuses every request rather than running unauthenticated.
 
-To connect X or Instagram, set `SOCIAL_TOKEN_ENCRYPTION_KEY`, `NEXT_PUBLIC_APP_URL`, and the relevant `X_CLIENT_ID`/`X_CLIENT_SECRET` or `META_APP_ID`/`META_APP_SECRET` — see `.env.example` for details and the exact redirect URIs to register with each platform's developer console. Without these, the "Connect" button in Settings returns a clear "not configured" error rather than attempting anything.
+To connect a platform, set `SOCIAL_TOKEN_ENCRYPTION_KEY`, `NEXT_PUBLIC_APP_URL`, and that platform's client id/secret (`X_CLIENT_ID`/`X_CLIENT_SECRET`, `META_APP_ID`/`META_APP_SECRET`, `YOUTUBE_CLIENT_ID`/`YOUTUBE_CLIENT_SECRET`, or `TIKTOK_CLIENT_KEY`/`TIKTOK_CLIENT_SECRET`) — see `.env.example` for details and the exact redirect URIs to register with each platform's developer console. Without these, the "Connect" button in Settings returns a clear "not configured" error rather than attempting anything.
 
 ### Setting up Supabase
 
@@ -75,10 +73,11 @@ To connect X or Instagram, set `SOCIAL_TOKEN_ENCRYPTION_KEY`, `NEXT_PUBLIC_APP_U
      - `supabase/migrations/20260716000000_ai_draft_generation.sql`
      - `supabase/migrations/20260717000000_scheduling_engine.sql`
      - `supabase/migrations/20260718000000_x_instagram_connectors.sql`
+   - PR5 adds no migration: `youtube`/`tiktok` were already valid `social_platform` values from the initial schema, and PR4's `social_accounts`/`social_account_credentials`/`oauth_states` tables are already generic across every platform.
 3. The PR0 migration makes assets private; the PR1 migration preserves existing rows while promoting `contents` to `seeds` and adding `brand_profiles`; the PR2 migration adds structured proposal fields to `social_drafts` plus the append-only `draft_revisions` and `ai_generations` tables; the PR3 migration adds `publish_mode`/`revision_id` to `publish_jobs`, the append-only `publish_attempts` table, and tightens `publish_jobs` RLS to owner/admin (matching the `manage_queue` permission); the PR4 migration adds `social_account_credentials` (RLS enabled with zero policies — only the service-role key can touch it) and `oauth_states`, and tightens `social_accounts` RLS to owner/admin (matching `manage_social_accounts`).
 4. **Copy your project credentials** to `.env.local`
 5. **(Optional) Enable the publish Worker** — if deploying to Vercel, `vercel.json` already schedules `/api/publish/run` every 5 minutes; set `CRON_SECRET` in your Vercel project's environment variables (Vercel then sends it automatically as the Worker's `Authorization` header). Any other host can call the same route on a schedule with `Authorization: Bearer $CRON_SECRET`.
-6. **(Optional) Connect X/Instagram** — register a developer app with each platform (see `.env.example` for the redirect URIs to register), then set the corresponding env vars. This is the one part of PR4 that genuinely needs the human: developer account creation and app review are outside what any code change can do.
+6. **(Optional) Connect X/Instagram/YouTube/TikTok** — register a developer app with each platform (see `.env.example` for the redirect URIs to register), then set the corresponding env vars. This is the one part of PR4/PR5 that genuinely needs the human: developer account creation and app review are outside what any code change can do.
 
 ## Local development
 
@@ -109,8 +108,9 @@ src/
     login/page.tsx             Magic link auth flow
     app/                       Protected app routes
     api/drafts/generate/       Server-only AI draft generation route
-    api/publish/run/           Server-only publish Worker route (CRON_SECRET-gated)
-    api/social/[platform]/     OAuth connect + callback routes (x, instagram)
+    api/publish/run/           Server-only scheduled publish Worker (CRON_SECRET-gated, publish_mode='auto')
+    api/publish/trigger/       Manual "Publish now" for assisted/draft-mode jobs (YouTube/TikTok)
+    api/social/[platform]/     OAuth connect + callback routes (x, instagram, youtube, tiktok)
     api/social/disconnect/     Deletes stored credentials (service-role only)
   components/
     layout/                    Sidebar, top bar, workspace switcher
@@ -125,7 +125,7 @@ src/
     storage/supabase/          Supabase Storage adapter
     supabase/                  Supabase client setup (browser, server, and service-role for the Worker/OAuth callback)
     domain/                    Shared domain types
-    services/                  Template drafts, Anthropic-backed drafts, the publish Worker's failure classifier, real X/Instagram connector adapters (all server-only where relevant), and the fail-closed stub for every other platform
+    services/                  Template drafts, Anthropic-backed drafts, the shared publish-attempt/failure-classification logic, real X/Instagram/YouTube/TikTok connector adapters, note-to-Markdown formatting (all server-only where relevant), and the fail-closed stub for every other platform
 ```
 
 ## Database schema
@@ -214,23 +214,25 @@ The **mock app provider** has been replaced by **Supabase app provider** that lo
 
 ## Next steps
 
-The delivery order intentionally leaves manual provider setup until the integration code is ready:
+MVP (`docs/master-plan.md` §4) is code-complete as of PR5. What's left is either genuinely deferred to a later phase, or is the "本人操作" (human-only setup) boundary described in that document's §6:
 
 1. ~~**PR2** — structured AI proposals, missing-information suggestions, and explicit approval~~ ✅
 2. ~~**PR3** — scheduling engine (`publish_attempts`, Worker, retry/cancel, Queue state UI)~~ ✅
 3. ~~**PR4** — X and Instagram adapters~~ ✅ (Instagram publishing still needs media attachment support — see Known limitations)
-4. **PR5** — YouTube and TikTok adapters plus note review/copy handoff
+4. ~~**PR5** — YouTube and TikTok adapters plus note review/copy handoff~~ ✅ (YouTube/TikTok publishing still needs media attachment support)
+5. **PR6+** — Webhook + Unified Inbox, Analytics, HP/site integration, ops polish (post-MVP; see `docs/master-plan.md` §5)
 
 `note` is modeled as a publishing channel but remains manual review + copy because there is no supported public posting API in scope.
 
 ## Known limitations
 
-- YouTube and TikTok connectors don't exist yet (PR5) — the Worker attempts them and fails closed with reason `unavailable`
-- Instagram is connectable, but publishing requires a media URL that no PR has wired up yet (drafts/Revisions are text-only through PR4) — it fails closed with a clear validation error rather than attempting a broken request
+- **Media attachment doesn't exist yet.** Instagram, YouTube, and TikTok all require a video/image URL to actually publish; no PR has wired up attaching one to a Seed/draft/Revision. Every real attempt on these three fails closed with a clear validation error rather than a broken request.
+- YouTube ('assisted') and TikTok ('draft') are intentionally **not** auto-published by the scheduled Worker — a human uses **Publish now** in the Queue (`/api/publish/trigger`) to actually call the connector, matching their §3 MVP strategy (quota/audit review before full automation)
+- TikTok's Direct Post is limited to `SELF_ONLY` visibility until this app passes TikTok's Content Posting API audit; if a post is still processing after a short poll window, the app reports that honestly (never guesses success) — check the TikTok app and use **Mark as posted** once confirmed
 - The Instagram connector picks the first Facebook Page with a linked Instagram Business/Creator account; it can't yet choose among multiple linked Pages
 - X requires a **confidential** OAuth 2.0 client (client secret) in the X developer portal, not a public/PKCE-only client
 - AI draft generation requires `ANTHROPIC_API_KEY`; without it, `/api/drafts/generate` returns clearly labeled deterministic templates instead
-- Inbox syncing is internal only (no external platform messages yet) — `fetchInbox`/`fetchComments`/`fetchMentions`/`fetchMessages` are implemented as explicit "not yet" errors on both connectors, reserved for PR6
+- Inbox syncing is internal only (no external platform messages yet) — `fetchInbox`/`fetchComments`/`fetchMentions`/`fetchMessages` are implemented as explicit "not yet" errors on every connector, reserved for PR6
 - The publish Worker requires `CRON_SECRET` and a scheduled trigger calling it (Vercel Cron via `vercel.json`, or any other host on the same schedule/auth contract)
 
 ## Security

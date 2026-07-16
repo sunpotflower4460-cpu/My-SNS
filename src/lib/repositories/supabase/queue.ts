@@ -163,6 +163,13 @@ export async function cancelPublishJob(
   return mapJob(data as PublishJobRow)
 }
 
+/**
+ * Records that a human published this themselves — not restricted to
+ * publish_mode='manual' (note). It's also the reconciliation path for a
+ * channel like TikTok whose adapter can time out waiting for the platform
+ * to confirm (see tiktok-connector.ts): the human checks the platform app
+ * and marks it complete here rather than the app ever guessing at success.
+ */
 export async function markPublishJobManuallyCompleted(
   workspaceId: string,
   jobId: string
@@ -178,7 +185,7 @@ export async function markPublishJobManuallyCompleted(
     })
     .eq('id', jobId)
     .eq('workspace_id', workspaceId)
-    .eq('publish_mode', 'manual')
+    .not('status', 'in', '(published,cancelled)')
     .select()
     .single()
 

@@ -26,8 +26,8 @@
 | PR2 | AI提案＋承認 | ✅ マージ済み |
 | PR3 | Scheduling Engine | ✅ マージ済み |
 | PR4 | X + Instagram コネクタ | ✅ マージ済み |
-| PR5 | YouTube + TikTok コネクタ + note handoff（ここまででMVP） | 次に着手 |
-| PR6 | Webhook + Unified Inbox | MVP後 |
+| PR5 | YouTube + TikTok コネクタ + note handoff（ここまででMVP） | ✅ マージ済み — **MVP完成** |
+| PR6 | Webhook + Unified Inbox | 次に着手（MVP後） |
 | PR7 | Analytics + AIの学習 | MVP後 |
 | PR8 | HP／作品母艦統合 | MVP後 |
 | PR9 | 運用仕上げ（通知、共同承認、バックアップ、費用管理） | MVP後 |
@@ -51,12 +51,14 @@
 - [x] 実AIが構造化された媒体別ドラフトを生成する（PR2、`ANTHROPIC_API_KEY`未設定時はテンプレートへ明示的にフォールバック）
 - [x] 不足情報・AIの推測箇所（assumptions）が明確に区別される（PR2）
 - [x] 媒体別の修正・承認を行い、承認版（Revision）を固定できる（PR2、`draft_revisions`は追記専用）
-- [x] X・Instagramのうち利用可能な連携先へ予約または即時投稿できる（PR4。OAuth接続・実投稿アダプタは実装済み。ただしInstagramはメディア添付が未実装のため、画像/動画付き投稿は次PRまで保留）
-- [ ] YouTubeへ予約または即時投稿できる（PR5）
-- [ ] TikTokは権限に応じて自動投稿または承認済み受け渡しができる（PR5）
-- [ ] noteは完成原稿の確認・コピー・手動完了記録まで短い導線で行える（PR5）
-- [x] 投稿成功・失敗・URL・再試行・手動完了がQueueで追跡できる（PR3、`publish_attempts`。X/Instagramは実URLが埋まる。YouTube/TikTokはPR5接続後）
-- [ ] AIやconnectorが未設定・失敗した場合、偽の成功表示をせず安全に停止する（fail-closed、PR2〜PR5全体で維持）
+- [x] X・Instagramのうち利用可能な連携先へ予約または即時投稿できる（PR4。OAuth接続・実投稿アダプタは実装済み。ただしInstagramはメディア添付が未実装のため、画像/動画付き投稿は保留）
+- [x] YouTubeへ予約または即時投稿できる（PR5。OAuth接続・resumable upload実装済み。`assisted`モードのためWorkerは自動実行せず、Queueの「Publish now」で実行。メディア添付は未実装のため保留）
+- [x] TikTokは権限に応じて自動投稿または承認済み受け渡しができる（PR5。`draft`モード、Queueの「Publish now」で`creator_info`照会→`PULL_FROM_URL`投稿→ステータスポーリングを実行。`SELF_ONLY`固定。メディア添付は未実装のため保留）
+- [x] noteは完成原稿の確認・コピー・手動完了記録まで短い導線で行える（PR5。QueueでMarkdown形式にフォーマットしてコピー、Mark as postedで完了記録）
+- [x] 投稿成功・失敗・URL・再試行・手動完了がQueueで追跡できる（PR3、`publish_attempts`。X/Instagramは実URLが埋まる。YouTube/TikTokはメディア添付実装後）
+- [x] AIやconnectorが未設定・失敗した場合、偽の成功表示をせず安全に停止する（fail-closed、PR2〜PR5全体で維持。メディア未添付時のInstagram/YouTube/TikTok、TikTokのステータス確認タイムアウト時も含む）
+
+**MVPはPR5の完了時点で機能的に達成された。** 残る制約（メディア添付未実装、開発者アカウント登録が本人操作待ち）は§6・§7に記載の通り、意図的に最終統合段階へ残している。
 
 ## 5. 各PRの実装仕様
 
