@@ -202,8 +202,8 @@ export default function NewSeedPage() {
               </div>
               <div>
                 <label className="mb-2 block text-sm font-medium text-gray-700">原文</label>
-                <textarea value={sourceText} onChange={(event) => setSourceText(event.target.value)} rows={8} placeholder="ラフなメモ、文字起こし、告知文、歌詞の背景など、事実として変えたくない内容を貼り付けてください…" className="w-full rounded-2xl border border-stone-200 px-4 py-3 text-sm leading-6 focus:outline-none focus:ring-2 focus:ring-violet-300" />
-                <p className="mt-2 text-xs text-gray-400">粗いままで構いません。不足している文脈はAIが提案しますが、この原文を上書きすることはありません。</p>
+                <textarea value={sourceText} onChange={(event) => setSourceText(event.target.value)} rows={8} placeholder="この作品はどんな内容ですか？ラフなメモ、文字起こし、告知文、歌詞の背景など、AIに伝えたいことを書いてください…" className="w-full rounded-2xl border border-stone-200 px-4 py-3 text-sm leading-6 focus:outline-none focus:ring-2 focus:ring-violet-300" />
+                <p className="mt-2 text-xs text-gray-400">ここに書いた内容が、各媒体向けの文章を作るときのAIへの説明になります。粗いままで構いません。不足している文脈はAIが提案しますが、この原文を上書きすることはありません。</p>
               </div>
               <div className="grid gap-4 sm:grid-cols-2">
                 <div>
