@@ -19,9 +19,19 @@ export interface DraftGeneratorService {
 }
 
 // ─── Social Connector Adapter ─────────────────────────────────────────────────
-/** The already-approved Revision content a Worker hands to an adapter — the adapter never fetches its own data. */
+/**
+ * The already-approved Revision content, plus a live decrypted access token,
+ * a Worker hands to an adapter for one publish call. The adapter never
+ * fetches its own data or touches storage/credentials — `metadata` stays
+ * pure Revision content and is never used to carry secrets.
+ */
 export interface PublishRequest {
   platform: SocialPlatform
+  accessToken: string
+  /** The connected account's handle/username, when known — saves an adapter an extra lookup call. */
+  handle?: string
+  /** The platform-side account/page id (e.g. an Instagram Business Account id) some adapters need to publish. */
+  externalAccountId?: string
   title?: string
   body: string
   hashtags: string[]
@@ -34,10 +44,27 @@ export interface PublishResult {
   externalUrl?: string
 }
 
+export interface ConnectOptions {
+  /** Must exactly match the redirect_uri used to build the authorize URL — most OAuth providers require it. */
+  redirectUri: string
+  /** PKCE code_verifier, when the platform requires PKCE (e.g. X). */
+  codeVerifier?: string
+}
+
+/** Everything the caller needs to persist a successful connection — the adapter never touches the database itself. */
+export interface ConnectedAccount {
+  accessToken: string
+  refreshToken?: string
+  expiresAt?: string
+  scopes: string[]
+  externalAccountId?: string
+  handle: string
+}
+
 export interface SocialConnectorAdapter {
-  connect(platform: SocialPlatform, authCode: string): Promise<void>
+  connect(platform: SocialPlatform, authCode: string, options: ConnectOptions): Promise<ConnectedAccount>
   disconnect(platform: SocialPlatform): Promise<void>
-  refreshToken(platform: SocialPlatform): Promise<void>
+  refreshAccessToken(platform: SocialPlatform, refreshToken: string): Promise<ConnectedAccount>
   publish(request: PublishRequest): Promise<PublishResult>
   fetchInbox(platform: SocialPlatform, workspaceId: string): Promise<InboxItem[]>
   fetchComments(platform: SocialPlatform, postId: string): Promise<InboxItem[]>

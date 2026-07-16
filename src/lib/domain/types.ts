@@ -64,6 +64,8 @@ export interface SocialAccount {
   handle: string
   connected: boolean
   connectedAt?: string
+  externalAccountId?: string
+  updatedAt: string
 }
 
 // ─── Brand profiles ──────────────────────────────────────────────────────────
@@ -301,6 +303,8 @@ export type AuditAction =
   | 'queue_item_published'
   | 'queue_item_failed'
   | 'queue_item_manual_completed'
+  | 'social_account_connected'
+  | 'social_account_disconnected'
   | 'inbox_item_read'
   | 'inbox_item_starred'
   | 'inbox_item_needs_action'

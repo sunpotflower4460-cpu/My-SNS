@@ -24,6 +24,7 @@ import { useAuth } from '@/lib/auth/auth-provider'
 import { hasPermission } from '@/lib/permissions'
 import { derivePublishMode } from '@/lib/channels/config'
 import * as workspacesRepo from '@/lib/repositories/supabase/workspaces'
+import * as socialAccountsRepo from '@/lib/repositories/supabase/social-accounts'
 import * as seedsRepo from '@/lib/repositories/supabase/seeds'
 import * as brandProfilesRepo from '@/lib/repositories/supabase/brand-profiles'
 import * as draftsRepo from '@/lib/repositories/supabase/drafts'
@@ -84,6 +85,7 @@ interface AppContextValue {
   changeMemberRole: (userId: string, role: WorkspaceRole) => Promise<WorkspaceMember>
   removeMember: (userId: string) => Promise<void>
   saveWorkspaceSettings: (name: string, slug: string) => Promise<Workspace>
+  disconnectSocialAccount: (accountId: string) => Promise<SocialAccount>
   saveDefaultBrandProfile: (input: BrandProfileInput) => Promise<BrandProfile>
   toggleInboxRead: (inboxItemId: string) => Promise<InboxItem>
   toggleInboxStar: (inboxItemId: string) => Promise<InboxItem>
@@ -180,7 +182,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         workspacesRepo.getCurrentMember(activeWorkspaceId, currentUserId),
         workspacesRepo.listWorkspaceMembers(activeWorkspaceId),
         workspacesRepo.listWorkspaceInvitations(activeWorkspaceId),
-        workspacesRepo.listWorkspaceSocialAccounts(activeWorkspaceId),
+        socialAccountsRepo.listWorkspaceSocialAccounts(activeWorkspaceId),
         brandProfilesRepo.listWorkspaceBrandProfiles(activeWorkspaceId),
         seedsRepo.listWorkspaceSeeds(activeWorkspaceId),
         seedsRepo.listWorkspaceAssets(activeWorkspaceId),
@@ -459,6 +461,27 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
         await refreshWorkspaceData()
         return updated
+      },
+
+      disconnectSocialAccount: async (accountId) => {
+        if (!currentWorkspace || !currentUserId) throw new Error('Not ready')
+        if (!currentMember || !hasPermission(currentMember.role, 'manage_social_accounts')) {
+          throw new Error('Your role cannot manage social accounts.')
+        }
+
+        // Deleting the stored credential requires the service-role client,
+        // so this goes through a server route rather than a direct Supabase
+        // call — see src/app/api/social/disconnect/route.ts.
+        const response = await fetch('/api/social/disconnect', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ workspaceId: currentWorkspace.id, accountId }),
+        })
+        const payload = await response.json()
+        if (!response.ok) throw new Error(payload.error ?? 'Unable to disconnect this account.')
+
+        await refreshWorkspaceData()
+        return payload.account as SocialAccount
       },
 
       saveDefaultBrandProfile: async (input) => {

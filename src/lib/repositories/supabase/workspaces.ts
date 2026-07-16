@@ -2,7 +2,6 @@ import type {
   Workspace,
   WorkspaceMember,
   Invitation,
-  SocialAccount,
   WorkspaceRole,
 } from '@/lib/domain/types'
 import { createClient } from '@/lib/supabase/client'
@@ -296,30 +295,6 @@ export async function updateWorkspaceDetails(params: {
     createdAt: data.created_at,
     updatedAt: data.updated_at,
   }
-}
-
-export async function listWorkspaceSocialAccounts(workspaceId: string): Promise<SocialAccount[]> {
-  const supabase = createClient()
-
-  const { data, error } = await supabase
-    .from('social_accounts')
-    .select('*')
-    .eq('workspace_id', workspaceId)
-    .order('created_at', { ascending: false })
-
-  if (error) {
-    console.error('Error fetching social accounts:', error)
-    return []
-  }
-
-  return (data || []).map((a) => ({
-    id: a.id,
-    workspaceId: a.workspace_id,
-    platform: a.platform,
-    handle: a.handle,
-    connected: a.connected,
-    connectedAt: a.connected_at,
-  }))
 }
 
 export async function createWorkspace(params: {
