@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createServiceClient } from '@/lib/supabase/service'
 import { consumeOAuthState } from '@/lib/repositories/supabase/oauth-states'
-import { upsertConnectedSocialAccount } from '@/lib/repositories/supabase/social-accounts'
+import { finalizeSocialAccountConnection, upsertPendingSocialAccount } from '@/lib/repositories/supabase/social-accounts'
 import { saveSocialCredentials } from '@/lib/repositories/supabase/social-credentials'
 import { getConnectorAdapter, isConnectablePlatform } from '@/lib/services/connectors'
 
@@ -50,7 +50,9 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
       codeVerifier: consumed.codeVerifier,
     })
 
-    const account = await upsertConnectedSocialAccount(supabase, {
+    // Row created but not yet marked connected — see upsertPendingSocialAccount's
+    // doc comment for why the order here matters.
+    const account = await upsertPendingSocialAccount(supabase, {
       workspaceId: consumed.workspaceId,
       platform,
       handle: connected.handle,
@@ -64,6 +66,8 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
       expiresAt: connected.expiresAt,
       scopes: connected.scopes,
     })
+
+    await finalizeSocialAccountConnection(supabase, account.id)
 
     await supabase.from('audit_logs').insert({
       workspace_id: consumed.workspaceId,

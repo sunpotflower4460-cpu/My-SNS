@@ -142,27 +142,7 @@ export class XConnectorAdapter implements SocialConnectorAdapter {
     let username = request.handle
 
     for (const text of tweets) {
-      const body: Record<string, unknown> = { text }
-      if (previousId) body.reply = { in_reply_to_tweet_id: previousId }
-
-      const response = await fetch(TWEETS_URL, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${request.accessToken}`,
-        },
-        body: JSON.stringify(body),
-      })
-
-      if (response.status === 429) {
-        throw new Error('X rate limit exceeded (429). Try again later.')
-      }
-      if (!response.ok) {
-        const detail = await response.text().catch(() => '')
-        throw new Error(`X publish failed (${response.status}): ${detail.slice(0, 300)}`)
-      }
-
-      const payload = (await response.json()) as { data: { id: string; text: string } }
+      const payload = await postTweetWithRetry(text, previousId, request.accessToken)
       previousId = payload.data.id
       firstId = firstId ?? payload.data.id
     }
@@ -196,6 +176,60 @@ export class XConnectorAdapter implements SocialConnectorAdapter {
 
   generateOpenUrl(_platform: SocialPlatform, handle: string): string {
     return `https://x.com/${handle.replace('@', '')}`
+  }
+}
+
+// Bounded per master-plan §3's "429 → single retry" rule for X. If the
+// provider wants a longer wait than this, don't block the request — throw
+// and let the job fail with reason "ratelimit"; the Queue's own retry
+// (built in PR3) picks it up on its next pass instead.
+const MAX_RATE_LIMIT_WAIT_MS = 5_000
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms))
+}
+
+interface TweetPayload {
+  data: { id: string; text: string }
+}
+
+export async function postTweetWithRetry(text: string, replyToId: string | undefined, accessToken: string): Promise<TweetPayload> {
+  let retriedOnce = false
+
+  for (;;) {
+    const body: Record<string, unknown> = { text }
+    if (replyToId) body.reply = { in_reply_to_tweet_id: replyToId }
+
+    const response = await fetch(TWEETS_URL, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${accessToken}`,
+      },
+      body: JSON.stringify(body),
+    })
+
+    if (response.status === 429) {
+      if (!retriedOnce) {
+        const resetHeader = response.headers.get('x-rate-limit-reset')
+        const resetAtMs = resetHeader ? Number(resetHeader) * 1000 : NaN
+        const waitMs = Number.isFinite(resetAtMs) ? resetAtMs - Date.now() : NaN
+
+        if (Number.isFinite(waitMs) && waitMs > 0 && waitMs <= MAX_RATE_LIMIT_WAIT_MS) {
+          retriedOnce = true
+          await sleep(waitMs)
+          continue
+        }
+      }
+      throw new Error('X rate limit exceeded (429). Try again later.')
+    }
+
+    if (!response.ok) {
+      const detail = await response.text().catch(() => '')
+      throw new Error(`X publish failed (${response.status}): ${detail.slice(0, 300)}`)
+    }
+
+    return (await response.json()) as TweetPayload
   }
 }
 

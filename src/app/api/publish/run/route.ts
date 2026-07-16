@@ -69,12 +69,26 @@ async function resolveCredentials(
   }
 
   const refreshed = await getConnectorAdapter(channel).refreshAccessToken(channel, stored.refreshToken)
-  await saveSocialCredentials(supabase, account.id, {
-    accessToken: refreshed.accessToken,
-    refreshToken: refreshed.refreshToken ?? stored.refreshToken,
-    expiresAt: refreshed.expiresAt,
-    scopes: refreshed.scopes,
-  })
+
+  try {
+    // Persisted immediately, before this token is used for anything else:
+    // some providers (X) rotate refresh tokens, so the one just used is
+    // already invalid at the provider. If this save fails, the old token in
+    // the DB is now dead too — there is no way to make this atomic with an
+    // external API call, so the best we can do is fail loudly and specifically
+    // rather than silently keep using a refresh token that no longer works.
+    await saveSocialCredentials(supabase, account.id, {
+      accessToken: refreshed.accessToken,
+      refreshToken: refreshed.refreshToken ?? stored.refreshToken,
+      expiresAt: refreshed.expiresAt,
+      scopes: refreshed.scopes,
+    })
+  } catch (cause) {
+    const detail = cause instanceof Error ? cause.message : 'unknown error'
+    throw new Error(
+      `${channel} token was refreshed but could not be saved (${detail}). Reconnect the account — the old refresh token may no longer be valid.`,
+    )
+  }
 
   return { accessToken: refreshed.accessToken, handle: account.handle, externalAccountId: account.external_account_id ?? undefined }
 }

@@ -43,7 +43,7 @@ export async function listWorkspaceSocialAccounts(workspaceId: string): Promise<
   return (data ?? []).map((row) => mapAccount(row as SocialAccountRow))
 }
 
-export interface UpsertConnectedAccountInput {
+export interface UpsertPendingAccountInput {
   workspaceId: string
   platform: SocialPlatform
   handle: string
@@ -53,10 +53,16 @@ export interface UpsertConnectedAccountInput {
 /**
  * Called from the OAuth callback route with the connecting user's own
  * session-scoped client (RLS requires owner/admin, matching manage_social_accounts).
+ *
+ * Deliberately upserts with connected=false — the row is created (so its id
+ * exists for the credentials FK) but not marked connected yet. The callback
+ * route only flips it to connected via finalizeSocialAccountConnection()
+ * after the encrypted credential save succeeds, so a failure in between
+ * can never leave Settings claiming "Connected" with no working token.
  */
-export async function upsertConnectedSocialAccount(
+export async function upsertPendingSocialAccount(
   supabase: SupabaseClient,
-  input: UpsertConnectedAccountInput,
+  input: UpsertPendingAccountInput,
 ): Promise<SocialAccount> {
   const { data, error } = await supabase
     .from('social_accounts')
@@ -66,11 +72,25 @@ export async function upsertConnectedSocialAccount(
         platform: input.platform,
         handle: input.handle,
         external_account_id: input.externalAccountId ?? null,
-        connected: true,
-        connected_at: new Date().toISOString(),
+        connected: false,
       },
       { onConflict: 'workspace_id,platform,handle' },
     )
+    .select()
+    .single()
+
+  if (error) throw new Error(error.message)
+  return mapAccount(data as SocialAccountRow)
+}
+
+export async function finalizeSocialAccountConnection(
+  supabase: SupabaseClient,
+  accountId: string,
+): Promise<SocialAccount> {
+  const { data, error } = await supabase
+    .from('social_accounts')
+    .update({ connected: true, connected_at: new Date().toISOString() })
+    .eq('id', accountId)
     .select()
     .single()
 
