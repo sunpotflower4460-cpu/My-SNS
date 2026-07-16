@@ -52,6 +52,10 @@ export function describeAuditLog(log: AuditLog): string {
       return `${actor} added an internal inbox note.`
     case 'workspace_settings_updated':
       return `${actor} updated workspace settings.`
+    case 'social_account_connected':
+      return `${actor} connected ${typeof log.metadata?.platform === 'string' ? log.metadata.platform : 'a social account'}${typeof log.metadata?.handle === 'string' ? ` (${log.metadata.handle})` : ''}.`
+    case 'social_account_disconnected':
+      return `${actor} disconnected ${typeof log.metadata?.platform === 'string' ? log.metadata.platform : 'a social account'}.`
     default:
       return `${actor} made a workspace update.`
   }

@@ -25,8 +25,8 @@
 | PR1 | Seed / Brand Profile 基盤、5標準チャンネル、readiness、note review+copy方針 | ✅ マージ済み (#7) |
 | PR2 | AI提案＋承認 | ✅ マージ済み |
 | PR3 | Scheduling Engine | ✅ マージ済み |
-| PR4 | X + Instagram コネクタ | 次に着手 |
-| PR5 | YouTube + TikTok コネクタ + note handoff（ここまででMVP） | PR4の後 |
+| PR4 | X + Instagram コネクタ | ✅ マージ済み |
+| PR5 | YouTube + TikTok コネクタ + note handoff（ここまででMVP） | 次に着手 |
 | PR6 | Webhook + Unified Inbox | MVP後 |
 | PR7 | Analytics + AIの学習 | MVP後 |
 | PR8 | HP／作品母艦統合 | MVP後 |
@@ -51,10 +51,11 @@
 - [x] 実AIが構造化された媒体別ドラフトを生成する（PR2、`ANTHROPIC_API_KEY`未設定時はテンプレートへ明示的にフォールバック）
 - [x] 不足情報・AIの推測箇所（assumptions）が明確に区別される（PR2）
 - [x] 媒体別の修正・承認を行い、承認版（Revision）を固定できる（PR2、`draft_revisions`は追記専用）
-- [ ] X・Instagram・YouTubeのうち利用可能な連携先へ予約または即時投稿できる（PR3〜PR5）
+- [x] X・Instagramのうち利用可能な連携先へ予約または即時投稿できる（PR4。OAuth接続・実投稿アダプタは実装済み。ただしInstagramはメディア添付が未実装のため、画像/動画付き投稿は次PRまで保留）
+- [ ] YouTubeへ予約または即時投稿できる（PR5）
 - [ ] TikTokは権限に応じて自動投稿または承認済み受け渡しができる（PR5）
 - [ ] noteは完成原稿の確認・コピー・手動完了記録まで短い導線で行える（PR5）
-- [x] 投稿成功・失敗・URL・再試行・手動完了がQueueで追跡できる（PR3、`publish_attempts`。実URLはPR4/PR5の実コネクタ接続後に埋まる）
+- [x] 投稿成功・失敗・URL・再試行・手動完了がQueueで追跡できる（PR3、`publish_attempts`。X/Instagramは実URLが埋まる。YouTube/TikTokはPR5接続後）
 - [ ] AIやconnectorが未設定・失敗した場合、偽の成功表示をせず安全に停止する（fail-closed、PR2〜PR5全体で維持）
 
 ## 5. 各PRの実装仕様
