@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { Seed } from '@/lib/domain/types'
-import { calculateGenerationCost, parseDraftProposals } from './anthropic-draft'
+import { buildDraftGenerationPrompt, calculateGenerationCost, parseDraftProposals } from './anthropic-draft'
 
 const seed: Seed = {
   id: 'seed-1',
@@ -75,5 +75,28 @@ describe('parseDraftProposals', () => {
 describe('calculateGenerationCost', () => {
   it('returns 0 when no pricing environment variables are configured', () => {
     expect(calculateGenerationCost(1_000_000, 1_000_000)).toBe(0)
+  })
+})
+
+describe('buildDraftGenerationPrompt style examples (PR7)', () => {
+  it('omits the style-examples section entirely when none are given', () => {
+    const { user } = buildDraftGenerationPrompt(seed, ['youtube'], 'calm', 'medium', null, [])
+    expect(user).not.toContain('Past edits')
+  })
+
+  it('includes past edit examples as a distinct block, without discarding the rest of the prompt', () => {
+    const { user } = buildDraftGenerationPrompt(seed, ['youtube'], 'calm', 'medium', null, [
+      { channel: 'youtube', aiProposed: 'Check out my new track!', humanApproved: 'New track is up — link below.' },
+    ])
+
+    expect(user).toContain('Past edits this creator made')
+    expect(user).toContain('Check out my new track!')
+    expect(user).toContain('New track is up — link below.')
+    expect(user).toContain(`Seed title: ${seed.title}`)
+  })
+
+  it('mentions past-edit examples in the system prompt only when relevant guidance is needed either way (always present, harmless when unused)', () => {
+    const { system } = buildDraftGenerationPrompt(seed, ['youtube'], 'calm', 'medium')
+    expect(system).toContain('past-edit examples')
   })
 })

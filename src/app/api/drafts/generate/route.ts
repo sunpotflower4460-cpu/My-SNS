@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { mapSeed, SEED_SELECT, type SeedRow } from '@/lib/repositories/supabase/seeds'
 import { recordAiGeneration } from '@/lib/repositories/supabase/ai-generations'
+import { listRecentAiRevisionsForStyleLearning } from '@/lib/repositories/supabase/draft-revisions'
 import { PUBLISHING_CHANNEL_CONFIG } from '@/lib/channels/config'
 import { hasPermission } from '@/lib/permissions'
 import type { PublishingChannel, WorkspaceRole } from '@/lib/domain/types'
@@ -94,9 +95,16 @@ export async function POST(request: NextRequest) {
   const seed = mapSeed(seedRow as unknown as SeedRow)
   const typedChannels = channels as PublishingChannel[]
   const typedLength = length as 'short' | 'medium' | 'long'
+  // Best-effort: a failure here must never block draft generation itself —
+  // style learning is a quality nudge, not a required input.
+  const styleExamples = await listRecentAiRevisionsForStyleLearning(supabase, workspaceId, typedChannels).catch((cause) => {
+    console.error('Failed to load style examples for draft generation:', cause)
+    return []
+  })
   const context = {
     createdBy: user.id,
     brandProfile: seed.brandProfile ?? null,
+    styleExamples,
   }
 
   if (!isAnthropicConfigured()) {
@@ -129,7 +137,12 @@ export async function POST(request: NextRequest) {
       action: 'draft_ai_generated',
       target_type: 'seed',
       target_id: seedId,
-      metadata: { channels: typedChannels, model: result.model, aiGenerationId: generation.id },
+      // styleExamplesUsed: traceability for PR7's cross-Seed style learning —
+      // this generation's prompt may have included wording a human approved
+      // on a *different* Seed (see listRecentAiRevisionsForStyleLearning),
+      // so the audit log should say when that happened, not just that a
+      // generation occurred.
+      metadata: { channels: typedChannels, model: result.model, aiGenerationId: generation.id, styleExamplesUsed: styleExamples.length },
     })
 
     return NextResponse.json({

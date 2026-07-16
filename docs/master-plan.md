@@ -28,8 +28,8 @@
 | PR4 | X + Instagram コネクタ | ✅ マージ済み |
 | PR5 | YouTube + TikTok コネクタ + note handoff（ここまででMVP） | ✅ マージ済み — **MVP完成** |
 | PR6 | Webhook + Unified Inbox | ✅ マージ済み（MVP後拡張の第一弾） |
-| PR7 | Analytics + AIの学習 | 次に着手（MVP後） |
-| PR8 | HP／作品母艦統合 | MVP後 |
+| PR7 | Analytics + AIの学習 | ✅ マージ済み |
+| PR8 | HP／作品母艦統合 | 次に着手（MVP後、実サイト詳細の要件確認が前提） |
 | PR9 | 運用仕上げ（通知、共同承認、バックアップ、費用管理） | MVP後 |
 
 ## 3. 媒体別の自動化方針（MVP publishMode）
@@ -108,10 +108,18 @@
 - Settings画面に「Sync inbox」ボタンを追加し、`/api/inbox/sync`（`manage_social_accounts`権限必須）経由で対象プラットフォームの`fetchInbox`をオンデマンド実行。取得結果は`external_id`で重複排除して`inbox_items`へ挿入。
 - `SocialConnectorAdapter`の`fetchInbox`/`fetchComments`/`fetchMentions`/`fetchMessages`のシグネチャを、`publish()`と同じ設計思想（呼び出し元がDBアクセス・認証情報解決を担い、アダプタは受け取った認証情報のみでプラットフォームを呼ぶ）に統一。戻り値も未保存の`InboundInboxEvent[]`型に変更（DB行を表す`InboxItem`とは区別）。
 
-### PR7以降（MVP後）
+### PR7 — Analytics + AIの学習（マージ済み）
 
-- PR7: 媒体横断のAnalytics、AI提案と人間修正の差分からの学習
-- PR8: 公式サイト／作品母艦との統合、SEO
+- `social_drafts`と`draft_revisions`に`ai_original_snapshot`列（JSONB、`{title, body, hashtags, cta}`）を追加。AI提案（`source='ai'`）が最初に保存された瞬間に一度だけ凍結し、以降の編集では上書きしない。`approve_social_draft()`もこの列を`draft_revisions`へコピーするよう更新（CREATE OR REPLACE、SECURITY INVOKERのまま変更なし）。
+  - 正直な限界: これは「モデルの生出力」ではなく「アプリが最初に永続化した時点の内容」である。保存前の軽微な編集はすでに「AI original」側に混入する。DBに触れる前のraw出力を捕捉する仕組みが現状存在しないため、これが実現可能な最も早いキャプチャポイント。
+- 新しい`/app/analytics`ページ（`view_analytics`権限、全ロールに付与——閲覧専用のため）。`publish_attempts`・`ai_generations`・`draft_revisions`をワークスペース全体で読み込み（`AppProvider`に追加）、以下を実データのみで表示: 媒体別の公開成功率、失敗理由の内訳、AIコスト・トークン使用量、AI提案が承認前に人間に編集された割合。推定値やチャートライブラリの追加は行わず、既存のstat card/tableスタイルを踏襲（master-plan §7「派手な分析より発信フロー優先」を遵守）。
+- `SocialConnectorAdapter`に`fetchMetrics(request)`を追加（`PostMetrics = {views?, likes?, comments?, shares?}`、DBに保存せずオンデマンド取得のみ）。YouTube（`videos.list?part=statistics`、既存スコープでカバー済み）とX（`GET /2/tweets/:id?tweet.fields=public_metrics`、単一投稿のIDルックアップは無料枠の`tweet.read`の範囲内——タイムライン/メンション読み取りとは別の話）は実装。Instagram（`instagram_manage_insights`スコープ未取得）とTikTok（Content Posting APIスコープ対象外）は正直な未対応として明示。
+- AI学習: `/api/drafts/generate`が生成前に`listRecentAiRevisionsForStyleLearning()`（チャンネルごと直近2件、AI提案から実際に編集されたRevisionのみ）を取得し、`DraftGenerationContext.styleExamples`としてAnthropicプロンプトへfew-shot例（「AIの提案 → 人間が承認した最終形」のペア）として渡す。取得失敗時は生成自体をブロックしないbest-effort。
+- 新ルート`/api/analytics/metrics`（`view_queue`権限、読み取り専用）: jobIdから直近の成功した`publish_attempts.external_post_id`を解決し、認証情報解決→アダプタの`fetchMetrics`呼び出し→結果をそのまま返す（キャッシュしない）。
+
+### PR8以降（MVP後）
+
+- PR8: 公式サイト／作品母艦との統合、SEO（実サイトの詳細についてユーザーとの要件確認が前提）
 - PR9: 通知、共同承認、モバイル最適化、バックアップ、費用管理
 
 ## 6. 最後にまとめて行う本人操作
@@ -132,6 +140,7 @@ Claudeや他の自動化が代行できない・すべきでない工程。対�
 - 必要であればBlotato/Postproxyのような代行プロキシAPIの利用検討（オプション）
 - Meta App DashboardでのWebhooks購読設定（`META_WEBHOOK_VERIFY_TOKEN`を決めて登録、`instagram`オブジェクトの`comments`・`messages`フィールドを購読）— PR6のコードは用意済みで、この購読作業のみ本人操作
 - X Basic以上の有料APIティア契約、TikTok Display API審査申請（コメント/メンション/DM読み取りを有効化したい場合。任意、現状は正直な未対応として運用中）
+- Instagramの投稿メトリクス（閲覧・いいね・コメント数）を有効化したい場合、`instagram_manage_insights`スコープを追加してMeta App経由で全アカウントの再接続が必要（任意、現状は正直な未対応として運用中）
 
 ## 7. やらない・避けること
 

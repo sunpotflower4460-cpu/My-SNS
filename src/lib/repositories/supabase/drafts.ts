@@ -19,6 +19,7 @@ interface SocialDraftRow {
   created_by: string
   created_at: string
   updated_at: string
+  ai_original_snapshot?: SocialDraft['aiOriginalSnapshot'] | null
 }
 
 function mapDraft(row: SocialDraftRow): SocialDraft {
@@ -40,6 +41,7 @@ function mapDraft(row: SocialDraftRow): SocialDraft {
     createdBy: row.created_by,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
+    aiOriginalSnapshot: row.ai_original_snapshot ?? undefined,
   }
 }
 
@@ -100,6 +102,11 @@ export async function upsertSocialDraft(
     status: draft.status,
   }
 
+  // ai_original_snapshot is deliberately set only on first INSERT, never on
+  // a later UPDATE — see the column's migration comment. This is the
+  // earliest point the app can freeze "what the AI proposed" for later
+  // human-edit comparison (PR7's style learning); overwriting it on every
+  // edit would defeat the whole point.
   const query = draft.id
     ? supabase
         .from('social_drafts')
@@ -114,6 +121,10 @@ export async function upsertSocialDraft(
           seed_id: draft.seedId,
           channel: draft.channel,
           created_by: draft.createdBy,
+          ai_original_snapshot:
+            draft.source === 'ai'
+              ? { title: draft.title?.trim() || undefined, body: draft.draftText, hashtags: draft.hashtags, cta: draft.cta?.trim() || undefined }
+              : null,
         })
 
   const { data, error } = await query.select().single()

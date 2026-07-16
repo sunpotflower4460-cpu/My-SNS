@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { PublishRequest } from '../interfaces'
-import { buildFirstTweetText, postTweetWithRetry } from './x-connector'
+import { buildFirstTweetText, postTweetWithRetry, XConnectorAdapter } from './x-connector'
 
 function mockResponse(init: { ok: boolean; status: number; headers?: Record<string, string>; body?: unknown }): Response {
   return {
@@ -101,5 +101,35 @@ describe('postTweetWithRetry', () => {
 
     await expect(postTweetWithRetry('hi', undefined, 'token')).rejects.toThrow(/500/)
     expect(fetchMock).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('XConnectorAdapter.fetchMetrics (PR7)', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  it('maps public_metrics into PostMetrics', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      mockResponse({
+        ok: true,
+        status: 200,
+        body: { data: { public_metrics: { like_count: 12, reply_count: 3, retweet_count: 5, impression_count: 400 } } },
+      }),
+    )
+    vi.stubGlobal('fetch', fetchMock)
+
+    const metrics = await new XConnectorAdapter().fetchMetrics({ platform: 'x', accessToken: 'token', postId: '123' })
+
+    expect(metrics).toEqual({ views: 400, likes: 12, comments: 3, shares: 5 })
+    const calledUrl = fetchMock.mock.calls[0][0] as string
+    expect(calledUrl).toContain('/tweets/123')
+    expect(calledUrl).toContain('tweet.fields=public_metrics')
+  })
+
+  it('surfaces a lookup failure rather than returning empty metrics', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(mockResponse({ ok: false, status: 404, body: { title: 'Not Found' } })))
+
+    await expect(new XConnectorAdapter().fetchMetrics({ platform: 'x', accessToken: 'token', postId: 'missing' })).rejects.toThrow(/404/)
   })
 })

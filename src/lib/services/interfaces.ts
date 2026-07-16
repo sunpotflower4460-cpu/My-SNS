@@ -1,10 +1,19 @@
-import type { BrandProfile, Seed, SocialDraft, PublishingChannel, SocialPlatform, InboundInboxEvent } from '@/lib/domain/types'
+import type { BrandProfile, Seed, SocialDraft, PublishingChannel, SocialPlatform, InboundInboxEvent, PostMetrics } from '@/lib/domain/types'
 
 // ─── Draft Generator ──────────────────────────────────────────────────────────
+/** One prior AI proposal a human edited before approving, for the same channel — used as a few-shot style hint (PR7). */
+export interface DraftStyleExample {
+  channel: PublishingChannel
+  aiProposed: string
+  humanApproved: string
+}
+
 export interface DraftGenerationContext {
   workspaceName?: string
   createdBy?: string
   brandProfile?: BrandProfile | null
+  /** Recent human edits to AI proposals on this workspace, passed as in-context examples so future proposals drift toward the creator's actual style rather than needing supervised retraining. */
+  styleExamples?: DraftStyleExample[]
 }
 
 export interface DraftGeneratorService {
@@ -82,5 +91,7 @@ export interface SocialConnectorAdapter {
   fetchComments(request: InboxFetchRequest & { postId: string }): Promise<InboundInboxEvent[]>
   fetchMentions(request: InboxFetchRequest): Promise<InboundInboxEvent[]>
   fetchMessages(request: InboxFetchRequest): Promise<InboundInboxEvent[]>
+  /** Live engagement counts for one already-published post — see PostMetrics for why nothing is cached. */
+  fetchMetrics(request: InboxFetchRequest & { postId: string }): Promise<PostMetrics>
   generateOpenUrl(platform: SocialPlatform, handle: string): string
 }

@@ -50,6 +50,31 @@ export async function listJobAttempts(workspaceId: string, jobId: string): Promi
   return (data ?? []).map((row) => mapAttempt(row as PublishAttemptRow))
 }
 
+// Exported so the Analytics page can tell whether a stat might be
+// understating a workspace's true history (loaded count === this cap) and
+// label it accordingly, instead of silently presenting a truncated window
+// as if it were the complete record.
+export const WORKSPACE_PUBLISH_ATTEMPTS_LIMIT = 2000
+
+/** For the Analytics page (PR7): success/failure rates and failure-reason breakdowns across the whole workspace. */
+export async function listWorkspacePublishAttempts(workspaceId: string, limit = WORKSPACE_PUBLISH_ATTEMPTS_LIMIT): Promise<PublishAttempt[]> {
+  const supabase = createClient()
+
+  const { data, error } = await supabase
+    .from('publish_attempts')
+    .select('*')
+    .eq('workspace_id', workspaceId)
+    .order('created_at', { ascending: false })
+    .limit(limit)
+
+  if (error) {
+    console.error('Error fetching workspace publish attempts:', error)
+    return []
+  }
+
+  return (data ?? []).map((row) => mapAttempt(row as PublishAttemptRow))
+}
+
 export interface RecordPublishAttemptInput {
   workspaceId: string
   publishJobId: string

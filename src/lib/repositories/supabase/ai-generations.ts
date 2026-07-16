@@ -1,5 +1,6 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import type { AiGeneration, PublishingChannel } from '@/lib/domain/types'
+import { createClient } from '@/lib/supabase/client'
 
 interface AiGenerationRow {
   id: string
@@ -66,4 +67,27 @@ export async function recordAiGeneration(
 
   if (error) throw new Error(error.message)
   return mapGeneration(data as AiGenerationRow)
+}
+
+// See WORKSPACE_PUBLISH_ATTEMPTS_LIMIT's comment in publish-attempts.ts —
+// same reasoning, exported for the same truncation-labeling purpose.
+export const WORKSPACE_AI_GENERATIONS_LIMIT = 2000
+
+/** For the Analytics page (PR7): total AI cost/usage, and how it breaks down by model/channel. */
+export async function listWorkspaceAiGenerations(workspaceId: string, limit = WORKSPACE_AI_GENERATIONS_LIMIT): Promise<AiGeneration[]> {
+  const supabase = createClient()
+
+  const { data, error } = await supabase
+    .from('ai_generations')
+    .select('*')
+    .eq('workspace_id', workspaceId)
+    .order('created_at', { ascending: false })
+    .limit(limit)
+
+  if (error) {
+    console.error('Error fetching AI generations:', error)
+    return []
+  }
+
+  return (data ?? []).map((row) => mapGeneration(row as AiGenerationRow))
 }

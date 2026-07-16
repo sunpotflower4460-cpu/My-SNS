@@ -14,6 +14,7 @@ export type Permission =
   | 'approve_drafts'
   | 'view_queue'
   | 'manage_queue'
+  | 'view_analytics'
   | 'view_inbox'
   | 'reply_inbox'
   | 'view_team'
@@ -44,6 +45,7 @@ export const ROLE_PERMISSIONS: Record<WorkspaceRole, Permission[]> = {
     'approve_drafts',
     'view_queue',
     'manage_queue',
+    'view_analytics',
     'view_inbox',
     'reply_inbox',
     'view_team',
@@ -72,6 +74,7 @@ export const ROLE_PERMISSIONS: Record<WorkspaceRole, Permission[]> = {
     'approve_drafts',
     'view_queue',
     'manage_queue',
+    'view_analytics',
     'view_inbox',
     'reply_inbox',
     'view_team',
@@ -95,6 +98,7 @@ export const ROLE_PERMISSIONS: Record<WorkspaceRole, Permission[]> = {
     'edit_drafts',
     'approve_drafts',
     'view_queue',
+    'view_analytics',
     'view_inbox',
     'reply_inbox',
     'view_team',
@@ -107,6 +111,7 @@ export const ROLE_PERMISSIONS: Record<WorkspaceRole, Permission[]> = {
     'view_drafts',
     'create_drafts',
     'view_queue',
+    'view_analytics',
     'view_inbox',
     'view_team',
     'upload_assets',
@@ -115,6 +120,7 @@ export const ROLE_PERMISSIONS: Record<WorkspaceRole, Permission[]> = {
     'view_seeds',
     'view_drafts',
     'view_queue',
+    'view_analytics',
     'view_inbox',
     'view_team',
     'view_settings',

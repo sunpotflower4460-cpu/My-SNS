@@ -1,4 +1,4 @@
-import type { InboundInboxEvent, SocialPlatform } from '@/lib/domain/types'
+import type { InboundInboxEvent, PostMetrics, SocialPlatform } from '@/lib/domain/types'
 import type {
   ConnectedAccount,
   ConnectOptions,
@@ -241,6 +241,10 @@ export class TikTokConnectorAdapter implements SocialConnectorAdapter {
   }
 
   async fetchMessages(): Promise<InboundInboxEvent[]> {
+    throw new Error(this.readAccessGap)
+  }
+
+  async fetchMetrics(): Promise<PostMetrics> {
     throw new Error(this.readAccessGap)
   }
 

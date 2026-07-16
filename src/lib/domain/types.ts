@@ -144,6 +144,14 @@ export interface Asset {
 // ─── Social Drafts ────────────────────────────────────────────────────────────
 export type DraftSource = 'template' | 'ai'
 
+/** A frozen copy of an AI-sourced draft's proposed content, taken the moment it's first saved — see the migration comment on social_drafts.ai_original_snapshot for why this, not the raw model output, is what "AI original" means here. */
+export interface AiDraftSnapshot {
+  title?: string
+  body: string
+  hashtags: string[]
+  cta?: string
+}
+
 export interface SocialDraft {
   id: string
   workspaceId: string
@@ -164,6 +172,7 @@ export interface SocialDraft {
   createdBy: string
   createdAt: string
   updatedAt: string
+  aiOriginalSnapshot?: AiDraftSnapshot
 }
 
 // ─── Draft Revisions ──────────────────────────────────────────────────────────
@@ -184,6 +193,7 @@ export interface DraftRevision {
   source: DraftSource
   approvedBy: string
   createdAt: string
+  aiOriginalSnapshot?: AiDraftSnapshot
 }
 
 // ─── AI Generations ───────────────────────────────────────────────────────────
@@ -286,6 +296,20 @@ export interface InboundInboxEvent {
   authorAvatarUrl?: string
   text: string
   receivedAt: string
+}
+
+// ─── Post Metrics (not persisted — fetched live) ───────────────────────────────
+/**
+ * Engagement counts for one published post, read live from the platform on
+ * request (PR7's Analytics page). Not stored: these change continuously on
+ * the platform's side, so a cached number would just go stale — every field
+ * is optional because not every platform/post exposes every count.
+ */
+export interface PostMetrics {
+  views?: number
+  likes?: number
+  comments?: number
+  shares?: number
 }
 
 // ─── Inbox Notes ──────────────────────────────────────────────────────────────

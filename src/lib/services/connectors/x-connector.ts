@@ -1,7 +1,8 @@
-import type { InboundInboxEvent, SocialPlatform } from '@/lib/domain/types'
+import type { InboundInboxEvent, PostMetrics, SocialPlatform } from '@/lib/domain/types'
 import type {
   ConnectedAccount,
   ConnectOptions,
+  InboxFetchRequest,
   PublishRequest,
   PublishResult,
   SocialConnectorAdapter,
@@ -180,6 +181,33 @@ export class XConnectorAdapter implements SocialConnectorAdapter {
 
   async fetchMessages(): Promise<InboundInboxEvent[]> {
     throw new Error(this.readAccessGap)
+  }
+
+  /**
+   * A single-tweet lookup by id, not a timeline/mentions read — this stays
+   * within `tweet.read`'s free-tier allowance even though the timeline/DM
+   * reads above don't (see `readAccessGap`), because looking up one post you
+   * already know the id of is a basic v2 endpoint, not an elevated one.
+   */
+  async fetchMetrics(request: InboxFetchRequest & { postId: string }): Promise<PostMetrics> {
+    const url = `${TWEETS_URL}/${encodeURIComponent(request.postId)}?tweet.fields=public_metrics`
+    const response = await fetch(url, { headers: { Authorization: `Bearer ${request.accessToken}` } })
+
+    if (!response.ok) {
+      const detail = await response.text().catch(() => '')
+      throw new Error(`X metrics lookup failed (${response.status}): ${detail.slice(0, 300)}`)
+    }
+
+    const payload = (await response.json()) as {
+      data?: { public_metrics?: { like_count?: number; reply_count?: number; retweet_count?: number; impression_count?: number } }
+    }
+    const metrics = payload.data?.public_metrics ?? {}
+    return {
+      views: metrics.impression_count,
+      likes: metrics.like_count,
+      comments: metrics.reply_count,
+      shares: metrics.retweet_count,
+    }
   }
 
   generateOpenUrl(_platform: SocialPlatform, handle: string): string {

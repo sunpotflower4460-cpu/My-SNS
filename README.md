@@ -23,16 +23,18 @@ The app is now backed by **real Supabase infrastructure** while preserving the e
 - **Real X, Instagram, YouTube, and TikTok connectors**: OAuth connect flow from Settings (`/api/social/{platform}/connect` → `/callback`), tokens encrypted at the application layer before storage (never selectable from the browser — see `social_account_credentials`). X/Instagram publish through the scheduled Worker with automatic token refresh; YouTube ('assisted') and TikTok ('draft') are deliberately *not* auto-published — a human clicks **Publish now** from the Queue instead (`/api/publish/trigger`), matching their MVP strategy in `docs/master-plan.md` §3. Instagram/YouTube/TikTok all need a media URL the app doesn't attach to a Revision yet and fail closed with a clear message until that's built.
 - **note handoff**: an approved note Revision is one click away from note.com-ready Markdown (**Copy for note.com** in the Queue) and a **Mark as posted** button records completion — no fake automatic posting, since note has no public posting API.
 - **Webhook ingestion + Unified Inbox (PR6)**: Instagram comments and DMs arrive automatically via a signature-verified webhook (`/api/webhooks/meta`); a **Sync inbox** button in Settings pulls YouTube's real channel comments on demand. Every inbound item dedupes on its platform-native id, so a webhook retry or an overlapping manual sync never creates a duplicate row. X and TikTok's own comment/mention/DM sync are honest, permanent gaps (documented below) rather than guessed-at API calls.
-- **Dashboard, Seed detail, draft studio, queue, inbox, team, brand, and settings flows** with real persistence
+- **Analytics + AI learning from corrections (PR7)**: a new Analytics page shows real publish success/failure rates per channel, failure-reason breakdowns, AI cost/usage totals, and what fraction of AI proposals humans actually edit before approving — all derived from `publish_attempts`/`ai_generations`/`draft_revisions`, nothing estimated. Live view/like/comment counts are fetched on demand for YouTube and X (both scope-ready with what's already granted); Instagram/TikTok metrics are documented gaps needing a scope this app doesn't yet request. Every AI-sourced draft now freezes an `ai_original_snapshot` the moment it's first saved, so approved edits become few-shot "this creator's actual style" examples fed into the next `/api/drafts/generate` call — a real feedback loop, not a fake ML system.
+- **Dashboard, Seed detail, draft studio, queue, analytics, inbox, team, brand, and settings flows** with real persistence
 - **Audit events** logged to database
 - **Workspace roles** (owner, admin, editor, contributor, viewer) enforced via RLS
 
 ## What is still deferred
 
 - Attaching media (image/video) to a draft/Revision — Instagram, YouTube, and TikTok all need this to actually publish; every real connector attempt fails closed with a clear message until it's built
-- X and TikTok comment/mention/DM sync — both require API access tiers or app reviews this app's current credentials don't have; see Known limitations
+- X and TikTok comment/mention/DM sync, and their post metrics — both require API access tiers or app reviews this app's current credentials don't have; see Known limitations
+- Instagram post metrics — the Insights API needs a scope (`instagram_manage_insights`) this app does not yet request
 - Resolving an Instagram `mentions` webhook to its actual comment text (the payload only carries a pointer, not the text itself)
-- Advanced notifications, billing/usage metering, deep analytics dashboards, HP/site integration (PR7-PR9)
+- Notifications, billing/usage metering, HP/site integration (PR8-PR9)
 
 ## Environment setup
 
@@ -79,8 +81,9 @@ Set `META_WEBHOOK_VERIFY_TOKEN` to enable Instagram's webhook (`/api/webhooks/me
      - `supabase/migrations/20260718000000_x_instagram_connectors.sql`
      - `supabase/migrations/20260719000000_publish_job_claims.sql`
      - `supabase/migrations/20260720000000_webhook_inbox.sql`
+     - `supabase/migrations/20260721000000_analytics_learning.sql`
    - `youtube`/`tiktok` were already valid `social_platform` values from the initial schema, and PR4's `social_accounts`/`social_account_credentials`/`oauth_states` tables are already generic across every platform, so PR5's only schema change is the `claimed_at` column above.
-3. The PR0 migration makes assets private; the PR1 migration preserves existing rows while promoting `contents` to `seeds` and adding `brand_profiles`; the PR2 migration adds structured proposal fields to `social_drafts` plus the append-only `draft_revisions` and `ai_generations` tables; the PR3 migration adds `publish_mode`/`revision_id` to `publish_jobs`, the append-only `publish_attempts` table, and tightens `publish_jobs` RLS to owner/admin (matching the `manage_queue` permission); the PR4 migration adds `social_account_credentials` (RLS enabled with zero policies — only the service-role key can touch it) and `oauth_states`, and tightens `social_accounts` RLS to owner/admin (matching `manage_social_accounts`); the PR5 migration adds a `claimed_at` column to `publish_jobs`, set atomically while the Worker or a manual "Publish now" is actively processing a job so concurrent attempts and cancels can't race it (a claim older than 10 minutes is treated as abandoned and can be reclaimed); the PR6 migration adds an `external_id` column to `inbox_items` plus a unique index on `(workspace_id, platform, kind, external_id)` (not partial — PostgREST's `.upsert({onConflict})` can't target a partial index, and Postgres already treats distinct NULLs as non-conflicting, so a plain index dedupes external events without constraining internal-only rows), so the same webhook delivery or overlapping manual sync can never create a duplicate inbox row. It also adds a partial unique index on `social_accounts (platform, external_account_id) WHERE connected`, so the same real platform account can never be connected=true in two workspaces at once.
+3. The PR0 migration makes assets private; the PR1 migration preserves existing rows while promoting `contents` to `seeds` and adding `brand_profiles`; the PR2 migration adds structured proposal fields to `social_drafts` plus the append-only `draft_revisions` and `ai_generations` tables; the PR3 migration adds `publish_mode`/`revision_id` to `publish_jobs`, the append-only `publish_attempts` table, and tightens `publish_jobs` RLS to owner/admin (matching the `manage_queue` permission); the PR4 migration adds `social_account_credentials` (RLS enabled with zero policies — only the service-role key can touch it) and `oauth_states`, and tightens `social_accounts` RLS to owner/admin (matching `manage_social_accounts`); the PR5 migration adds a `claimed_at` column to `publish_jobs`, set atomically while the Worker or a manual "Publish now" is actively processing a job so concurrent attempts and cancels can't race it (a claim older than 10 minutes is treated as abandoned and can be reclaimed); the PR6 migration adds an `external_id` column to `inbox_items` plus a unique index on `(workspace_id, platform, kind, external_id)` (not partial — PostgREST's `.upsert({onConflict})` can't target a partial index, and Postgres already treats distinct NULLs as non-conflicting, so a plain index dedupes external events without constraining internal-only rows), so the same webhook delivery or overlapping manual sync can never create a duplicate inbox row. It also adds a partial unique index on `social_accounts (platform, external_account_id) WHERE connected`, so the same real platform account can never be connected=true in two workspaces at once; the PR7 migration adds an `ai_original_snapshot` column to both `social_drafts` and `draft_revisions` (frozen the moment an AI-sourced draft is first saved, copied into the Revision at approval) and updates `approve_social_draft()` to carry it through — the basis for comparing what the AI proposed against what a human actually approved.
 4. **Copy your project credentials** to `.env.local`
 5. **(Optional) Enable the publish Worker** — if deploying to Vercel, `vercel.json` already schedules `/api/publish/run` every 5 minutes; set `CRON_SECRET` in your Vercel project's environment variables (Vercel then sends it automatically as the Worker's `Authorization` header). Any other host can call the same route on a schedule with `Authorization: Bearer $CRON_SECRET`.
 6. **(Optional) Connect X/Instagram/YouTube/TikTok** — register a developer app with each platform (see `.env.example` for the redirect URIs to register), then set the corresponding env vars. This is the one part of PR4/PR5 that genuinely needs the human: developer account creation and app review are outside what any code change can do.
@@ -121,6 +124,7 @@ src/
     api/social/disconnect/     Deletes stored credentials (service-role only)
     api/webhooks/meta/         Instagram webhook receiver (signature-verified, service-role)
     api/inbox/sync/            Manual pull sync for platforms with no webhook (currently: YouTube)
+    api/analytics/metrics/     Live, on-demand post metrics lookup (read-only, view_queue-gated)
   components/
     layout/                    Sidebar, top bar, workspace switcher
     ui/                        Shared presentation components
@@ -130,11 +134,11 @@ src/
     auth/                      Supabase Auth provider
     app/                       App provider with Supabase repositories
     crypto/                    AES-256-GCM OAuth token cipher (server-only)
-    repositories/supabase/     Seed, Brand Profile, Draft/Revision, Queue/Attempt, social account/credential, inbox-ingest, and workspace repositories
+    repositories/supabase/     Seed, Brand Profile, Draft/Revision, Queue/Attempt, AI generation, social account/credential, inbox-ingest, and workspace repositories
     storage/supabase/          Supabase Storage adapter
     supabase/                  Supabase client setup (browser, server, and service-role for the Worker/OAuth callback/webhook)
     domain/                    Shared domain types
-    services/                  Template drafts, Anthropic-backed drafts, the shared publish-attempt/failure-classification logic, real X/Instagram/YouTube/TikTok connector adapters, note-to-Markdown formatting, Meta webhook signature verification + payload mapping (all server-only where relevant), and the fail-closed stub for every other platform
+    services/                  Template drafts, Anthropic-backed drafts (now style-learning aware), the shared publish-attempt/failure-classification logic, real X/Instagram/YouTube/TikTok connector adapters (including live metrics fetch), note-to-Markdown formatting, Meta webhook signature verification + payload mapping (all server-only where relevant), and the fail-closed stub for every other platform
 ```
 
 ## Database schema
@@ -147,8 +151,8 @@ The app uses the following main tables:
 - **seeds** - Raw source inputs captured once before channel adaptation
 - **brand_profiles** - Reusable voice, audience, values, and wording boundaries
 - **assets** - Private asset metadata linked to Seeds
-- **social_drafts** - Channel-specific draft variations (title, hashtags, CTA, assumptions, channel-specific metadata, source)
-- **draft_revisions** - Append-only, immutable snapshot of each approved draft
+- **social_drafts** - Channel-specific draft variations (title, hashtags, CTA, assumptions, channel-specific metadata, source); AI-sourced drafts also carry a frozen `ai_original_snapshot` set once on first save
+- **draft_revisions** - Append-only, immutable snapshot of each approved draft; carries its own copy of `ai_original_snapshot` so the Analytics page and future generation calls can see what a human actually changed
 - **ai_generations** - Model, token counts, and estimated cost for each real AI generation call
 - **publish_jobs** - Publishing queue; each job carries a `publish_mode` (`auto`/`manual`/`owned`/...) and points at the exact `draft_revisions` snapshot it publishes
 - **publish_attempts** - Append-only attempt history per job, with a classified `failure_reason` (`auth`/`ratelimit`/`validation`/`network`/`unavailable`) for failed attempts
@@ -230,7 +234,8 @@ MVP (`docs/master-plan.md` §4) is code-complete as of PR5. What's left is eithe
 3. ~~**PR4** — X and Instagram adapters~~ ✅ (Instagram publishing still needs media attachment support — see Known limitations)
 4. ~~**PR5** — YouTube and TikTok adapters plus note review/copy handoff~~ ✅ (YouTube/TikTok publishing still needs media attachment support)
 5. ~~**PR6** — Webhook ingestion (Instagram) + Unified Inbox (manual sync for the rest)~~ ✅ (post-MVP; X/TikTok comment sync remain honest gaps — see Known limitations)
-6. **PR7+** — Analytics, HP/site integration, ops polish (post-MVP; see `docs/master-plan.md` §5)
+6. ~~**PR7** — Analytics (real publish/AI-cost/edit-rate stats, live YouTube/X metrics) + AI learning from human edit diffs~~ ✅ (post-MVP; Instagram/TikTok metrics remain honest gaps — see Known limitations)
+7. **PR8+** — HP/site integration, ops polish (post-MVP; see `docs/master-plan.md` §5)
 
 `note` is modeled as a publishing channel but remains manual review + copy because there is no supported public posting API in scope.
 
@@ -247,6 +252,9 @@ MVP (`docs/master-plan.md` §4) is code-complete as of PR5. What's left is eithe
 - YouTube inbox sync is pull-only (a **Sync inbox** button in Settings, or `POST /api/inbox/sync`) — there is no YouTube webhook for comments, so nothing arrives automatically the way Instagram's does
 - The publish Worker requires `CRON_SECRET` and a scheduled trigger calling it (Vercel Cron via `vercel.json`, or any other host on the same schedule/auth contract)
 - The Instagram webhook (`/api/webhooks/meta`) requires `META_WEBHOOK_VERIFY_TOKEN` set and the URL subscribed in the Meta App Dashboard; until then it fails closed (503) rather than accepting unverified payloads
+- **Instagram and TikTok post metrics are not available.** Instagram's Insights API needs the `instagram_manage_insights` scope, which this app does not request (adding it means every connected account must reconnect); TikTok's engagement data needs its separate Display API, which needs an application review this app hasn't completed. Both fail closed on the Analytics page's "Load metrics" action with the specific reason.
+- **AI style learning only sees what the app has actually persisted.** `ai_original_snapshot` freezes a draft's content at its first save, not the raw model output — if a quick edit happens before that first save, it's already baked into the "AI original" side of the comparison. This is an honest architectural limit (there is nowhere upstream that captures the truly-raw output), not a bug.
+- Analytics metrics are fetched live and never cached/stored — the "Load metrics" button makes a real API call every time it's clicked; there is no background refresh or historical trend chart
 
 ## Security
 

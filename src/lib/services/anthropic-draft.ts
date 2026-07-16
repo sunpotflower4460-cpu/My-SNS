@@ -86,6 +86,7 @@ export function buildDraftGenerationPrompt(
   tone: string,
   length: DraftLength,
   brandProfile?: DraftGenerationContext['brandProfile'],
+  styleExamples?: DraftGenerationContext['styleExamples'],
 ): { system: string; user: string } {
   const channelGuidance = channels
     .map((channel) => `- ${channel}: ${PUBLISHING_CHANNEL_CONFIG[channel].description}`)
@@ -97,8 +98,20 @@ export function buildDraftGenerationPrompt(
     'Never invent facts, dates, names, prices, or claims that are not present in the Seed or Brand Profile.',
     'If you must fill a gap to write a usable draft, make the smallest reasonable assumption and record it in `assumptions`. Do not silently guess.',
     'Respect the Brand Profile: preferred terms, avoided terms/claims, voice traits, and values are constraints, not suggestions.',
+    'If past-edit examples are provided, they show how this specific creator tends to change your proposals — write closer to the "creator approved" style next time, without copying the example\'s facts into an unrelated Seed.',
     'Call the propose_channel_drafts tool exactly once with one proposal per requested channel.',
   ].join(' ')
+
+  const styleExamplesBlock =
+    styleExamples && styleExamples.length > 0
+      ? [
+          'Past edits this creator made to AI proposals (learn the pattern, do not copy the content verbatim):',
+          ...styleExamples.map(
+            (example, index) =>
+              `${index + 1}. [${example.channel}] AI proposed: "${example.aiProposed}"\n   Creator approved: "${example.humanApproved}"`,
+          ),
+        ].join('\n')
+      : ''
 
   const brandProfileBlock = brandProfile
     ? [
@@ -126,6 +139,7 @@ export function buildDraftGenerationPrompt(
     `Requested tone: ${tone}. Requested length: ${length}.`,
     'Channels to propose (with per-channel intent):',
     channelGuidance,
+    styleExamplesBlock ? `\n${styleExamplesBlock}` : '',
   ].filter(Boolean).join('\n')
 
   return { system, user }
@@ -227,7 +241,7 @@ export async function generateChannelDraftsWithAnthropic(
   }
 
   const model = resolveAnthropicModel()
-  const { system, user } = buildDraftGenerationPrompt(seed, channels, tone, length, context?.brandProfile)
+  const { system, user } = buildDraftGenerationPrompt(seed, channels, tone, length, context?.brandProfile, context?.styleExamples)
   const client = new Anthropic({ apiKey })
 
   const response = await client.messages.create({

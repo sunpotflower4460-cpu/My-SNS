@@ -83,10 +83,11 @@ AIは文章生成だけではなく、発信準備・変換・判断補助を担
 | PR4 | マージ済み | X・InstagramのOAuth接続（設定画面から接続/切断）、トークンはアプリ層で暗号化保存（`social_account_credentials`はRLSポリシーなし＝service role以外アクセス不可）、Worker経由の実投稿とトークン自動更新に対応。Instagramはメディア添付（画像/動画URL）を扱う仕組みが未実装のため、投稿時は明確なエラーで安全に停止する。 |
 | PR5 | マージ済み | **MVP完成。** YouTube・TikTokのOAuth接続と実投稿アダプタ（YouTube: resumable upload、TikTok: creator_info照会→PULL_FROM_URL→ステータスポーリング、SELF_ONLY固定）。両者ともWorkerの自動実行対象外（`assisted`/`draft`モード）で、Queueの「Publish now」から人間が明示的に実行する。noteはQueueでMarkdown形式にコピーし、Mark as postedで完了記録。YouTube/TikTokもメディア添付が未実装のため投稿時は明確なエラーで安全に停止する。 |
 | PR6 | マージ済み | Webhook受信＋Unified Inbox（MVP後拡張の第一弾）。Instagramのコメント・DMは署名検証済みWebhook（`/api/webhooks/meta`）で自動取り込み、YouTubeは実コメントAPIによるプル型「Sync inbox」ボタンで取得。`inbox_items.external_id`＋ユニークインデックスで重複取り込みを防止。X・TikTokのコメント/メンション/DM取得、Instagramのmentions解決は、API有料ティア・追加審査・追加API呼び出しが必要という正直な理由付きで未対応のまま。 |
-| 現在できること | 実装済み | ログイン、ワークスペース、チーム権限、Seed保存、Brand Profile、実AI下書き生成と承認、予約・Worker実行・手動実行（Publish now）・再試行・手動完了を含むQueue、X/Instagram/YouTube/TikTok接続と実投稿（テキストのみ）、noteのMarkdownハンドオフ、Instagram Webhook自動取り込み＋YouTubeプル同期によるUnified Inbox、設定、監査ログ。 |
-| まだできないこと | 未接続 | Seed/Revisionへのメディア（画像・動画）添付、X/TikTokのコメント・メンション・DM取得、Instagramのmentions本文解決、深い分析（PR7）。 |
+| PR7 | マージ済み | Analytics＋AIの学習。新しい`/app/analytics`ページで媒体別公開成功率・失敗理由内訳・AIコスト・AI提案の人間編集率を実データのみで表示。YouTube・Xは実際の視聴回数・いいね・コメント数をオンデマンド取得。`ai_original_snapshot`列でAI提案の初回保存時点を凍結し、人間の編集内容を次回生成へfew-shot例として反映する学習ループを実装。Instagram/TikTokのメトリクスは追加スコープ・審査が必要な正直な未対応。 |
+| 現在できること | 実装済み | ログイン、ワークスペース、チーム権限、Seed保存、Brand Profile、実AI下書き生成と承認（人間の編集を学習に反映）、予約・Worker実行・手動実行（Publish now）・再試行・手動完了を含むQueue、X/Instagram/YouTube/TikTok接続と実投稿（テキストのみ）、noteのMarkdownハンドオフ、Instagram Webhook自動取り込み＋YouTubeプル同期によるUnified Inbox、媒体別成功率・AIコスト・YouTube/Xの実メトリクスを見られるAnalytics、設定、監査ログ。 |
+| まだできないこと | 未接続 | Seed/Revisionへのメディア（画像・動画）添付、X/TikTokのコメント・メンション・DM取得とメトリクス、Instagramのmentions本文解決とメトリクス、公式サイト連携（PR8）。 |
 
-実装順、各PRの詳細仕様は `docs/master-plan.md` を参照。MVPはPR5で完成した。PR6（Webhook + Unified Inbox）もマージ済み。次はPR7（Analytics、MVP後の拡張フェーズ）から着手する。
+実装順、各PRの詳細仕様は `docs/master-plan.md` を参照。MVPはPR5で完成した。PR6（Webhook + Unified Inbox）・PR7（Analytics + AI学習）もマージ済み。次はPR8（公式サイト／作品母艦との統合、実サイト詳細の要件確認が前提）から着手する。
 
 ## 7. MVPの完成条件
 

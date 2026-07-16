@@ -1,4 +1,4 @@
-import type { InboundInboxEvent, SocialPlatform } from '@/lib/domain/types'
+import type { InboundInboxEvent, PostMetrics, SocialPlatform } from '@/lib/domain/types'
 import type { ConnectedAccount, InboxFetchRequest, PublishRequest, PublishResult, SocialConnectorAdapter } from './interfaces'
 
 function connectorUnavailable(operation: string, platform?: SocialPlatform): never {
@@ -37,6 +37,10 @@ export class UnavailableSocialConnectorAdapter implements SocialConnectorAdapter
 
   async fetchMessages(request: InboxFetchRequest): Promise<InboundInboxEvent[]> {
     return connectorUnavailable('Message sync', request.platform)
+  }
+
+  async fetchMetrics(request: InboxFetchRequest & { postId: string }): Promise<PostMetrics> {
+    return connectorUnavailable('Metrics', request.platform)
   }
 
   generateOpenUrl(platform: SocialPlatform, handle: string): string {

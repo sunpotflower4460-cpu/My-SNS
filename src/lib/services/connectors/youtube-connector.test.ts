@@ -104,4 +104,23 @@ describe('YouTubeConnectorAdapter fetch methods', () => {
     await expect(adapter.fetchMentions()).rejects.toThrow(/mentions/i)
     await expect(adapter.fetchMessages()).rejects.toThrow(/direct-message/i)
   })
+
+  it('fetchMetrics maps videos.list statistics into PostMetrics (PR7)', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue(
+        mockResponse({ ok: true, status: 200, body: { items: [{ statistics: { viewCount: '1000', likeCount: '50', commentCount: '7' } }] } }),
+      ),
+    )
+
+    const metrics = await new YouTubeConnectorAdapter().fetchMetrics({ platform: 'youtube', accessToken: 'token', postId: 'video-1' })
+
+    expect(metrics).toEqual({ views: 1000, likes: 50, comments: 7 })
+  })
+
+  it('fetchMetrics throws when YouTube returns no matching video rather than defaulting to zeros', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(mockResponse({ ok: true, status: 200, body: { items: [] } })))
+
+    await expect(new YouTubeConnectorAdapter().fetchMetrics({ platform: 'youtube', accessToken: 'token', postId: 'missing' })).rejects.toThrow(/no statistics/)
+  })
 })
