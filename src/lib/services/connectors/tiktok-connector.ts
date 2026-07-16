@@ -1,4 +1,4 @@
-import type { InboxItem, SocialPlatform } from '@/lib/domain/types'
+import type { InboundInboxEvent, SocialPlatform } from '@/lib/domain/types'
 import type {
   ConnectedAccount,
   ConnectOptions,
@@ -220,20 +220,28 @@ export class TikTokConnectorAdapter implements SocialConnectorAdapter {
     )
   }
 
-  async fetchInbox(): Promise<InboxItem[]> {
-    throw new Error('TikTok inbox sync is not implemented yet (planned for PR6).')
+  // Honest gap, not a stub: the Content Posting API scope this app requests
+  // (user.info.basic, video.publish) does not include reading engagement
+  // data, and TikTok's separate Display/Research APIs that do require a
+  // distinct application review this app has not completed — see
+  // docs/master-plan.md §6 phase 2.
+  private readonly readAccessGap =
+    "TikTok comment/mention/DM sync is not available: this app's Content Posting API scope does not include reading engagement data, and TikTok's Display API requires separate application review not yet completed."
+
+  async fetchInbox(): Promise<InboundInboxEvent[]> {
+    throw new Error(this.readAccessGap)
   }
 
-  async fetchComments(): Promise<InboxItem[]> {
-    throw new Error('TikTok comment sync is not implemented yet (planned for PR6).')
+  async fetchComments(): Promise<InboundInboxEvent[]> {
+    throw new Error(this.readAccessGap)
   }
 
-  async fetchMentions(): Promise<InboxItem[]> {
-    throw new Error('TikTok mention sync is not implemented yet (planned for PR6).')
+  async fetchMentions(): Promise<InboundInboxEvent[]> {
+    throw new Error(this.readAccessGap)
   }
 
-  async fetchMessages(): Promise<InboxItem[]> {
-    throw new Error('TikTok message sync is not implemented yet (planned for PR6).')
+  async fetchMessages(): Promise<InboundInboxEvent[]> {
+    throw new Error(this.readAccessGap)
   }
 
   generateOpenUrl(_platform: SocialPlatform, handle: string): string {

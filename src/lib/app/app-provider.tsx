@@ -16,6 +16,7 @@ import type {
   SeedStatus,
   SocialAccount,
   SocialDraft,
+  SocialPlatform,
   Workspace,
   WorkspaceMember,
   WorkspaceRole,
@@ -86,6 +87,7 @@ interface AppContextValue {
   removeMember: (userId: string) => Promise<void>
   saveWorkspaceSettings: (name: string, slug: string) => Promise<Workspace>
   disconnectSocialAccount: (accountId: string) => Promise<SocialAccount>
+  syncInboxFromPlatform: (platform: SocialPlatform) => Promise<{ ingested: number }>
   saveDefaultBrandProfile: (input: BrandProfileInput) => Promise<BrandProfile>
   toggleInboxRead: (inboxItemId: string) => Promise<InboxItem>
   toggleInboxStar: (inboxItemId: string) => Promise<InboxItem>
@@ -483,6 +485,27 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
         await refreshWorkspaceData()
         return payload.account as SocialAccount
+      },
+
+      syncInboxFromPlatform: async (platform) => {
+        if (!currentWorkspace) throw new Error('Not ready')
+        if (!currentMember || !hasPermission(currentMember.role, 'manage_social_accounts')) {
+          throw new Error('Your role cannot sync inbox items.')
+        }
+
+        // Fetching from the platform requires the decrypted access token, so
+        // this goes through a server route with the service-role client —
+        // see src/app/api/inbox/sync/route.ts.
+        const response = await fetch('/api/inbox/sync', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ workspaceId: currentWorkspace.id, platform }),
+        })
+        const payload = await response.json()
+        if (!response.ok) throw new Error(payload.error ?? 'Unable to sync inbox items.')
+
+        await refreshWorkspaceData()
+        return payload as { ingested: number }
       },
 
       saveDefaultBrandProfile: async (input) => {

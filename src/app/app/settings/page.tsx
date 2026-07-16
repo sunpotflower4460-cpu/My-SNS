@@ -22,7 +22,7 @@ const PLATFORM_ICONS: Record<SocialPlatform, string> = {
 }
 
 export default function SettingsPage() {
-  const { currentMember, currentWorkspace, defaultBrandProfile, disconnectSocialAccount, saveWorkspaceSettings, socialAccounts } = useApp()
+  const { currentMember, currentWorkspace, defaultBrandProfile, disconnectSocialAccount, saveWorkspaceSettings, socialAccounts, syncInboxFromPlatform } = useApp()
   const { currentUser } = useCurrentUser()
   const searchParams = useSearchParams()
   const [workspaceName, setWorkspaceName] = useState(currentWorkspace?.name ?? '')
@@ -66,6 +66,20 @@ export default function SettingsPage() {
       setPlatformError('')
     } catch (cause) {
       setPlatformError(cause instanceof Error ? cause.message : 'Unable to disconnect this account.')
+      setPlatformFeedback('')
+    } finally {
+      setBusyPlatform(null)
+    }
+  }
+
+  const handleSync = async (platform: SocialPlatform) => {
+    setBusyPlatform(platform)
+    try {
+      const result = await syncInboxFromPlatform(platform)
+      setPlatformFeedback(`Synced ${platform}: ${result.ingested} new inbox item${result.ingested === 1 ? '' : 's'}.`)
+      setPlatformError('')
+    } catch (cause) {
+      setPlatformError(cause instanceof Error ? cause.message : 'Unable to sync this platform.')
       setPlatformFeedback('')
     } finally {
       setBusyPlatform(null)
@@ -139,6 +153,15 @@ export default function SettingsPage() {
                       <span className="rounded-full border border-green-200 bg-green-50 px-2.5 py-1 text-xs text-green-600">Connected</span>
                       {canManageSocialAccounts && (
                         <button
+                          onClick={() => void handleSync(account.platform)}
+                          disabled={busyPlatform === platform}
+                          className="rounded-xl border border-stone-200 px-3 py-1.5 text-xs font-medium text-gray-600 transition hover:bg-white disabled:cursor-wait disabled:opacity-50"
+                        >
+                          Sync inbox
+                        </button>
+                      )}
+                      {canManageSocialAccounts && (
+                        <button
                           onClick={() => void handleDisconnect(account)}
                           disabled={busyPlatform === platform}
                           className="rounded-xl border border-stone-200 px-3 py-1.5 text-xs font-medium text-gray-600 transition hover:bg-white hover:text-red-600 disabled:cursor-wait disabled:opacity-50"
@@ -178,7 +201,7 @@ export default function SettingsPage() {
         <div className="rounded-[2rem] border border-stone-200 bg-white p-6 shadow-sm shadow-stone-100/80">
           <h2 className="mb-2 text-base font-semibold text-gray-900">Current scope</h2>
           <p className="text-sm leading-6 text-gray-500">
-            Settings, memberships, Seeds, Brand Profile, queue updates, inbox interactions, and private asset metadata are stored in Supabase. X and Instagram can be connected via OAuth; YouTube, TikTok, and note remain disabled until their reviewed implementation phases.
+            Settings, memberships, Seeds, Brand Profile, queue updates, inbox interactions, and private asset metadata are stored in Supabase. X, Instagram, YouTube, and TikTok can all be connected via OAuth and publish for real; note is handled as a manual copy + confirm handoff. Instagram comments and DMs sync into the Inbox automatically via webhook; other platforms use the &ldquo;Sync inbox&rdquo; button (YouTube reads real comments — X and TikTok are honest gaps until their platforms grant broader API access).
           </p>
         </div>
       </div>

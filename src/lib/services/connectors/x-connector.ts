@@ -1,4 +1,4 @@
-import type { InboxItem, SocialPlatform } from '@/lib/domain/types'
+import type { InboundInboxEvent, SocialPlatform } from '@/lib/domain/types'
 import type {
   ConnectedAccount,
   ConnectOptions,
@@ -158,20 +158,28 @@ export class XConnectorAdapter implements SocialConnectorAdapter {
     }
   }
 
-  async fetchInbox(): Promise<InboxItem[]> {
-    throw new Error('X inbox sync is not implemented yet (planned for PR6).')
+  // Honest gap, not a stub: X has no webhook this app can receive without an
+  // Enterprise-tier Account Activity API subscription, and its v2 mentions/
+  // DM read endpoints require a paid Basic-or-higher API tier — this app
+  // only requests the free-tier write scopes needed to publish (see SCOPES
+  // above). Written once here rather than duplicated per method.
+  private readonly readAccessGap =
+    'X comment/mention/DM sync requires a paid X API tier (Basic or higher) for read access, or an Enterprise Account Activity API subscription for webhooks — this app only requests the free-tier write scopes needed to publish. Not available.'
+
+  async fetchInbox(): Promise<InboundInboxEvent[]> {
+    throw new Error(this.readAccessGap)
   }
 
-  async fetchComments(): Promise<InboxItem[]> {
-    throw new Error('X comment sync is not implemented yet (planned for PR6).')
+  async fetchComments(): Promise<InboundInboxEvent[]> {
+    throw new Error(this.readAccessGap)
   }
 
-  async fetchMentions(): Promise<InboxItem[]> {
-    throw new Error('X mention sync is not implemented yet (planned for PR6).')
+  async fetchMentions(): Promise<InboundInboxEvent[]> {
+    throw new Error(this.readAccessGap)
   }
 
-  async fetchMessages(): Promise<InboxItem[]> {
-    throw new Error('X message sync is not implemented yet (planned for PR6).')
+  async fetchMessages(): Promise<InboundInboxEvent[]> {
+    throw new Error(this.readAccessGap)
   }
 
   generateOpenUrl(_platform: SocialPlatform, handle: string): string {

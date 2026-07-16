@@ -27,8 +27,8 @@
 | PR3 | Scheduling Engine | ✅ マージ済み |
 | PR4 | X + Instagram コネクタ | ✅ マージ済み |
 | PR5 | YouTube + TikTok コネクタ + note handoff（ここまででMVP） | ✅ マージ済み — **MVP完成** |
-| PR6 | Webhook + Unified Inbox | 次に着手（MVP後） |
-| PR7 | Analytics + AIの学習 | MVP後 |
+| PR6 | Webhook + Unified Inbox | ✅ マージ済み（MVP後拡張の第一弾） |
+| PR7 | Analytics + AIの学習 | 次に着手（MVP後） |
 | PR8 | HP／作品母艦統合 | MVP後 |
 | PR9 | 運用仕上げ（通知、共同承認、バックアップ、費用管理） | MVP後 |
 
@@ -99,9 +99,17 @@
 - note handoff: Revisionを note.com向けにフォーマットしたMarkdownへ変換、「コピー」ボタンを提供、`publish_jobs` を `manual-completed` としてマークできるようにする。
 - ここまで完了した時点でMVP（§4）が完成する。
 
-### PR6以降（MVP後）
+### PR6 — Webhook + Unified Inbox（MVP後拡張の第一弾、マージ済み）
 
-- PR6: Webhook受信（コメント・メンション・DM）、署名検証、重複排除、Unified Inbox
+- `inbox_items` に `external_id` 列＋ユニークインデックス（`workspace_id, platform, kind, external_id`）を追加し、同一プラットフォームイベントの重複取り込み（Webhookの再送、手動syncとの競合）を1行に集約する。PostgRESTの`.upsert({onConflict})`はON CONFLICTにWHERE述語を付けられないため、部分インデックスではなく通常のユニークインデックスとした（NULLは互いに衝突しないため、外部同期由来でない行の一意性には影響しない）。あわせて`social_accounts`に`(platform, external_account_id) WHERE connected`の部分ユニークインデックスを追加し、同一プラットフォームアカウントが同時に複数ワークスペースへ接続される状態を防止する。
+- Instagram: Meta Graph API Webhook（`/api/webhooks/meta`）。GETでの購読検証ハンドシェイク、POSTでの`X-Hub-Signature-256`（HMAC-SHA256、`META_APP_SECRET`鍵、timing-safe比較）による署名検証を必須とし、未検証のペイロードは一切処理しない（fail-closed）。`comments`フィールドとInstagram Messagingの`messaging`配列を実装。`mentions`フィールドはコメント本文を含まないポインタのみのため、追加のGraph API呼び出しが必要な既知の未対応（正直なギャップ）として明示。
+- YouTube: `commentThreads.list`（既存の`youtube.readonly`スコープでカバー済み、追加同意不要）によるプル型コメント取得。チャンネル全体（`allThreadsRelatedToChannelId`）と動画単位（`videoId`）の両方に対応。
+- X・TikTok: 実装を試みるのではなく、正直な恒久的ギャップとして明示。Xは無料枠の書き込みスコープのみ要求しており、v2の読み取りエンドポイントやAccount Activity API Webhookは有料ティアが必要。TikTokのContent Posting APIスコープはエンゲージメントデータの読み取りを含まず、別途Display APIの審査が必要。
+- Settings画面に「Sync inbox」ボタンを追加し、`/api/inbox/sync`（`manage_social_accounts`権限必須）経由で対象プラットフォームの`fetchInbox`をオンデマンド実行。取得結果は`external_id`で重複排除して`inbox_items`へ挿入。
+- `SocialConnectorAdapter`の`fetchInbox`/`fetchComments`/`fetchMentions`/`fetchMessages`のシグネチャを、`publish()`と同じ設計思想（呼び出し元がDBアクセス・認証情報解決を担い、アダプタは受け取った認証情報のみでプラットフォームを呼ぶ）に統一。戻り値も未保存の`InboundInboxEvent[]`型に変更（DB行を表す`InboxItem`とは区別）。
+
+### PR7以降（MVP後）
+
 - PR7: 媒体横断のAnalytics、AI提案と人間修正の差分からの学習
 - PR8: 公式サイト／作品母艦との統合、SEO
 - PR9: 通知、共同承認、モバイル最適化、バックアップ、費用管理
@@ -122,6 +130,8 @@ Claudeや他の自動化が代行できない・すべきでない工程。対�
 **フェーズ2（MVP後）**
 - Meta App ReviewでのAdvanced Access申請、TikTok Content Posting監査、YouTube API監査（数週間かかる想定）
 - 必要であればBlotato/Postproxyのような代行プロキシAPIの利用検討（オプション）
+- Meta App DashboardでのWebhooks購読設定（`META_WEBHOOK_VERIFY_TOKEN`を決めて登録、`instagram`オブジェクトの`comments`・`messages`フィールドを購読）— PR6のコードは用意済みで、この購読作業のみ本人操作
+- X Basic以上の有料APIティア契約、TikTok Display API審査申請（コメント/メンション/DM読み取りを有効化したい場合。任意、現状は正直な未対応として運用中）
 
 ## 7. やらない・避けること
 

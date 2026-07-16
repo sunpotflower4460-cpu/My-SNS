@@ -1,7 +1,8 @@
-import type { InboxItem, SocialPlatform } from '@/lib/domain/types'
+import type { InboundInboxEvent, SocialPlatform } from '@/lib/domain/types'
 import type {
   ConnectedAccount,
   ConnectOptions,
+  InboxFetchRequest,
   PublishRequest,
   PublishResult,
   SocialConnectorAdapter,
@@ -14,8 +15,13 @@ const AUTHORIZE_URL = 'https://accounts.google.com/o/oauth2/v2/auth'
 const TOKEN_URL = 'https://oauth2.googleapis.com/token'
 const CHANNELS_URL = 'https://www.googleapis.com/youtube/v3/channels'
 const UPLOAD_URL = 'https://www.googleapis.com/upload/youtube/v3/videos'
+const COMMENT_THREADS_URL = 'https://www.googleapis.com/youtube/v3/commentThreads'
 const STUDIO_URL = 'https://studio.youtube.com'
 const SCOPES = ['https://www.googleapis.com/auth/youtube.upload', 'https://www.googleapis.com/auth/youtube.readonly']
+
+// commentThreads.list is covered by the already-granted youtube.readonly
+// scope — no extra OAuth consent is needed for this on top of PR5's upload flow.
+const COMMENT_PAGE_SIZE = 50
 
 // Deliberately shorter than the calling route's `maxDuration` (300s — see
 // api/publish/run and api/publish/trigger). A platform hard-kill on timeout
@@ -94,6 +100,56 @@ async function fetchOwnChannel(accessToken: string): Promise<{ id: string; title
   if (!channel) throw new Error('No YouTube channel found for this Google account.')
 
   return { id: channel.id, title: channel.snippet.title }
+}
+
+export interface CommentThreadsResponse {
+  items?: Array<{
+    snippet: {
+      topLevelComment: {
+        id: string
+        snippet: {
+          authorDisplayName?: string
+          authorProfileImageUrl?: string
+          textDisplay?: string
+          publishedAt?: string
+        }
+      }
+    }
+  }>
+}
+
+export function mapCommentThreads(payload: CommentThreadsResponse): InboundInboxEvent[] {
+  return (payload.items ?? []).map((item) => {
+    const top = item.snippet.topLevelComment
+    return {
+      platform: 'youtube' as const,
+      kind: 'comment' as const,
+      externalId: top.id,
+      authorHandle: top.snippet.authorDisplayName ?? 'unknown',
+      authorAvatarUrl: top.snippet.authorProfileImageUrl,
+      text: top.snippet.textDisplay ?? '',
+      receivedAt: top.snippet.publishedAt ?? new Date().toISOString(),
+    }
+  })
+}
+
+async function fetchCommentThreads(accessToken: string, params: Record<string, string>): Promise<InboundInboxEvent[]> {
+  const url = `${COMMENT_THREADS_URL}?${new URLSearchParams({
+    part: 'snippet',
+    order: 'time',
+    maxResults: String(COMMENT_PAGE_SIZE),
+    ...params,
+  }).toString()}`
+  const response = await fetch(url, { headers: { Authorization: `Bearer ${accessToken}` } })
+
+  if (!response.ok) {
+    const detail = await response.text().catch(() => '')
+    // A 403 here commonly means comments are disabled on the video/channel —
+    // a real, expected outcome surfaced as-is, not retried or swallowed.
+    throw new Error(`YouTube comment fetch failed (${response.status}): ${detail.slice(0, 300)}`)
+  }
+
+  return mapCommentThreads((await response.json()) as CommentThreadsResponse)
 }
 
 function toConnectedAccount(token: TokenResponse, channel: { id: string; title: string }): ConnectedAccount {
@@ -200,20 +256,25 @@ export class YouTubeConnectorAdapter implements SocialConnectorAdapter {
     return { externalPostId: video.id, externalUrl: `https://youtube.com/watch?v=${video.id}` }
   }
 
-  async fetchInbox(): Promise<InboxItem[]> {
-    throw new Error('YouTube inbox sync is not implemented yet (planned for PR6).')
+  /** Channel-wide: every comment thread across all of the channel's videos, newest first. */
+  async fetchInbox(request: InboxFetchRequest): Promise<InboundInboxEvent[]> {
+    if (!request.externalAccountId) throw new Error('YouTube inbox sync requires the connected channel id.')
+    return fetchCommentThreads(request.accessToken, { allThreadsRelatedToChannelId: request.externalAccountId })
   }
 
-  async fetchComments(): Promise<InboxItem[]> {
-    throw new Error('YouTube comment sync is not implemented yet (planned for PR6).')
+  /** One video's comment threads — `postId` is the YouTube video id. */
+  async fetchComments(request: InboxFetchRequest & { postId: string }): Promise<InboundInboxEvent[]> {
+    return fetchCommentThreads(request.accessToken, { videoId: request.postId })
   }
 
-  async fetchMentions(): Promise<InboxItem[]> {
-    throw new Error('YouTube mention sync is not implemented yet (planned for PR6).')
+  async fetchMentions(): Promise<InboundInboxEvent[]> {
+    // Honest gap: the YouTube Data API has no mentions concept — it only
+    // exposes comments on videos/channels this account owns.
+    throw new Error('YouTube has no mentions API — the Data API only exposes comments on your own videos/channel.')
   }
 
-  async fetchMessages(): Promise<InboxItem[]> {
-    throw new Error('YouTube message sync is not implemented yet (planned for PR6).')
+  async fetchMessages(): Promise<InboundInboxEvent[]> {
+    throw new Error('YouTube has no direct-message API for creators.')
   }
 
   generateOpenUrl(_platform: SocialPlatform, handle: string): string {

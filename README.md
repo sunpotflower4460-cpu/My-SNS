@@ -22,6 +22,7 @@ The app is now backed by **real Supabase infrastructure** while preserving the e
 - **Scheduling Engine**: schedule an approved draft's Revision to the Publish Queue, a Worker (`/api/publish/run`, run on a schedule — see `vercel.json`) executes due `auto`-mode jobs and records a `publish_attempts` history with classified failure reasons; `note` (and any future manual-copy channel) is `publish_mode: 'manual'` and is completed by a human from the Queue instead
 - **Real X, Instagram, YouTube, and TikTok connectors**: OAuth connect flow from Settings (`/api/social/{platform}/connect` → `/callback`), tokens encrypted at the application layer before storage (never selectable from the browser — see `social_account_credentials`). X/Instagram publish through the scheduled Worker with automatic token refresh; YouTube ('assisted') and TikTok ('draft') are deliberately *not* auto-published — a human clicks **Publish now** from the Queue instead (`/api/publish/trigger`), matching their MVP strategy in `docs/master-plan.md` §3. Instagram/YouTube/TikTok all need a media URL the app doesn't attach to a Revision yet and fail closed with a clear message until that's built.
 - **note handoff**: an approved note Revision is one click away from note.com-ready Markdown (**Copy for note.com** in the Queue) and a **Mark as posted** button records completion — no fake automatic posting, since note has no public posting API.
+- **Webhook ingestion + Unified Inbox (PR6)**: Instagram comments and DMs arrive automatically via a signature-verified webhook (`/api/webhooks/meta`); a **Sync inbox** button in Settings pulls YouTube's real channel comments on demand. Every inbound item dedupes on its platform-native id, so a webhook retry or an overlapping manual sync never creates a duplicate row. X and TikTok's own comment/mention/DM sync are honest, permanent gaps (documented below) rather than guessed-at API calls.
 - **Dashboard, Seed detail, draft studio, queue, inbox, team, brand, and settings flows** with real persistence
 - **Audit events** logged to database
 - **Workspace roles** (owner, admin, editor, contributor, viewer) enforced via RLS
@@ -29,8 +30,9 @@ The app is now backed by **real Supabase infrastructure** while preserving the e
 ## What is still deferred
 
 - Attaching media (image/video) to a draft/Revision — Instagram, YouTube, and TikTok all need this to actually publish; every real connector attempt fails closed with a clear message until it's built
-- Webhook ingestion from social platforms (PR6)
-- Advanced notifications, billing/usage metering, deep analytics dashboards (PR7-PR9)
+- X and TikTok comment/mention/DM sync — both require API access tiers or app reviews this app's current credentials don't have; see Known limitations
+- Resolving an Instagram `mentions` webhook to its actual comment text (the payload only carries a pointer, not the text itself)
+- Advanced notifications, billing/usage metering, deep analytics dashboards, HP/site integration (PR7-PR9)
 
 ## Environment setup
 
@@ -58,6 +60,8 @@ Set `CRON_SECRET` to enable the publish Worker (`/api/publish/run`). Without it,
 
 To connect a platform, set `SOCIAL_TOKEN_ENCRYPTION_KEY`, `NEXT_PUBLIC_APP_URL`, and that platform's client id/secret (`X_CLIENT_ID`/`X_CLIENT_SECRET`, `META_APP_ID`/`META_APP_SECRET`, `YOUTUBE_CLIENT_ID`/`YOUTUBE_CLIENT_SECRET`, or `TIKTOK_CLIENT_KEY`/`TIKTOK_CLIENT_SECRET`) — see `.env.example` for details and the exact redirect URIs to register with each platform's developer console. Without these, the "Connect" button in Settings returns a clear "not configured" error rather than attempting anything.
 
+Set `META_WEBHOOK_VERIFY_TOKEN` to enable Instagram's webhook (`/api/webhooks/meta`) — it reuses `META_APP_SECRET` for signature verification. Without it, the webhook route refuses every request rather than accepting unverified payloads.
+
 ### Setting up Supabase
 
 1. **Create a Supabase project** at [supabase.com](https://supabase.com)
@@ -74,11 +78,13 @@ To connect a platform, set `SOCIAL_TOKEN_ENCRYPTION_KEY`, `NEXT_PUBLIC_APP_URL`,
      - `supabase/migrations/20260717000000_scheduling_engine.sql`
      - `supabase/migrations/20260718000000_x_instagram_connectors.sql`
      - `supabase/migrations/20260719000000_publish_job_claims.sql`
+     - `supabase/migrations/20260720000000_webhook_inbox.sql`
    - `youtube`/`tiktok` were already valid `social_platform` values from the initial schema, and PR4's `social_accounts`/`social_account_credentials`/`oauth_states` tables are already generic across every platform, so PR5's only schema change is the `claimed_at` column above.
-3. The PR0 migration makes assets private; the PR1 migration preserves existing rows while promoting `contents` to `seeds` and adding `brand_profiles`; the PR2 migration adds structured proposal fields to `social_drafts` plus the append-only `draft_revisions` and `ai_generations` tables; the PR3 migration adds `publish_mode`/`revision_id` to `publish_jobs`, the append-only `publish_attempts` table, and tightens `publish_jobs` RLS to owner/admin (matching the `manage_queue` permission); the PR4 migration adds `social_account_credentials` (RLS enabled with zero policies — only the service-role key can touch it) and `oauth_states`, and tightens `social_accounts` RLS to owner/admin (matching `manage_social_accounts`); the PR5 migration adds a `claimed_at` column to `publish_jobs`, set atomically while the Worker or a manual "Publish now" is actively processing a job so concurrent attempts and cancels can't race it (a claim older than 10 minutes is treated as abandoned and can be reclaimed).
+3. The PR0 migration makes assets private; the PR1 migration preserves existing rows while promoting `contents` to `seeds` and adding `brand_profiles`; the PR2 migration adds structured proposal fields to `social_drafts` plus the append-only `draft_revisions` and `ai_generations` tables; the PR3 migration adds `publish_mode`/`revision_id` to `publish_jobs`, the append-only `publish_attempts` table, and tightens `publish_jobs` RLS to owner/admin (matching the `manage_queue` permission); the PR4 migration adds `social_account_credentials` (RLS enabled with zero policies — only the service-role key can touch it) and `oauth_states`, and tightens `social_accounts` RLS to owner/admin (matching `manage_social_accounts`); the PR5 migration adds a `claimed_at` column to `publish_jobs`, set atomically while the Worker or a manual "Publish now" is actively processing a job so concurrent attempts and cancels can't race it (a claim older than 10 minutes is treated as abandoned and can be reclaimed); the PR6 migration adds an `external_id` column to `inbox_items` plus a unique index on `(workspace_id, platform, kind, external_id)` (not partial — PostgREST's `.upsert({onConflict})` can't target a partial index, and Postgres already treats distinct NULLs as non-conflicting, so a plain index dedupes external events without constraining internal-only rows), so the same webhook delivery or overlapping manual sync can never create a duplicate inbox row. It also adds a partial unique index on `social_accounts (platform, external_account_id) WHERE connected`, so the same real platform account can never be connected=true in two workspaces at once.
 4. **Copy your project credentials** to `.env.local`
 5. **(Optional) Enable the publish Worker** — if deploying to Vercel, `vercel.json` already schedules `/api/publish/run` every 5 minutes; set `CRON_SECRET` in your Vercel project's environment variables (Vercel then sends it automatically as the Worker's `Authorization` header). Any other host can call the same route on a schedule with `Authorization: Bearer $CRON_SECRET`.
 6. **(Optional) Connect X/Instagram/YouTube/TikTok** — register a developer app with each platform (see `.env.example` for the redirect URIs to register), then set the corresponding env vars. This is the one part of PR4/PR5 that genuinely needs the human: developer account creation and app review are outside what any code change can do.
+7. **(Optional) Subscribe Instagram's webhook** — in the Meta App Dashboard's Webhooks product, subscribe `$NEXT_PUBLIC_APP_URL/api/webhooks/meta` for the `instagram` object, fields `comments` and `messages`, using the same value you set for `META_WEBHOOK_VERIFY_TOKEN` as the Verify Token. Comments and DMs then arrive in the Unified Inbox automatically.
 
 ## Local development
 
@@ -113,6 +119,8 @@ src/
     api/publish/trigger/       Manual "Publish now" for assisted/draft-mode jobs (YouTube/TikTok)
     api/social/[platform]/     OAuth connect + callback routes (x, instagram, youtube, tiktok)
     api/social/disconnect/     Deletes stored credentials (service-role only)
+    api/webhooks/meta/         Instagram webhook receiver (signature-verified, service-role)
+    api/inbox/sync/            Manual pull sync for platforms with no webhook (currently: YouTube)
   components/
     layout/                    Sidebar, top bar, workspace switcher
     ui/                        Shared presentation components
@@ -122,11 +130,11 @@ src/
     auth/                      Supabase Auth provider
     app/                       App provider with Supabase repositories
     crypto/                    AES-256-GCM OAuth token cipher (server-only)
-    repositories/supabase/     Seed, Brand Profile, Draft/Revision, Queue/Attempt, social account/credential, and workspace repositories
+    repositories/supabase/     Seed, Brand Profile, Draft/Revision, Queue/Attempt, social account/credential, inbox-ingest, and workspace repositories
     storage/supabase/          Supabase Storage adapter
-    supabase/                  Supabase client setup (browser, server, and service-role for the Worker/OAuth callback)
+    supabase/                  Supabase client setup (browser, server, and service-role for the Worker/OAuth callback/webhook)
     domain/                    Shared domain types
-    services/                  Template drafts, Anthropic-backed drafts, the shared publish-attempt/failure-classification logic, real X/Instagram/YouTube/TikTok connector adapters, note-to-Markdown formatting (all server-only where relevant), and the fail-closed stub for every other platform
+    services/                  Template drafts, Anthropic-backed drafts, the shared publish-attempt/failure-classification logic, real X/Instagram/YouTube/TikTok connector adapters, note-to-Markdown formatting, Meta webhook signature verification + payload mapping (all server-only where relevant), and the fail-closed stub for every other platform
 ```
 
 ## Database schema
@@ -147,7 +155,7 @@ The app uses the following main tables:
 - **social_accounts** - Which platform accounts are connected (handle, external id) — no tokens; readable by workspace members
 - **social_account_credentials** - Encrypted OAuth tokens. RLS is enabled with **zero policies**: only the service-role key (the OAuth callback route and the Worker) can read or write this table
 - **oauth_states** - Short-lived CSRF/PKCE state for one connect attempt; deleted the moment the callback consumes it
-- **inbox_items** - Inbox messages (internal for now)
+- **inbox_items** - Comments, mentions, DMs, and replies — internal notes plus, as of PR6, real Instagram webhook deliveries and YouTube pull-synced comments; `external_id` + a unique index dedupe the same platform event across retries/overlapping syncs
 - **inbox_notes** - Internal notes on inbox items
 - **audit_logs** - Activity audit trail
 
@@ -221,7 +229,8 @@ MVP (`docs/master-plan.md` §4) is code-complete as of PR5. What's left is eithe
 2. ~~**PR3** — scheduling engine (`publish_attempts`, Worker, retry/cancel, Queue state UI)~~ ✅
 3. ~~**PR4** — X and Instagram adapters~~ ✅ (Instagram publishing still needs media attachment support — see Known limitations)
 4. ~~**PR5** — YouTube and TikTok adapters plus note review/copy handoff~~ ✅ (YouTube/TikTok publishing still needs media attachment support)
-5. **PR6+** — Webhook + Unified Inbox, Analytics, HP/site integration, ops polish (post-MVP; see `docs/master-plan.md` §5)
+5. ~~**PR6** — Webhook ingestion (Instagram) + Unified Inbox (manual sync for the rest)~~ ✅ (post-MVP; X/TikTok comment sync remain honest gaps — see Known limitations)
+6. **PR7+** — Analytics, HP/site integration, ops polish (post-MVP; see `docs/master-plan.md` §5)
 
 `note` is modeled as a publishing channel but remains manual review + copy because there is no supported public posting API in scope.
 
@@ -233,8 +242,11 @@ MVP (`docs/master-plan.md` §4) is code-complete as of PR5. What's left is eithe
 - The Instagram connector picks the first Facebook Page with a linked Instagram Business/Creator account; it can't yet choose among multiple linked Pages
 - X requires a **confidential** OAuth 2.0 client (client secret) in the X developer portal, not a public/PKCE-only client
 - AI draft generation requires `ANTHROPIC_API_KEY`; without it, `/api/drafts/generate` returns clearly labeled deterministic templates instead
-- Inbox syncing is internal only (no external platform messages yet) — `fetchInbox`/`fetchComments`/`fetchMentions`/`fetchMessages` are implemented as explicit "not yet" errors on every connector, reserved for PR6
+- **Instagram `mentions` sync is not implemented.** Meta's mentions webhook field only carries a media_id/comment_id pointer, not the comment text itself — resolving it needs an extra Graph API call this app does not make yet. Comments and DMs (`fetchComments`/`fetchMessages`/the webhook) work; mentions fail closed with a clear reason.
+- **X and TikTok have no comment/mention/DM sync at all**, by design rather than oversight: X's v2 read endpoints and Account Activity API webhooks require a paid API tier this app does not request (it only asks for the free-tier write scopes needed to publish); TikTok's Content Posting API scope doesn't include reading engagement data, and its separate Display API needs an application review this app hasn't completed. Both fail closed with the specific reason rather than silently returning nothing.
+- YouTube inbox sync is pull-only (a **Sync inbox** button in Settings, or `POST /api/inbox/sync`) — there is no YouTube webhook for comments, so nothing arrives automatically the way Instagram's does
 - The publish Worker requires `CRON_SECRET` and a scheduled trigger calling it (Vercel Cron via `vercel.json`, or any other host on the same schedule/auth contract)
+- The Instagram webhook (`/api/webhooks/meta`) requires `META_WEBHOOK_VERIFY_TOKEN` set and the URL subscribed in the Meta App Dashboard; until then it fails closed (503) rather than accepting unverified payloads
 
 ## Security
 
@@ -246,6 +258,7 @@ MVP (`docs/master-plan.md` §4) is code-complete as of PR5. What's left is eithe
 - The `assets` bucket is private; UI previews use one-hour signed URLs
 - Security-definer database helpers use a pinned search path
 - OAuth access/refresh tokens are encrypted (AES-256-GCM) before storage; the table holding them has no client-facing RLS policy at all, so only server code using the service-role key can ever read one
+- The Instagram webhook verifies Meta's `X-Hub-Signature-256` header (HMAC-SHA256 over the raw request body, keyed by `META_APP_SECRET`, compared with a timing-safe check) before processing any payload; an invalid or missing signature is rejected with 401 and never reaches the ingestion path
 
 ## Support
 

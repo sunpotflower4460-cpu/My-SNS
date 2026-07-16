@@ -34,7 +34,8 @@
 - PR3: Scheduling Engine（`publish_jobs.publish_mode`/`revision_id`、`publish_attempts`、Worker `/api/publish/run`） — マージ済み。実コネクタは未接続のため`auto`投稿は`unavailable`で安全に失敗する。
 - PR4: X＋Instagram コネクタ（OAuth接続、トークン暗号化保存`social_account_credentials`、実投稿アダプタ） — マージ済み。Instagramはメディア添付機能が未実装のため投稿時は明示的なエラーで安全に停止する。
 - PR5: YouTube＋TikTok コネクタ＋noteハンドオフ — マージ済み。**MVP完成**（`docs/master-plan.md` §4）。YouTube（assisted）・TikTok（draft）はWorkerが自動実行せず、Queueの「Publish now」で人間が明示的に実行する。YouTube/TikTokもメディア添付が未実装のため投稿時は明示的なエラーで安全に停止する。noteはMarkdownコピー＋手動完了記録で完結。
-- 次: PR6 Webhook＋Unified Inbox（MVP後の拡張フェーズ）
+- PR6: Webhook受信＋Unified Inbox — マージ済み（MVP後拡張の第一弾）。Instagramのコメント・DMは署名検証済みWebhook（`/api/webhooks/meta`、`X-Hub-Signature-256`）で自動取り込み。YouTubeは実コメントAPIを使ったプル型「Sync inbox」ボタンで取得。同一イベントの重複取り込みは`inbox_items.external_id`＋ユニークインデックスで防止。X・TikTokのコメント/メンション/DM取得、Instagramのmentions解決（webhookペイロードがテキストを含まない）は、それぞれAPIアクセス階層・追加審査・追加API呼び出しが必要という正直な理由付きで未対応のまま。
+- 次: PR7 Analytics（媒体横断の分析、AI提案と人間修正の差分からの学習）
 
 ## 最後にまとめて行う本人操作
 

@@ -1,4 +1,4 @@
-import type { InboxItem, SocialPlatform } from '@/lib/domain/types'
+import type { InboundInboxEvent, SocialPlatform } from '@/lib/domain/types'
 import type {
   ConnectedAccount,
   ConnectOptions,
@@ -208,20 +208,27 @@ export class InstagramConnectorAdapter implements SocialConnectorAdapter {
     }
   }
 
-  async fetchInbox(): Promise<InboxItem[]> {
-    throw new Error('Instagram inbox sync is not implemented yet (planned for PR6).')
+  // Comments and DMs arrive via webhook push (see src/app/api/webhooks/meta),
+  // not a pull sync — there is no on-demand backfill endpoint implemented in
+  // this app, so these methods exist to fail closed rather than silently
+  // return nothing.
+  async fetchInbox(): Promise<InboundInboxEvent[]> {
+    throw new Error('Instagram inbox items arrive via webhook push (see /api/webhooks/meta) — no pull/backfill endpoint is implemented.')
   }
 
-  async fetchComments(): Promise<InboxItem[]> {
-    throw new Error('Instagram comment sync is not implemented yet (planned for PR6).')
+  async fetchComments(): Promise<InboundInboxEvent[]> {
+    throw new Error('Instagram comments arrive via webhook push (see /api/webhooks/meta) — no pull/backfill endpoint is implemented.')
   }
 
-  async fetchMentions(): Promise<InboxItem[]> {
-    throw new Error('Instagram mention sync is not implemented yet (planned for PR6).')
+  async fetchMentions(): Promise<InboundInboxEvent[]> {
+    // A documented, honest gap: Meta's `mentions` webhook field only carries
+    // a media_id/comment_id pointer, not the comment text itself — resolving
+    // it needs an extra authenticated Graph API call this app does not make.
+    throw new Error('Instagram mention sync is not available: resolving a mention webhook to its comment text requires an extra Graph API call not yet implemented.')
   }
 
-  async fetchMessages(): Promise<InboxItem[]> {
-    throw new Error('Instagram message sync is not implemented yet (planned for PR6).')
+  async fetchMessages(): Promise<InboundInboxEvent[]> {
+    throw new Error('Instagram DMs arrive via webhook push (see /api/webhooks/meta) — no pull/backfill endpoint is implemented.')
   }
 
   generateOpenUrl(_platform: SocialPlatform, handle: string): string {
