@@ -67,8 +67,10 @@ COMMENT ON TABLE public.ai_generations IS
 CREATE TABLE public.draft_revisions (
   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   workspace_id UUID NOT NULL REFERENCES public.workspaces(id) ON DELETE CASCADE,
-  seed_id UUID NOT NULL REFERENCES public.seeds(id) ON DELETE CASCADE,
-  social_draft_id UUID NOT NULL REFERENCES public.social_drafts(id) ON DELETE CASCADE,
+  -- RESTRICT (not CASCADE): a Revision is a permanent approval record. A Seed
+  -- or draft that has one may not be deleted out from under it.
+  seed_id UUID NOT NULL REFERENCES public.seeds(id) ON DELETE RESTRICT,
+  social_draft_id UUID NOT NULL REFERENCES public.social_drafts(id) ON DELETE RESTRICT,
   ai_generation_id UUID REFERENCES public.ai_generations(id) ON DELETE SET NULL,
   channel public.publishing_channel NOT NULL,
   title TEXT,
@@ -106,5 +108,70 @@ CREATE POLICY "Editors can approve draft revisions"
 
 COMMENT ON TABLE public.draft_revisions IS
   'Append-only approval record. The Seed source text is never overwritten by AI; only an approved proposal snapshot is stored here.';
+
+-- ============================================================================
+-- Enforce approve_drafts at the database layer, not just in application code.
+-- The existing "Users can update drafts" policy (see
+-- 20260421000001_rls_policies.sql) lets a contributor update their own draft
+-- row for any column, including status. Without this trigger a contributor
+-- could set status = 'approved' directly (bypassing the app entirely) and
+-- the draft would sit "approved" with no matching Revision.
+-- ============================================================================
+CREATE OR REPLACE FUNCTION public.enforce_draft_approval_permission()
+RETURNS TRIGGER
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = ''
+AS $$
+BEGIN
+  IF NEW.status = 'approved' AND (OLD.status IS DISTINCT FROM 'approved') THEN
+    IF public.get_workspace_role(NEW.workspace_id) NOT IN ('owner', 'admin', 'editor') THEN
+      RAISE EXCEPTION 'Only owner, admin, or editor workspace members can approve a draft';
+    END IF;
+  END IF;
+  RETURN NEW;
+END;
+$$;
+
+CREATE TRIGGER enforce_draft_approval_permission_trigger
+  BEFORE UPDATE ON public.social_drafts
+  FOR EACH ROW EXECUTE FUNCTION public.enforce_draft_approval_permission();
+
+-- ============================================================================
+-- Atomic approve: marks the draft approved and writes its Revision snapshot
+-- in a single statement/transaction. SECURITY INVOKER (the default) so it
+-- still runs as the calling user — the trigger above and the draft_revisions
+-- INSERT policy both still apply; if either rejects the call, nothing
+-- commits, so a draft can never end up "approved" without a Revision.
+-- ============================================================================
+CREATE OR REPLACE FUNCTION public.approve_social_draft(p_draft_id UUID)
+RETURNS public.draft_revisions
+LANGUAGE plpgsql
+AS $$
+DECLARE
+  v_draft public.social_drafts;
+  v_revision public.draft_revisions;
+BEGIN
+  UPDATE public.social_drafts
+  SET status = 'approved'
+  WHERE id = p_draft_id
+  RETURNING * INTO v_draft;
+
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'Draft % was not found or you do not have access to it', p_draft_id;
+  END IF;
+
+  INSERT INTO public.draft_revisions (
+    workspace_id, seed_id, social_draft_id, channel, title, body,
+    hashtags, cta, assumptions, metadata, source, approved_by
+  ) VALUES (
+    v_draft.workspace_id, v_draft.seed_id, v_draft.id, v_draft.channel, v_draft.title, v_draft.draft_text,
+    v_draft.hashtags, v_draft.cta, v_draft.assumptions, v_draft.metadata, v_draft.source, auth.uid()
+  )
+  RETURNING * INTO v_revision;
+
+  RETURN v_revision;
+END;
+$$;
 
 COMMIT;

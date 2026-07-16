@@ -145,10 +145,12 @@ export default function DraftsPage() {
                   const target = generatedDrafts.find((entry) => entry.id === id)
                   if (!target) return
                   void runDraftAction(
-                    () => saveAndApproveDraft(toDraftInput(target)),
+                    async () => {
+                      await saveAndApproveDraft(toDraftInput(target))
+                      setGeneratedDrafts((current) => current.map((entry) => entry.id === id ? { ...entry, status: 'approved' } : entry))
+                    },
                     `Approved ${PUBLISHING_CHANNEL_CONFIG[target.channel].label} draft and recorded a Revision.`,
                   )
-                  setGeneratedDrafts((current) => current.map((entry) => entry.id === id ? { ...entry, status: 'approved' } : entry))
                 } : undefined}
                 onRegenerate={(id) => {
                   if (!selectedSeed) return

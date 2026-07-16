@@ -228,53 +228,38 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     const assetStorage = new SupabaseAssetStorage()
 
     // Shared by approveDraft (an already-saved draft) and saveAndApproveDraft
-    // (a freshly generated, not-yet-saved proposal): persists the draft as
-    // approved, then freezes its content into an immutable Revision. Later
-    // edits to the Seed, Brand Profile, or this draft cannot change what this
-    // recorded — that is the whole point of a Revision.
+    // (a freshly generated, not-yet-saved proposal): ensures the draft exists
+    // as a row, then approves it through the approve_social_draft() Postgres
+    // function, which sets status='approved' and inserts the Revision in one
+    // transaction. A permission-denied trigger or a failed Revision insert
+    // rolls the whole call back — a draft can never end up "approved" with no
+    // Revision, at the database layer, not just in this client code.
     const approveDraftContent = async (
       draft: Omit<SocialDraft, 'id' | 'createdAt' | 'updatedAt'> & { id?: string },
     ): Promise<SocialDraft> => {
       if (!currentWorkspace || !currentUserId) throw new Error('Not ready')
-      // Checked before writing anything: the Revision insert below is RLS-restricted
-      // to owner/admin/editor too, but failing there would leave the draft already
-      // saved as "approved" with no Revision — checked here first so approval is
-      // all-or-nothing instead of a silently broken partial state.
       if (!currentMember || !hasPermission(currentMember.role, 'approve_drafts')) {
         throw new Error('Your role cannot approve drafts.')
       }
 
-      const approved = await draftsRepo.upsertSocialDraft(currentWorkspace.id, {
+      const saved = await draftsRepo.upsertSocialDraft(currentWorkspace.id, {
         ...draft,
-        status: 'approved',
+        status: 'draft',
       })
 
-      await draftRevisionsRepo.createDraftRevision({
-        workspaceId: currentWorkspace.id,
-        seedId: approved.seedId,
-        socialDraftId: approved.id,
-        channel: approved.channel,
-        title: approved.title,
-        body: approved.draftText,
-        hashtags: approved.hashtags,
-        cta: approved.cta,
-        assumptions: approved.assumptions,
-        metadata: approved.metadata,
-        source: approved.source,
-        approvedBy: currentUserId,
-      })
+      await draftRevisionsRepo.approveSocialDraft(saved.id)
 
       await auditRepo.appendAuditLog({
         workspaceId: currentWorkspace.id,
         actorId: currentUserId,
         action: 'draft_revision_approved',
         targetType: 'social_draft',
-        targetId: approved.id,
-        metadata: { channel: approved.channel, source: approved.source },
+        targetId: saved.id,
+        metadata: { channel: saved.channel, source: saved.source },
       })
 
       await refreshWorkspaceData()
-      return approved
+      return { ...saved, status: 'approved' }
     }
 
     return {

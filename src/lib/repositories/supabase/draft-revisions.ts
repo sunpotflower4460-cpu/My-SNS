@@ -39,46 +39,20 @@ function mapRevision(row: DraftRevisionRow): DraftRevision {
   }
 }
 
-export interface CreateDraftRevisionInput {
-  workspaceId: string
-  seedId: string
-  socialDraftId: string
-  aiGenerationId?: string
-  channel: PublishingChannel
-  title?: string
-  body: string
-  hashtags: string[]
-  cta?: string
-  assumptions: string[]
-  metadata: Record<string, unknown>
-  source: DraftSource
-  approvedBy: string
-}
-
-export async function createDraftRevision(input: CreateDraftRevisionInput): Promise<DraftRevision> {
+/**
+ * Approves a draft and writes its Revision snapshot atomically via the
+ * `approve_social_draft` Postgres function: one round trip, one transaction.
+ * If the caller's role cannot approve (enforced by a trigger on
+ * social_drafts, mirrored by the draft_revisions INSERT policy) or the
+ * insert fails for any other reason, the status change itself rolls back —
+ * a draft can never end up "approved" with no Revision.
+ */
+export async function approveSocialDraft(draftId: string): Promise<DraftRevision> {
   const supabase = createClient()
 
-  const { data, error } = await supabase
-    .from('draft_revisions')
-    .insert({
-      workspace_id: input.workspaceId,
-      seed_id: input.seedId,
-      social_draft_id: input.socialDraftId,
-      ai_generation_id: input.aiGenerationId ?? null,
-      channel: input.channel,
-      title: input.title?.trim() || null,
-      body: input.body,
-      hashtags: input.hashtags,
-      cta: input.cta?.trim() || null,
-      assumptions: input.assumptions,
-      metadata: input.metadata,
-      source: input.source,
-      approved_by: input.approvedBy,
-    })
-    .select()
-    .single()
-
+  const { data, error } = await supabase.rpc('approve_social_draft', { p_draft_id: draftId })
   if (error) throw new Error(error.message)
+
   return mapRevision(data as DraftRevisionRow)
 }
 

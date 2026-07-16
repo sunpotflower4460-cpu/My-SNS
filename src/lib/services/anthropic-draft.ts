@@ -193,6 +193,27 @@ export interface AnthropicGenerationResult {
   outputTokens: number
 }
 
+export interface AnthropicUsage {
+  model: string
+  inputTokens: number
+  outputTokens: number
+}
+
+/**
+ * Thrown when the Anthropic call itself succeeded (and was billed) but the
+ * response could not be turned into valid drafts. Carries `usage` so the
+ * caller can still record what was actually spent instead of losing it.
+ */
+export class AnthropicGenerationError extends Error {
+  usage: AnthropicUsage
+
+  constructor(message: string, usage: AnthropicUsage) {
+    super(message)
+    this.name = 'AnthropicGenerationError'
+    this.usage = usage
+  }
+}
+
 export async function generateChannelDraftsWithAnthropic(
   seed: Seed,
   channels: PublishingChannel[],
@@ -224,19 +245,26 @@ export async function generateChannelDraftsWithAnthropic(
     tool_choice: { type: 'tool', name: DRAFT_PROPOSAL_TOOL_NAME },
   })
 
-  const toolUse = response.content.find((block) => block.type === 'tool_use')
-  if (!toolUse || toolUse.type !== 'tool_use') {
-    throw new Error('The model did not call the drafts tool.')
-  }
-
-  const drafts = parseDraftProposals(toolUse.input, seed, channels, tone, length, context)
-
-  return {
-    drafts,
+  const usage: AnthropicUsage = {
     model,
     inputTokens: response.usage.input_tokens,
     outputTokens: response.usage.output_tokens,
   }
+
+  const toolUse = response.content.find((block) => block.type === 'tool_use')
+  if (!toolUse || toolUse.type !== 'tool_use') {
+    throw new AnthropicGenerationError('The model did not call the drafts tool.', usage)
+  }
+
+  let drafts: SocialDraft[]
+  try {
+    drafts = parseDraftProposals(toolUse.input, seed, channels, tone, length, context)
+  } catch (cause) {
+    const message = cause instanceof Error ? cause.message : 'The model returned an unusable response.'
+    throw new AnthropicGenerationError(message, usage)
+  }
+
+  return { drafts, ...usage }
 }
 
 export class AnthropicDraftGeneratorService implements DraftGeneratorService {

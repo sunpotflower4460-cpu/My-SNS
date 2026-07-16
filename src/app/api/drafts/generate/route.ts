@@ -5,8 +5,10 @@ import { recordAiGeneration } from '@/lib/repositories/supabase/ai-generations'
 import { PUBLISHING_CHANNEL_CONFIG } from '@/lib/channels/config'
 import { hasPermission } from '@/lib/permissions'
 import type { PublishingChannel, WorkspaceRole } from '@/lib/domain/types'
+import { CORE_PUBLISHING_CHANNELS } from '@/lib/domain/types'
 import { TemplateDraftGeneratorService } from '@/lib/services/ai-draft'
 import {
+  AnthropicGenerationError,
   calculateGenerationCost,
   generateChannelDraftsWithAnthropic,
   isAnthropicConfigured,
@@ -14,6 +16,7 @@ import {
 
 const VALID_CHANNELS = new Set(Object.keys(PUBLISHING_CHANNEL_CONFIG))
 const VALID_LENGTHS = new Set(['short', 'medium', 'long'])
+const MAX_CHANNELS_PER_REQUEST = CORE_PUBLISHING_CHANNELS.length
 
 interface GenerateRequestBody {
   workspaceId?: string
@@ -38,6 +41,12 @@ export async function POST(request: NextRequest) {
   }
   if (!Array.isArray(channels) || channels.length === 0) {
     return NextResponse.json({ error: 'At least one channel is required.' }, { status: 400 })
+  }
+  if (channels.length > MAX_CHANNELS_PER_REQUEST) {
+    return NextResponse.json(
+      { error: `At most ${MAX_CHANNELS_PER_REQUEST} channels can be generated in one request.` },
+      { status: 400 },
+    )
   }
   const invalidChannels = channels.filter((channel) => !VALID_CHANNELS.has(channel))
   if (invalidChannels.length > 0) {
@@ -131,6 +140,27 @@ export async function POST(request: NextRequest) {
     })
   } catch (cause) {
     const message = cause instanceof Error ? cause.message : 'AI draft generation failed.'
+
+    // The Anthropic call itself may have succeeded (and been billed) even
+    // though the response couldn't be turned into valid drafts. Record what
+    // was actually spent so ai_generations doesn't silently under-report cost.
+    if (cause instanceof AnthropicGenerationError) {
+      try {
+        await recordAiGeneration(supabase, {
+          workspaceId,
+          seedId,
+          channels: typedChannels,
+          model: cause.usage.model,
+          inputTokens: cause.usage.inputTokens,
+          outputTokens: cause.usage.outputTokens,
+          costUsd: calculateGenerationCost(cause.usage.inputTokens, cause.usage.outputTokens),
+          createdBy: user.id,
+        })
+      } catch (recordError) {
+        console.error('Failed to record AI generation usage after a failed generation:', recordError)
+      }
+    }
+
     // Fail closed: no fallback here. Silently substituting templates for a
     // failed AI call would misrepresent them as intentional, reviewed output.
     return NextResponse.json({ error: message }, { status: 502 })
