@@ -94,7 +94,11 @@ export async function listWorkspaceAiGenerations(workspaceId: string, limit = WO
 
 /**
  * Sum of `cost_usd` for this workspace since the start of the current
- * calendar month (server local time) — the basis for PR9's optional
+ * calendar month in UTC (not server local time — `created_at` is a
+ * TIMESTAMPTZ, an instant, so UTC is the only unambiguous boundary; do not
+ * "fix" this to use local getFullYear()/getMonth(), which would make the
+ * budget boundary silently depend on the deploying server's timezone) — the
+ * basis for PR9's optional
  * `ANTHROPIC_MONTHLY_BUDGET_USD` cap. Takes an explicit client because it's
  * called from /api/drafts/generate's request-scoped server client, before
  * the Anthropic call itself, not the browser client the rest of this file

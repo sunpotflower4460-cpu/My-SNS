@@ -23,14 +23,20 @@ CREATE INDEX notifications_workspace_id_idx ON public.notifications (workspace_i
 
 ALTER TABLE public.notifications ENABLE ROW LEVEL SECURITY;
 
+-- Also requires current membership in workspace_id, matching every other
+-- RLS-protected table in this schema (see is_workspace_member() usage
+-- throughout 20260421000001_rls_policies.sql) — without it, a user removed
+-- from a workspace would keep indefinite read access to notification
+-- content (including truncated publish-failure error text) from a
+-- workspace they no longer belong to, since user_id alone never changes.
 CREATE POLICY "Users can read their own notifications"
   ON public.notifications FOR SELECT
-  USING (user_id = auth.uid());
+  USING (user_id = auth.uid() AND is_workspace_member(workspace_id));
 
 CREATE POLICY "Users can mark their own notifications read"
   ON public.notifications FOR UPDATE
-  USING (user_id = auth.uid())
-  WITH CHECK (user_id = auth.uid());
+  USING (user_id = auth.uid() AND is_workspace_member(workspace_id))
+  WITH CHECK (user_id = auth.uid() AND is_workspace_member(workspace_id));
 
 -- Deliberately allows inserting a notification for *any* user_id, not just
 -- auth.uid() — this table exists specifically to notify someone else (an
