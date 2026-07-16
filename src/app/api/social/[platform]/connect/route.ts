@@ -17,15 +17,15 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
   const settingsUrl = new URL('/app/settings', process.env.NEXT_PUBLIC_APP_URL?.trim() || request.nextUrl.origin)
 
   if (!workspaceId) {
-    settingsUrl.searchParams.set('error', 'A workspace is required to connect an account.')
+    settingsUrl.searchParams.set('error', 'アカウントを接続するにはワークスペースが必要です。')
     return NextResponse.redirect(settingsUrl)
   }
   if (!isConnectablePlatform(platform)) {
-    settingsUrl.searchParams.set('error', `${platform} cannot be connected yet.`)
+    settingsUrl.searchParams.set('error', `${platform}はまだ接続できません。`)
     return NextResponse.redirect(settingsUrl)
   }
   if (!isPlatformConfigured(platform)) {
-    settingsUrl.searchParams.set('error', `${platform} is not configured on this deployment yet.`)
+    settingsUrl.searchParams.set('error', `${platform}はこの環境ではまだ設定されていません。`)
     return NextResponse.redirect(settingsUrl)
   }
 
@@ -34,7 +34,7 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
     data: { user },
   } = await supabase.auth.getUser()
   if (!user) {
-    settingsUrl.searchParams.set('error', 'Please sign in first.')
+    settingsUrl.searchParams.set('error', '先にログインしてください。')
     return NextResponse.redirect(settingsUrl)
   }
 
@@ -47,7 +47,7 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
 
   const role = member?.role as WorkspaceRole | undefined
   if (!role || !hasPermission(role, 'manage_social_accounts')) {
-    settingsUrl.searchParams.set('error', 'Your role cannot connect social accounts.')
+    settingsUrl.searchParams.set('error', 'あなたの役割ではSNSアカウントを接続できません。')
     return NextResponse.redirect(settingsUrl)
   }
 
@@ -64,7 +64,7 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
       createdBy: user.id,
     })
   } catch (cause) {
-    settingsUrl.searchParams.set('error', cause instanceof Error ? cause.message : 'Unable to start the connection.')
+    settingsUrl.searchParams.set('error', cause instanceof Error ? cause.message : '接続を開始できませんでした。')
     return NextResponse.redirect(settingsUrl)
   }
 

@@ -24,12 +24,12 @@ export async function POST(request: NextRequest) {
   try {
     body = await request.json()
   } catch {
-    return NextResponse.json({ error: 'Invalid JSON body.' }, { status: 400 })
+    return NextResponse.json({ error: 'リクエストの形式が正しくありません。' }, { status: 400 })
   }
 
   const { workspaceId, platform } = body
   if (!workspaceId || !platform) {
-    return NextResponse.json({ error: 'workspaceId and platform are required.' }, { status: 400 })
+    return NextResponse.json({ error: 'workspaceIdとplatformは必須です。' }, { status: 400 })
   }
 
   const supabase = await createClient()
@@ -37,7 +37,7 @@ export async function POST(request: NextRequest) {
     data: { user },
   } = await supabase.auth.getUser()
   if (!user) {
-    return NextResponse.json({ error: 'Not authenticated.' }, { status: 401 })
+    return NextResponse.json({ error: 'ログインしていません。' }, { status: 401 })
   }
 
   const { data: member } = await supabase
@@ -49,7 +49,7 @@ export async function POST(request: NextRequest) {
 
   const role = member?.role as WorkspaceRole | undefined
   if (!role || !hasPermission(role, 'manage_social_accounts')) {
-    return NextResponse.json({ error: 'Not permitted to sync inbox items in this workspace.' }, { status: 403 })
+    return NextResponse.json({ error: 'このワークスペースで受信箱を同期する権限がありません。' }, { status: 403 })
   }
 
   const serviceClient = createServiceClient()
@@ -58,10 +58,10 @@ export async function POST(request: NextRequest) {
   try {
     credentials = await resolveCredentials(serviceClient, workspaceId, platform)
   } catch (cause) {
-    return NextResponse.json({ error: cause instanceof Error ? cause.message : 'Unable to resolve credentials.' }, { status: 502 })
+    return NextResponse.json({ error: cause instanceof Error ? cause.message : '認証情報を取得できませんでした。' }, { status: 502 })
   }
   if (!credentials) {
-    return NextResponse.json({ error: `No connected ${platform} account for this workspace.` }, { status: 400 })
+    return NextResponse.json({ error: `このワークスペースには接続済みの${platform}アカウントがありません。` }, { status: 400 })
   }
 
   try {
@@ -74,6 +74,6 @@ export async function POST(request: NextRequest) {
     const ingested = await upsertInboxItems(serviceClient, workspaceId, events)
     return NextResponse.json({ ingested })
   } catch (cause) {
-    return NextResponse.json({ error: cause instanceof Error ? cause.message : 'Sync failed.' }, { status: 502 })
+    return NextResponse.json({ error: cause instanceof Error ? cause.message : '同期に失敗しました。' }, { status: 502 })
   }
 }

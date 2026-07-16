@@ -12,13 +12,21 @@ import { formatRevisionForNote } from '@/lib/services/note-handoff'
 import type { PublishJob, PublishJobStatus } from '@/lib/domain/types'
 
 const STATUS_FILTERS: Array<{ label: string; value: PublishJobStatus | 'all' }> = [
-  { label: 'All', value: 'all' },
-  { label: 'Scheduled', value: 'scheduled' },
-  { label: 'Published', value: 'published' },
-  { label: 'Failed', value: 'failed' },
-  { label: 'Draft', value: 'draft' },
-  { label: 'Cancelled', value: 'cancelled' },
+  { label: 'すべて', value: 'all' },
+  { label: '予約済み', value: 'scheduled' },
+  { label: '公開済み', value: 'published' },
+  { label: '失敗', value: 'failed' },
+  { label: '下書き', value: 'draft' },
+  { label: 'キャンセル済み', value: 'cancelled' },
 ]
+
+const PUBLISH_MODE_LABELS: Record<string, string> = {
+  auto: '自動',
+  assisted: '要確認',
+  draft: '下書き',
+  manual: '手動',
+  owned: '自社媒体',
+}
 
 const ACTIVE_STATUSES: PublishJobStatus[] = ['scheduled', 'draft', 'failed']
 
@@ -41,10 +49,10 @@ export default function QueuePage() {
     setBusyJobId(jobId)
     try {
       await retryQueueJob(jobId)
-      setFeedback('Queue item moved back to scheduled.')
+      setFeedback('公開キューの項目を予約済みに戻しました。')
       setError('')
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : 'Unable to retry queue item.')
+      setError(cause instanceof Error ? cause.message : '再試行できませんでした。')
       setFeedback('')
     } finally {
       setBusyJobId(null)
@@ -55,10 +63,10 @@ export default function QueuePage() {
     setBusyJobId(jobId)
     try {
       await cancelQueueJob(jobId)
-      setFeedback('Queue item cancelled.')
+      setFeedback('公開キューの項目をキャンセルしました。')
       setError('')
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : 'Unable to cancel queue item.')
+      setError(cause instanceof Error ? cause.message : 'キャンセルできませんでした。')
       setFeedback('')
     } finally {
       setBusyJobId(null)
@@ -66,14 +74,14 @@ export default function QueuePage() {
   }
 
   const handleCompleteManually = async (jobId: string) => {
-    const externalUrl = window.prompt('Optional: paste the published URL for your records.')?.trim() || undefined
+    const externalUrl = window.prompt('任意：記録用に、公開されたURLを貼り付けてください。')?.trim() || undefined
     setBusyJobId(jobId)
     try {
       await completeManualPublish(jobId, externalUrl)
-      setFeedback('Marked as posted.')
+      setFeedback('投稿済みにしました。')
       setError('')
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : 'Unable to record this as posted.')
+      setError(cause instanceof Error ? cause.message : '投稿済みとして記録できませんでした。')
       setFeedback('')
     } finally {
       setBusyJobId(null)
@@ -84,10 +92,10 @@ export default function QueuePage() {
     setBusyJobId(jobId)
     try {
       const result = await triggerPublishJob(jobId)
-      setFeedback(result.success ? 'Published.' : 'Publish attempt failed — see the error below.')
+      setFeedback(result.success ? '公開しました。' : '公開に失敗しました。下記のエラーをご確認ください。')
       setError('')
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : 'Unable to publish this job.')
+      setError(cause instanceof Error ? cause.message : '公開できませんでした。')
       setFeedback('')
     } finally {
       setBusyJobId(null)
@@ -99,12 +107,12 @@ export default function QueuePage() {
     setBusyJobId(job.id)
     try {
       const revision = await getDraftRevisionById(currentWorkspace.id, job.revisionId)
-      if (!revision) throw new Error('Could not find the approved content for this job.')
+      if (!revision) throw new Error('この項目の承認済みコンテンツが見つかりませんでした。')
       await navigator.clipboard.writeText(formatRevisionForNote(revision))
-      setFeedback('Copied — paste it into note.com, then Mark as posted once it is live.')
+      setFeedback('コピーしました。note.comに貼り付けて公開したら、「投稿済みにする」を押してください。')
       setError('')
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : 'Unable to copy this draft.')
+      setError(cause instanceof Error ? cause.message : 'この下書きをコピーできませんでした。')
       setFeedback('')
     } finally {
       setBusyJobId(null)
@@ -113,7 +121,7 @@ export default function QueuePage() {
 
   return (
     <div>
-      <PageHeader title="Publish Queue" description="Track scheduled, failed, and draft publish jobs in this workspace." />
+      <PageHeader title="公開キュー" description="このワークスペースの予約・失敗・下書き状態の投稿ジョブを確認できます。" />
 
       {(feedback || error) && (
         <div className={`mb-5 rounded-2xl px-4 py-3 text-sm ${error ? 'border border-red-200 bg-red-50 text-red-700' : 'border border-green-200 bg-green-50 text-green-700'}`}>
@@ -134,7 +142,7 @@ export default function QueuePage() {
       </div>
 
       {filtered.length === 0 ? (
-        <EmptyState title="No jobs found" description="Try a different filter or approve a channel draft for scheduling later." />
+        <EmptyState title="該当するジョブがありません" description="フィルターを変えるか、媒体の下書きを承認して後で予約してください。" />
       ) : (
         <div className="overflow-hidden rounded-[2rem] border border-stone-200 bg-white shadow-sm shadow-stone-100/80">
           <div className="divide-y divide-stone-100">
@@ -145,24 +153,24 @@ export default function QueuePage() {
                 <div className="flex items-center gap-3">
                   <ChannelBadge channel={job.channel} />
                   <StatusBadge status={job.status} />
-                  <span className="rounded-full border border-stone-200 bg-stone-50 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.14em] text-stone-500">{job.publishMode}</span>
+                  <span className="rounded-full border border-stone-200 bg-stone-50 px-2.5 py-1 text-[11px] font-semibold tracking-wide text-stone-500">{PUBLISH_MODE_LABELS[job.publishMode] ?? job.publishMode}</span>
                 </div>
                 <div className="min-w-0 flex-1">
                   <p className="truncate text-sm font-medium text-gray-900">{getSeedTitle(job.seedId)}</p>
                   <p className="mt-1 text-xs text-gray-500">
                     {job.status === 'failed'
-                      ? 'Needs retry or cancellation'
+                      ? 'エラーが発生しました。再試行するか、キャンセルしてください。'
                       : job.status === 'cancelled'
-                        ? 'Removed from the active queue'
+                        ? '公開キューから除外されています'
                         : job.status === 'published'
-                          ? job.publishedAt ? `Published: ${new Date(job.publishedAt).toLocaleString()}` : 'Published'
+                          ? job.publishedAt ? `公開日時: ${new Date(job.publishedAt).toLocaleString('ja-JP')}` : '公開済み'
                           : job.publishMode === 'manual'
-                            ? 'Waiting for you to post it and record completion'
+                            ? 'ご自身で投稿し、「投稿済みにする」から完了を記録してください'
                             : job.publishMode === 'assisted' || job.publishMode === 'draft'
-                              ? 'Needs a manual "Publish now" — not picked up automatically'
+                              ? '自動では公開されません。「今すぐ公開」を押して手動で公開してください'
                               : job.scheduledAt
-                                ? `Scheduled: ${new Date(job.scheduledAt).toLocaleString()}`
-                                : 'Not scheduled yet'}
+                                ? `予約日時: ${new Date(job.scheduledAt).toLocaleString('ja-JP')}`
+                                : 'まだ予約されていません'}
                   </p>
                   {job.errorMessage && <p className="mt-2 text-xs text-red-500">{job.errorMessage}</p>}
                 </div>
@@ -173,7 +181,7 @@ export default function QueuePage() {
                       disabled={busyJobId === job.id}
                       className="rounded-2xl border border-stone-200 px-3 py-2 text-xs font-medium text-gray-600 transition hover:bg-stone-50 disabled:cursor-wait disabled:opacity-50"
                     >
-                      Copy for note.com
+                      note.com用にコピー
                     </button>
                   )}
                   {canManageQueue && (job.publishMode === 'assisted' || job.publishMode === 'draft') && isActive && (
@@ -182,7 +190,7 @@ export default function QueuePage() {
                       disabled={busyJobId === job.id}
                       className="rounded-2xl bg-violet-600 px-3 py-2 text-xs font-medium text-white transition hover:bg-violet-700 disabled:cursor-wait disabled:opacity-50"
                     >
-                      Publish now
+                      今すぐ公開
                     </button>
                   )}
                   {canManageQueue && isActive && job.publishMode !== 'auto' && (
@@ -191,7 +199,7 @@ export default function QueuePage() {
                       disabled={busyJobId === job.id}
                       className="rounded-2xl border border-emerald-200 px-3 py-2 text-xs font-medium text-emerald-700 transition hover:bg-emerald-50 disabled:cursor-wait disabled:opacity-50"
                     >
-                      Mark as posted
+                      投稿済みにする
                     </button>
                   )}
                   {canManageQueue && job.status === 'failed' && job.publishMode === 'auto' && (
@@ -200,7 +208,7 @@ export default function QueuePage() {
                       disabled={busyJobId === job.id}
                       className="rounded-2xl border border-violet-200 px-3 py-2 text-xs font-medium text-violet-700 transition hover:bg-violet-50 disabled:cursor-wait disabled:opacity-50"
                     >
-                      Retry
+                      再試行
                     </button>
                   )}
                   {canManageQueue && isActive && (
@@ -209,7 +217,7 @@ export default function QueuePage() {
                       disabled={busyJobId === job.id}
                       className="rounded-2xl border border-stone-200 px-3 py-2 text-xs font-medium text-gray-600 transition hover:bg-stone-50 hover:text-red-600 disabled:cursor-wait disabled:opacity-50"
                     >
-                      Cancel
+                      キャンセル
                     </button>
                   )}
                 </div>

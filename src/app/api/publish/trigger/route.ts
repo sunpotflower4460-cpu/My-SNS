@@ -26,12 +26,12 @@ export async function POST(request: NextRequest) {
   try {
     body = await request.json()
   } catch {
-    return NextResponse.json({ error: 'Invalid JSON body.' }, { status: 400 })
+    return NextResponse.json({ error: 'リクエストの形式が正しくありません。' }, { status: 400 })
   }
 
   const { workspaceId, jobId } = body
   if (!workspaceId || !jobId) {
-    return NextResponse.json({ error: 'workspaceId and jobId are required.' }, { status: 400 })
+    return NextResponse.json({ error: 'workspaceIdとjobIdは必須です。' }, { status: 400 })
   }
 
   const supabase = await createClient()
@@ -39,7 +39,7 @@ export async function POST(request: NextRequest) {
     data: { user },
   } = await supabase.auth.getUser()
   if (!user) {
-    return NextResponse.json({ error: 'Not authenticated.' }, { status: 401 })
+    return NextResponse.json({ error: 'ログインしていません。' }, { status: 401 })
   }
 
   const { data: member } = await supabase
@@ -51,7 +51,7 @@ export async function POST(request: NextRequest) {
 
   const role = member?.role as WorkspaceRole | undefined
   if (!role || !hasPermission(role, 'manage_queue')) {
-    return NextResponse.json({ error: 'Not permitted to publish in this workspace.' }, { status: 403 })
+    return NextResponse.json({ error: 'このワークスペースで公開する権限がありません。' }, { status: 403 })
   }
 
   // RLS-scoped to the caller's own workspace even though the rest of this
@@ -64,13 +64,13 @@ export async function POST(request: NextRequest) {
     .single()
 
   if (jobError || !job) {
-    return NextResponse.json({ error: 'Job not found.' }, { status: 404 })
+    return NextResponse.json({ error: 'ジョブが見つかりません。' }, { status: 404 })
   }
   if (job.publish_mode === 'manual' || job.publish_mode === 'owned') {
-    return NextResponse.json({ error: `${job.publish_mode} jobs are completed by hand, not triggered.` }, { status: 400 })
+    return NextResponse.json({ error: `${job.publish_mode}のジョブは手動で完了させるものです（自動実行の対象外です）。` }, { status: 400 })
   }
   if (job.status !== 'scheduled' && job.status !== 'draft' && job.status !== 'failed') {
-    return NextResponse.json({ error: `Job is already ${job.status}.` }, { status: 400 })
+    return NextResponse.json({ error: `このジョブはすでに${job.status}の状態です。` }, { status: 400 })
   }
 
   const serviceClient = createServiceClient()
@@ -85,7 +85,7 @@ export async function POST(request: NextRequest) {
 
   if (result.skipped) {
     return NextResponse.json(
-      { ...result, error: 'Already being published right now (by another admin or Worker run) — try again shortly.' },
+      { ...result, error: 'ちょうど別の管理者またはWorkerによって公開処理中です。しばらくしてからもう一度お試しください。' },
       { status: 409 },
     )
   }

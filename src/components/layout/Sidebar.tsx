@@ -23,7 +23,7 @@ export default function Sidebar({ workspace, user }: SidebarProps) {
           </div>
           <div className="min-w-0">
             <p className="truncate text-sm font-semibold text-gray-900">{workspace.name}</p>
-            <p className="text-xs text-gray-500">Quiet creator workspace</p>
+            <p className="text-xs text-gray-500">落ち着いて発信できるワークスペース</p>
           </div>
         </div>
       </div>
@@ -43,7 +43,7 @@ export default function Sidebar({ workspace, user }: SidebarProps) {
             >
               <span className="text-base leading-none">{item.icon}</span>
               <span className="flex-1">{item.label}</span>
-              {isActive && <span className="text-xs font-semibold uppercase tracking-[0.18em]">Now</span>}
+              {isActive && <span className="text-xs font-semibold tracking-[0.1em]">表示中</span>}
             </Link>
           )
         })}

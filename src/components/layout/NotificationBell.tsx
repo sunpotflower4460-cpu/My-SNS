@@ -17,11 +17,11 @@ function targetHref(notification: Notification): string {
 
 function relativeTime(iso: string): string {
   const minutes = Math.round((Date.now() - new Date(iso).getTime()) / 60_000)
-  if (minutes < 1) return 'just now'
-  if (minutes < 60) return `${minutes}m ago`
+  if (minutes < 1) return 'たった今'
+  if (minutes < 60) return `${minutes}分前`
   const hours = Math.round(minutes / 60)
-  if (hours < 24) return `${hours}h ago`
-  return `${Math.round(hours / 24)}d ago`
+  if (hours < 24) return `${hours}時間前`
+  return `${Math.round(hours / 24)}日前`
 }
 
 export default function NotificationBell() {
@@ -38,7 +38,7 @@ export default function NotificationBell() {
     <div className="relative">
       <button
         onClick={() => setIsOpen((open) => !open)}
-        aria-label="Notifications"
+        aria-label="通知"
         className="relative rounded-xl border border-stone-200 bg-white p-2.5 text-gray-600 transition hover:bg-stone-50"
       >
         🔔
@@ -51,19 +51,19 @@ export default function NotificationBell() {
 
       {isOpen && (
         <>
-          <button aria-label="Close notifications" onClick={() => setIsOpen(false)} className="fixed inset-0 z-30 cursor-default" />
+          <button aria-label="通知を閉じる" onClick={() => setIsOpen(false)} className="fixed inset-0 z-30 cursor-default" />
           <div className="absolute right-0 z-40 mt-2 w-80 max-w-[90vw] rounded-2xl border border-stone-200 bg-white shadow-xl">
             <div className="flex items-center justify-between border-b border-stone-100 px-4 py-3">
-              <p className="text-sm font-semibold text-gray-900">Notifications</p>
+              <p className="text-sm font-semibold text-gray-900">通知</p>
               {unreadCount > 0 && (
                 <button onClick={() => void markAllNotificationsRead()} className="text-xs font-medium text-violet-600 hover:text-violet-800">
-                  Mark all read
+                  すべて既読にする
                 </button>
               )}
             </div>
             <div className="max-h-96 overflow-y-auto">
               {notifications.length === 0 ? (
-                <p className="px-4 py-8 text-center text-sm text-gray-400">Nothing yet.</p>
+                <p className="px-4 py-8 text-center text-sm text-gray-400">通知はまだありません。</p>
               ) : (
                 notifications.map((notification) => (
                   <Link

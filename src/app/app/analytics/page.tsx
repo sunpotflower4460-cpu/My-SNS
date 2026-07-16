@@ -12,15 +12,15 @@ import { WORKSPACE_AI_GENERATIONS_LIMIT } from '@/lib/repositories/supabase/ai-g
 import type { PostMetrics, PublishFailureReason, PublishingChannel } from '@/lib/domain/types'
 
 const FAILURE_REASON_LABELS: Record<PublishFailureReason, string> = {
-  auth: 'Auth / token',
-  ratelimit: 'Rate limited',
-  validation: 'Validation',
-  network: 'Network',
-  unavailable: 'Connector unavailable',
+  auth: '認証 / トークン',
+  ratelimit: 'レート制限',
+  validation: '検証エラー',
+  network: 'ネットワーク',
+  unavailable: 'コネクタが利用できません',
 }
 
 function formatCost(usd: number): string {
-  return usd > 0 ? `$${usd.toFixed(usd < 1 ? 4 : 2)}` : '$0 (no cost rate set)'
+  return usd > 0 ? `$${usd.toFixed(usd < 1 ? 4 : 2)}` : '$0（コスト単価未設定）'
 }
 
 type MetricsState = { status: 'loading' } | { status: 'loaded'; metrics: PostMetrics } | { status: 'error'; message: string }
@@ -98,40 +98,40 @@ export default function AnalyticsPage() {
       const metrics = await fetchPostMetrics(jobId)
       setMetricsByJob((prev) => ({ ...prev, [jobId]: { status: 'loaded', metrics } }))
     } catch (cause) {
-      setMetricsByJob((prev) => ({ ...prev, [jobId]: { status: 'error', message: cause instanceof Error ? cause.message : 'Unable to fetch metrics.' } }))
+      setMetricsByJob((prev) => ({ ...prev, [jobId]: { status: 'error', message: cause instanceof Error ? cause.message : 'メトリクスを取得できませんでした。' } }))
     }
   }
 
   return (
     <div>
       <PageHeader
-        title="Analytics"
-        description={`How publishing and AI proposals are actually going in ${currentWorkspace?.name ?? 'this workspace'} — derived from real attempt records, not estimates.`}
+        title="分析"
+        description={`${currentWorkspace?.name ?? 'このワークスペース'}における公開とAI提案の実際の状況です — 推定値ではなく、実際の試行記録に基づいています。`}
       />
 
       {isTruncated && (
         <div className="mb-6 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
-          This workspace has more history than these stats cover — figures below reflect only the most recent activity, not the complete all-time record.
+          このワークスペースには、これらの統計が対象とする範囲より多くの履歴があります — 以下の数値は直近の活動のみを反映したものであり、全期間の完全な記録ではありません。
         </div>
       )}
 
       <div className="mb-8 grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        <StatCard label="Publish success rate" value={successRate === null ? '—' : `${successRate}%`} icon="✅" trend={`${successAttempts.length} of ${totalAttempts} attempts`} />
-        <StatCard label="AI generation calls" value={aiTotals.totalCalls} icon="🤖" trend={`${aiTotals.totalTokens.toLocaleString()} tokens total`} />
-        <StatCard label="AI cost so far" value={formatCost(aiTotals.totalCost)} icon="💰" />
+        <StatCard label="公開成功率" value={successRate === null ? '—' : `${successRate}%`} icon="✅" trend={`${totalAttempts}件中${successAttempts.length}件成功`} />
+        <StatCard label="AI生成の呼び出し回数" value={aiTotals.totalCalls} icon="🤖" trend={`合計${aiTotals.totalTokens.toLocaleString()}トークン`} />
+        <StatCard label="AIコスト（累計）" value={formatCost(aiTotals.totalCost)} icon="💰" />
         <StatCard
-          label="AI proposals edited"
+          label="AI提案の編集率"
           value={editStats.total === 0 ? '—' : `${Math.round((editStats.edited / editStats.total) * 100)}%`}
           icon="✏️"
-          trend={editStats.total === 0 ? 'No AI-sourced approvals yet' : `${editStats.edited} of ${editStats.total} approved AI drafts changed`}
+          trend={editStats.total === 0 ? 'まだAI提案由来の承認がありません' : `承認済みAIドラフト${editStats.total}件中${editStats.edited}件を編集`}
         />
       </div>
 
       <div className="grid gap-6 xl:grid-cols-2">
         <section className="rounded-[2rem] border border-stone-200 bg-white p-6 shadow-sm shadow-stone-100/80">
-          <h2 className="mb-4 text-base font-semibold text-gray-900">Publishing by channel</h2>
+          <h2 className="mb-4 text-base font-semibold text-gray-900">媒体別の公開状況</h2>
           {perChannel.length === 0 ? (
-            <EmptyState title="No publish attempts yet" description="Once jobs run (Worker or Publish now), success/failure per channel shows up here." />
+            <EmptyState title="まだ公開の試行がありません" description="ジョブが実行されると（Workerまたは「今すぐ公開」）、媒体ごとの成功・失敗がここに表示されます。" />
           ) : (
             <div className="space-y-3">
               {perChannel.map(([channel, counts]) => {
@@ -141,12 +141,12 @@ export default function AnalyticsPage() {
                   <div key={channel} className="rounded-2xl border border-stone-100 bg-stone-50 p-4">
                     <div className="flex items-center justify-between gap-3">
                       <ChannelBadge channel={channel} />
-                      <span className="text-sm font-medium text-gray-700">{rate}% success</span>
+                      <span className="text-sm font-medium text-gray-700">成功率{rate}%</span>
                     </div>
                     <div className="mt-2 h-2 overflow-hidden rounded-full bg-stone-200">
                       <div className="h-full rounded-full bg-emerald-500" style={{ width: `${rate}%` }} />
                     </div>
-                    <p className="mt-2 text-xs text-gray-500">{counts.success} succeeded · {counts.failed} failed</p>
+                    <p className="mt-2 text-xs text-gray-500">{counts.success}件成功 · {counts.failed}件失敗</p>
                   </div>
                 )
               })}
@@ -155,9 +155,9 @@ export default function AnalyticsPage() {
         </section>
 
         <section className="rounded-[2rem] border border-stone-200 bg-white p-6 shadow-sm shadow-stone-100/80">
-          <h2 className="mb-4 text-base font-semibold text-gray-900">Failure reasons</h2>
+          <h2 className="mb-4 text-base font-semibold text-gray-900">失敗理由</h2>
           {failureReasonCounts.length === 0 ? (
-            <EmptyState title="No failures recorded" description="Failed publish attempts and why they failed will appear here." icon="🕊️" />
+            <EmptyState title="失敗の記録はありません" description="公開に失敗した試行とその理由がここに表示されます。" icon="🕊️" />
           ) : (
             <div className="space-y-3">
               {failureReasonCounts.map(([reason, count]) => (
@@ -173,11 +173,11 @@ export default function AnalyticsPage() {
 
       <section className="mt-6 rounded-[2rem] border border-stone-200 bg-white p-6 shadow-sm shadow-stone-100/80">
         <div className="mb-4 flex items-center justify-between gap-3">
-          <h2 className="text-base font-semibold text-gray-900">Recently published</h2>
-          <span className="text-xs text-gray-400">Metrics are fetched live, not stored — numbers may lag the platform slightly.</span>
+          <h2 className="text-base font-semibold text-gray-900">最近公開した投稿</h2>
+          <span className="text-xs text-gray-400">メトリクスはその都度取得しており保存されません — 数値はプラットフォーム側の実際の値と多少ずれる場合があります。</span>
         </div>
         {recentPublished.length === 0 ? (
-          <EmptyState title="Nothing published yet" description="Successful publish attempts with a recorded post will appear here." />
+          <EmptyState title="まだ公開された投稿はありません" description="投稿記録のある成功した公開試行がここに表示されます。" />
         ) : (
           <div className="divide-y divide-stone-100">
             {recentPublished.map(({ attempt, job }) => {
@@ -190,15 +190,15 @@ export default function AnalyticsPage() {
                   </div>
                   <div className="min-w-0 flex-1">
                     <p className="truncate text-sm font-medium text-gray-900">{seedTitle}</p>
-                    <p className="mt-1 text-xs text-gray-500">{new Date(attempt.createdAt).toLocaleString()}</p>
+                    <p className="mt-1 text-xs text-gray-500">{new Date(attempt.createdAt).toLocaleString('ja-JP')}</p>
                     {state?.status === 'loaded' && (
                       <p className="mt-1 text-xs text-gray-600">
                         {[
-                          state.metrics.views !== undefined ? `${state.metrics.views.toLocaleString()} views` : null,
-                          state.metrics.likes !== undefined ? `${state.metrics.likes.toLocaleString()} likes` : null,
-                          state.metrics.comments !== undefined ? `${state.metrics.comments.toLocaleString()} comments` : null,
-                          state.metrics.shares !== undefined ? `${state.metrics.shares.toLocaleString()} shares` : null,
-                        ].filter(Boolean).join(' · ') || 'No metrics reported for this post.'}
+                          state.metrics.views !== undefined ? `再生数 ${state.metrics.views.toLocaleString()}` : null,
+                          state.metrics.likes !== undefined ? `いいね数 ${state.metrics.likes.toLocaleString()}` : null,
+                          state.metrics.comments !== undefined ? `コメント数 ${state.metrics.comments.toLocaleString()}` : null,
+                          state.metrics.shares !== undefined ? `シェア数 ${state.metrics.shares.toLocaleString()}` : null,
+                        ].filter(Boolean).join(' · ') || 'この投稿のメトリクスは報告されていません。'}
                       </p>
                     )}
                     {state?.status === 'error' && <p className="mt-1 text-xs text-red-500">{state.message}</p>}
@@ -206,7 +206,7 @@ export default function AnalyticsPage() {
                   <div className="flex items-center gap-2">
                     {attempt.externalUrl && (
                       <a href={attempt.externalUrl} target="_blank" rel="noreferrer" className="rounded-2xl border border-stone-200 px-3 py-2 text-xs font-medium text-gray-600 transition hover:bg-stone-50">
-                        Open post
+                        投稿を開く
                       </a>
                     )}
                     <button
@@ -214,7 +214,7 @@ export default function AnalyticsPage() {
                       disabled={state?.status === 'loading'}
                       className="rounded-2xl bg-violet-600 px-3 py-2 text-xs font-medium text-white transition hover:bg-violet-700 disabled:cursor-wait disabled:opacity-50"
                     >
-                      {state?.status === 'loading' ? 'Loading…' : 'Load metrics'}
+                      {state?.status === 'loading' ? '取得中…' : 'メトリクスを取得'}
                     </button>
                   </div>
                 </div>

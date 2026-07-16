@@ -28,12 +28,12 @@ type PendingAsset = {
 }
 
 const READINESS_LABELS: Record<SeedReadinessField, string> = {
-  title: 'Working title',
-  source: 'Source text or file',
-  goal: 'Purpose',
-  audience: 'Audience (Seed or Brand Profile)',
-  brand_profile: 'Brand Profile',
-  target_channels: 'At least one channel',
+  title: '仮タイトル',
+  source: '原文またはファイル',
+  goal: '目的',
+  audience: '対象読者（シードまたはブランドプロフィール）',
+  brand_profile: 'ブランドプロフィール',
+  target_channels: '配信媒体を1つ以上選択',
 }
 
 function normalizeLines(value: string): string[] {
@@ -123,19 +123,19 @@ export default function NewSeedPage() {
 
   const handleSave = async (status: SeedStatus) => {
     if (!title.trim()) {
-      setError('Add a working title so this Seed remains easy to find.')
+      setError('後で見つけやすいように、仮タイトルを入力してください。')
       return
     }
     if (!sourceText.trim() && assets.length === 0) {
-      setError('Add source text or at least one file. The rest can stay incomplete for now.')
+      setError('原文またはファイルを少なくとも1つ追加してください。それ以外は未入力のままでも構いません。')
       return
     }
     if (!brandProfileId) {
-      setError('Create or select a Brand Profile before saving this Seed.')
+      setError('このシードを保存する前に、ブランドプロフィールを作成または選択してください。')
       return
     }
     if (status === 'ready' && !readiness.isReady) {
-      setError('This Seed is not ready yet. Complete the items in the readiness panel or save it as captured.')
+      setError('このシードはまだ準備完了ではありません。準備状況パネルの項目を満たすか、取り込み済みとして保存してください。')
       return
     }
 
@@ -159,7 +159,7 @@ export default function NewSeedPage() {
       })
       router.push(`/app/seeds/${seed.id}`)
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : 'Unable to save this Seed.')
+      setError(cause instanceof Error ? cause.message : 'このシードを保存できませんでした。')
     } finally {
       setIsSaving(false)
     }
@@ -168,11 +168,11 @@ export default function NewSeedPage() {
   if (brandProfiles.length === 0) {
     return (
       <div>
-        <PageHeader title="New Seed" description="Capture one source and shape it for every channel later." />
+        <PageHeader title="新しいシード" description="1つの素材を取り込み、後から各媒体向けに調整します。" />
         <EmptyState
-          title="Create your Brand Profile first"
-          description="A Seed keeps raw source material separate from your reusable voice, audience, and wording rules."
-          action={<Link href="/app/brand" className="rounded-2xl bg-violet-600 px-4 py-2 text-sm font-medium text-white">Set up Brand Profile</Link>}
+          title="先にブランドプロフィールを作成してください"
+          description="シードは、繰り返し使う声のトーン・対象読者・表記ルールと、生の素材とを切り分けて保持します。"
+          action={<Link href="/app/brand" className="rounded-2xl bg-violet-600 px-4 py-2 text-sm font-medium text-white">ブランドプロフィールを設定</Link>}
         />
       </div>
     )
@@ -181,9 +181,9 @@ export default function NewSeedPage() {
   return (
     <div>
       <PageHeader
-        title="New Seed"
-        description="Add the raw idea, recording, image, or note once. Channel-specific proposals come after review."
-        actions={<Link href="/app/seeds" className="text-sm text-gray-500 hover:text-gray-700">Cancel</Link>}
+        title="新しいシード"
+        description="生のアイデア・録音・画像・メモなどを1つ追加します。媒体ごとの提案はレビュー後に作成されます。"
+        actions={<Link href="/app/seeds" className="text-sm text-gray-500 hover:text-gray-700">キャンセル</Link>}
       />
 
       {error && <div className="mb-5 rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div>}
@@ -192,32 +192,32 @@ export default function NewSeedPage() {
         <section className="space-y-6">
           <div className="rounded-[2rem] border border-stone-200 bg-white p-6 shadow-sm shadow-stone-100/80">
             <div className="mb-5">
-              <p className="text-xs font-semibold uppercase tracking-[0.2em] text-violet-500">1 · Source</p>
-              <h2 className="mt-1 text-lg font-semibold text-gray-900">What do you want to say?</h2>
+              <p className="text-xs font-semibold text-violet-500 tracking-[0.1em]">1・原文</p>
+              <h2 className="mt-1 text-lg font-semibold text-gray-900">何を伝えたいですか？</h2>
             </div>
             <div className="grid gap-4">
               <div>
-                <label className="mb-2 block text-sm font-medium text-gray-700">Working title</label>
-                <input value={title} onChange={(event) => setTitle(event.target.value)} placeholder="A name for this Seed" className="w-full rounded-2xl border border-stone-200 px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-violet-300" />
+                <label className="mb-2 block text-sm font-medium text-gray-700">仮タイトル</label>
+                <input value={title} onChange={(event) => setTitle(event.target.value)} placeholder="このシードの名前" className="w-full rounded-2xl border border-stone-200 px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-violet-300" />
               </div>
               <div>
-                <label className="mb-2 block text-sm font-medium text-gray-700">Raw source text</label>
-                <textarea value={sourceText} onChange={(event) => setSourceText(event.target.value)} rows={8} placeholder="Paste a rough note, transcript, announcement, lyrics context, or anything that must stay true…" className="w-full rounded-2xl border border-stone-200 px-4 py-3 text-sm leading-6 focus:outline-none focus:ring-2 focus:ring-violet-300" />
-                <p className="mt-2 text-xs text-gray-400">Rough is fine. PR2 will propose missing context without overwriting this source.</p>
+                <label className="mb-2 block text-sm font-medium text-gray-700">原文</label>
+                <textarea value={sourceText} onChange={(event) => setSourceText(event.target.value)} rows={8} placeholder="ラフなメモ、文字起こし、告知文、歌詞の背景など、事実として変えたくない内容を貼り付けてください…" className="w-full rounded-2xl border border-stone-200 px-4 py-3 text-sm leading-6 focus:outline-none focus:ring-2 focus:ring-violet-300" />
+                <p className="mt-2 text-xs text-gray-400">粗いままで構いません。不足している文脈はAIが提案しますが、この原文を上書きすることはありません。</p>
               </div>
               <div className="grid gap-4 sm:grid-cols-2">
                 <div>
-                  <label className="mb-2 block text-sm font-medium text-gray-700">Seed kind</label>
+                  <label className="mb-2 block text-sm font-medium text-gray-700">シードの種類</label>
                   <select value={kind} onChange={(event) => setKind(event.target.value as SeedKind)} className="w-full rounded-2xl border border-stone-200 px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-violet-300">
-                    <option value="text">Text</option>
-                    <option value="image">Image</option>
-                    <option value="video">Video</option>
-                    <option value="music">Music / audio</option>
-                    <option value="mixed">Mixed</option>
+                    <option value="text">テキスト</option>
+                    <option value="image">画像</option>
+                    <option value="video">動画</option>
+                    <option value="music">音楽 / 音声</option>
+                    <option value="mixed">複合</option>
                   </select>
                 </div>
                 <div>
-                  <label className="mb-2 block text-sm font-medium text-gray-700">Brand Profile</label>
+                  <label className="mb-2 block text-sm font-medium text-gray-700">ブランドプロフィール</label>
                   <select value={brandProfileId} onChange={(event) => setBrandProfileId(event.target.value)} className="w-full rounded-2xl border border-stone-200 px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-violet-300">
                     {brandProfiles.map((profile) => <option key={profile.id} value={profile.id}>{profile.name}</option>)}
                   </select>
@@ -228,37 +228,37 @@ export default function NewSeedPage() {
 
           <div className="rounded-[2rem] border border-stone-200 bg-white p-6 shadow-sm shadow-stone-100/80">
             <div className="mb-5">
-              <p className="text-xs font-semibold uppercase tracking-[0.2em] text-violet-500">2 · Context</p>
-              <h2 className="mt-1 text-lg font-semibold text-gray-900">Give the editor useful boundaries</h2>
+              <p className="text-xs font-semibold text-violet-500 tracking-[0.1em]">2・文脈</p>
+              <h2 className="mt-1 text-lg font-semibold text-gray-900">編集の役に立つ制約を伝える</h2>
             </div>
             <div className="grid gap-4 sm:grid-cols-2">
               <div>
-                <label className="mb-2 block text-sm font-medium text-gray-700">Purpose</label>
-                <input value={goal} onChange={(event) => setGoal(event.target.value)} placeholder="What should this achieve?" className="w-full rounded-2xl border border-stone-200 px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-violet-300" />
+                <label className="mb-2 block text-sm font-medium text-gray-700">目的</label>
+                <input value={goal} onChange={(event) => setGoal(event.target.value)} placeholder="これで何を達成したいですか？" className="w-full rounded-2xl border border-stone-200 px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-violet-300" />
               </div>
               <div>
-                <label className="mb-2 block text-sm font-medium text-gray-700">Audience override</label>
-                <input value={audience} onChange={(event) => setAudience(event.target.value)} placeholder={selectedBrandProfile?.audience || 'Uses the Brand Profile when blank'} className="w-full rounded-2xl border border-stone-200 px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-violet-300" />
+                <label className="mb-2 block text-sm font-medium text-gray-700">対象読者（上書き）</label>
+                <input value={audience} onChange={(event) => setAudience(event.target.value)} placeholder={selectedBrandProfile?.audience || '未入力時はブランドプロフィールの設定を使用します'} className="w-full rounded-2xl border border-stone-200 px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-violet-300" />
               </div>
               <div>
-                <label className="mb-2 block text-sm font-medium text-gray-700">Key points</label>
-                <textarea value={keyPoints} onChange={(event) => setKeyPoints(event.target.value)} rows={5} placeholder={'One fact per line\nDates, names, links, or details that must stay exact'} className="w-full rounded-2xl border border-stone-200 px-4 py-3 text-sm leading-6 focus:outline-none focus:ring-2 focus:ring-violet-300" />
+                <label className="mb-2 block text-sm font-medium text-gray-700">要点</label>
+                <textarea value={keyPoints} onChange={(event) => setKeyPoints(event.target.value)} rows={5} placeholder={'1行につき1つの事実\n日付・名前・リンクなど、正確さを保つべき情報'} className="w-full rounded-2xl border border-stone-200 px-4 py-3 text-sm leading-6 focus:outline-none focus:ring-2 focus:ring-violet-300" />
               </div>
               <div>
-                <label className="mb-2 block text-sm font-medium text-gray-700">Call to action override</label>
-                <textarea value={callToAction} onChange={(event) => setCallToAction(event.target.value)} rows={5} placeholder={selectedBrandProfile?.defaultCallToAction || 'Optional; uses the Brand Profile when blank'} className="w-full rounded-2xl border border-stone-200 px-4 py-3 text-sm leading-6 focus:outline-none focus:ring-2 focus:ring-violet-300" />
+                <label className="mb-2 block text-sm font-medium text-gray-700">CTA（上書き）</label>
+                <textarea value={callToAction} onChange={(event) => setCallToAction(event.target.value)} rows={5} placeholder={selectedBrandProfile?.defaultCallToAction || '任意項目です。未入力時はブランドプロフィールの設定を使用します'} className="w-full rounded-2xl border border-stone-200 px-4 py-3 text-sm leading-6 focus:outline-none focus:ring-2 focus:ring-violet-300" />
               </div>
             </div>
             <div className="mt-4">
-              <label className="mb-2 block text-sm font-medium text-gray-700">Tags</label>
-              <input value={tags} onChange={(event) => setTags(event.target.value)} placeholder="release, behind-the-scenes" className="w-full rounded-2xl border border-stone-200 px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-violet-300" />
+              <label className="mb-2 block text-sm font-medium text-gray-700">タグ</label>
+              <input value={tags} onChange={(event) => setTags(event.target.value)} placeholder="リリース, 制作の裏側" className="w-full rounded-2xl border border-stone-200 px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-violet-300" />
             </div>
           </div>
 
           <div className="rounded-[2rem] border border-stone-200 bg-white p-6 shadow-sm shadow-stone-100/80">
             <div className="mb-5">
-              <p className="text-xs font-semibold uppercase tracking-[0.2em] text-violet-500">3 · Channels</p>
-              <h2 className="mt-1 text-lg font-semibold text-gray-900">Where should proposals be prepared?</h2>
+              <p className="text-xs font-semibold text-violet-500 tracking-[0.1em]">3・配信媒体</p>
+              <h2 className="mt-1 text-lg font-semibold text-gray-900">どこに向けて提案を準備しますか？</h2>
             </div>
             <div className="grid gap-3 sm:grid-cols-2">
               {CORE_PUBLISHING_CHANNELS.map((channel) => {
@@ -271,7 +271,7 @@ export default function NewSeedPage() {
                       <span className={`h-3 w-3 rounded-full ${selected ? 'bg-violet-500' : 'bg-stone-200'}`} />
                     </div>
                     <p className="mt-3 text-xs leading-5 text-gray-500">{config.description}</p>
-                    {channel === 'note' && <p className="mt-1 text-[11px] font-medium text-emerald-700">Review + copy only</p>}
+                    {channel === 'note' && <p className="mt-1 text-[11px] font-medium text-emerald-700">確認してコピーするのみ</p>}
                   </button>
                 )
               })}
@@ -281,10 +281,10 @@ export default function NewSeedPage() {
           <div className="rounded-[2rem] border border-stone-200 bg-white p-6 shadow-sm shadow-stone-100/80">
             <div className="flex flex-wrap items-center justify-between gap-3">
               <div>
-                <h2 className="text-lg font-semibold text-gray-900">Files</h2>
-                <p className="mt-1 text-sm text-gray-500">Images, video, audio, or reference documents stay private.</p>
+                <h2 className="text-lg font-semibold text-gray-900">ファイル</h2>
+                <p className="mt-1 text-sm text-gray-500">画像・動画・音声・参考資料は非公開で保管されます。</p>
               </div>
-              <button type="button" onClick={() => fileInputRef.current?.click()} className="rounded-2xl border border-stone-200 bg-white px-4 py-2.5 text-sm font-medium text-gray-700 hover:bg-stone-50">Add files</button>
+              <button type="button" onClick={() => fileInputRef.current?.click()} className="rounded-2xl border border-stone-200 bg-white px-4 py-2.5 text-sm font-medium text-gray-700 hover:bg-stone-50">ファイルを追加</button>
               <input ref={fileInputRef} type="file" multiple className="hidden" onChange={(event) => { handleFiles(event.target.files); event.currentTarget.value = '' }} />
             </div>
             {assets.length > 0 && (
@@ -293,7 +293,7 @@ export default function NewSeedPage() {
                   <div key={asset.id} className="flex items-center gap-3 rounded-2xl border border-stone-100 bg-stone-50 p-3">
                     {asset.previewUrl ? <div className="h-12 w-12 rounded-xl bg-cover bg-center" style={{ backgroundImage: `url(${asset.previewUrl})` }} /> : <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-white">📎</div>}
                     <div className="min-w-0 flex-1"><p className="truncate text-sm font-medium text-gray-900">{asset.name}</p><p className="text-xs text-gray-500">{asset.type} · {formatBytes(asset.size)}</p></div>
-                    <button type="button" onClick={() => removeAsset(asset.id)} className="text-xs text-red-500 hover:text-red-700">Remove</button>
+                    <button type="button" onClick={() => removeAsset(asset.id)} className="text-xs text-red-500 hover:text-red-700">削除</button>
                   </div>
                 ))}
               </div>
@@ -304,32 +304,32 @@ export default function NewSeedPage() {
         <aside className="space-y-5 xl:sticky xl:top-6 xl:self-start">
           <div className="rounded-[2rem] border border-stone-200 bg-white p-6 shadow-sm shadow-stone-100/80">
             <div className="flex items-center justify-between gap-3">
-              <h2 className="text-base font-semibold text-gray-900">Seed readiness</h2>
+              <h2 className="text-base font-semibold text-gray-900">シードの準備状況</h2>
               <span className="text-2xl font-semibold text-violet-700">{readiness.score}%</span>
             </div>
             <div className="mt-3 h-2 overflow-hidden rounded-full bg-stone-100"><div className="h-full rounded-full bg-violet-500 transition-all" style={{ width: `${readiness.score}%` }} /></div>
             {readiness.missingFields.length === 0 ? (
-              <p className="mt-4 text-sm leading-6 text-green-700">Ready for reviewed channel proposals.</p>
+              <p className="mt-4 text-sm leading-6 text-green-700">レビュー済みの媒体向け提案を作成できます。</p>
             ) : (
               <div className="mt-4">
-                <p className="text-sm text-gray-600">Still useful to add:</p>
+                <p className="text-sm text-gray-600">追加しておくと役立つ項目:</p>
                 <ul className="mt-2 space-y-2 text-sm text-gray-500">
                   {readiness.missingFields.map((field) => <li key={field}>○ {READINESS_LABELS[field]}</li>)}
                 </ul>
               </div>
             )}
-            <p className="mt-4 border-t border-stone-100 pt-4 text-xs leading-5 text-gray-400">Incomplete Seeds can be saved. The next PR will turn these gaps into visible proposals that you approve.</p>
+            <p className="mt-4 border-t border-stone-100 pt-4 text-xs leading-5 text-gray-400">未完成のままでもシードは保存できます。不足している項目は、後で承認できる提案として表示されます。</p>
           </div>
 
           <div className="rounded-[2rem] border border-violet-100 bg-violet-50 p-6">
-            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-violet-500">Active workspace</p>
+            <p className="text-xs font-semibold text-violet-500 tracking-[0.08em]">現在のワークスペース</p>
             <p className="mt-2 text-sm font-medium text-violet-950">{currentWorkspace?.name}</p>
-            <p className="mt-1 text-xs leading-5 text-violet-700">Brand: {selectedBrandProfile?.name}</p>
+            <p className="mt-1 text-xs leading-5 text-violet-700">ブランド: {selectedBrandProfile?.name}</p>
           </div>
 
           <div className="flex flex-col gap-3">
-            <button type="button" disabled={isSaving} onClick={() => void handleSave('ready')} className="rounded-2xl bg-violet-600 px-4 py-3 text-sm font-medium text-white transition hover:bg-violet-700 disabled:cursor-not-allowed disabled:opacity-60">{isSaving ? 'Saving…' : 'Save as ready'}</button>
-            <button type="button" disabled={isSaving} onClick={() => void handleSave('captured')} className="rounded-2xl border border-stone-200 bg-white px-4 py-3 text-sm font-medium text-gray-700 transition hover:bg-stone-50 disabled:cursor-not-allowed disabled:opacity-60">Save captured</button>
+            <button type="button" disabled={isSaving} onClick={() => void handleSave('ready')} className="rounded-2xl bg-violet-600 px-4 py-3 text-sm font-medium text-white transition hover:bg-violet-700 disabled:cursor-not-allowed disabled:opacity-60">{isSaving ? '保存中…' : '準備完了として保存'}</button>
+            <button type="button" disabled={isSaving} onClick={() => void handleSave('captured')} className="rounded-2xl border border-stone-200 bg-white px-4 py-3 text-sm font-medium text-gray-700 transition hover:bg-stone-50 disabled:cursor-not-allowed disabled:opacity-60">取り込み済みとして保存</button>
           </div>
         </aside>
       </div>

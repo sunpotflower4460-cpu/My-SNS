@@ -279,9 +279,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     const approveDraftContent = async (
       draft: Omit<SocialDraft, 'id' | 'createdAt' | 'updatedAt'> & { id?: string },
     ): Promise<SocialDraft> => {
-      if (!currentWorkspace || !currentUserId) throw new Error('Not ready')
+      if (!currentWorkspace || !currentUserId) throw new Error('準備ができていません')
       if (!currentMember || !hasPermission(currentMember.role, 'approve_drafts')) {
-        throw new Error('Your role cannot approve drafts.')
+        throw new Error('あなたの役割では下書きを承認できません。')
       }
 
       const saved = await draftsRepo.upsertSocialDraft(currentWorkspace.id, {
@@ -328,7 +328,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       refreshWorkspaceData,
 
       createSeedItem: async (input) => {
-        if (!currentWorkspace || !currentUserId) throw new Error('Not ready')
+        if (!currentWorkspace || !currentUserId) throw new Error('準備ができていません')
 
         const seed = await seedsRepo.createSeed({
           workspaceId: currentWorkspace.id,
@@ -376,7 +376,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       },
 
       updateSeedItem: async (seedId, patch) => {
-        if (!currentWorkspace || !currentUserId) throw new Error('Not ready')
+        if (!currentWorkspace || !currentUserId) throw new Error('準備ができていません')
 
         const seed = await seedsRepo.updateSeed(currentWorkspace.id, seedId, patch)
 
@@ -416,7 +416,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       },
 
       inviteMember: async (email, role) => {
-        if (!currentWorkspace || !currentUserId) throw new Error('Not ready')
+        if (!currentWorkspace || !currentUserId) throw new Error('準備ができていません')
 
         const invitation = await workspacesRepo.inviteWorkspaceMember({
           workspaceId: currentWorkspace.id,
@@ -439,7 +439,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       },
 
       changeMemberRole: async (userId, role) => {
-        if (!currentWorkspace || !currentUserId) throw new Error('Not ready')
+        if (!currentWorkspace || !currentUserId) throw new Error('準備ができていません')
 
         const member = await workspacesRepo.updateWorkspaceMemberRole({
           workspaceId: currentWorkspace.id,
@@ -461,7 +461,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       },
 
       removeMember: async (userId) => {
-        if (!currentWorkspace || !currentUserId) throw new Error('Not ready')
+        if (!currentWorkspace || !currentUserId) throw new Error('準備ができていません')
 
         await workspacesRepo.removeWorkspaceMember({
           workspaceId: currentWorkspace.id,
@@ -481,7 +481,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       },
 
       saveWorkspaceSettings: async (name, slug) => {
-        if (!currentWorkspace || !currentUserId) throw new Error('Not ready')
+        if (!currentWorkspace || !currentUserId) throw new Error('準備ができていません')
 
         const updated = await workspacesRepo.updateWorkspaceDetails({
           workspaceId: currentWorkspace.id,
@@ -503,9 +503,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       },
 
       disconnectSocialAccount: async (accountId) => {
-        if (!currentWorkspace || !currentUserId) throw new Error('Not ready')
+        if (!currentWorkspace || !currentUserId) throw new Error('準備ができていません')
         if (!currentMember || !hasPermission(currentMember.role, 'manage_social_accounts')) {
-          throw new Error('Your role cannot manage social accounts.')
+          throw new Error('あなたの役割ではSNSアカウントを管理できません。')
         }
 
         // Deleting the stored credential requires the service-role client,
@@ -517,16 +517,16 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           body: JSON.stringify({ workspaceId: currentWorkspace.id, accountId }),
         })
         const payload = await response.json()
-        if (!response.ok) throw new Error(payload.error ?? 'Unable to disconnect this account.')
+        if (!response.ok) throw new Error(payload.error ?? 'このアカウントの接続を解除できませんでした。')
 
         await refreshWorkspaceData()
         return payload.account as SocialAccount
       },
 
       syncInboxFromPlatform: async (platform) => {
-        if (!currentWorkspace) throw new Error('Not ready')
+        if (!currentWorkspace) throw new Error('準備ができていません')
         if (!currentMember || !hasPermission(currentMember.role, 'manage_social_accounts')) {
-          throw new Error('Your role cannot sync inbox items.')
+          throw new Error('あなたの役割では受信箱を同期できません。')
         }
 
         // Fetching from the platform requires the decrypted access token, so
@@ -538,14 +538,14 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           body: JSON.stringify({ workspaceId: currentWorkspace.id, platform }),
         })
         const payload = await response.json()
-        if (!response.ok) throw new Error(payload.error ?? 'Unable to sync inbox items.')
+        if (!response.ok) throw new Error(payload.error ?? '受信箱を同期できませんでした。')
 
         await refreshWorkspaceData()
         return payload as { ingested: number }
       },
 
       saveDefaultBrandProfile: async (input) => {
-        if (!currentWorkspace || !currentUserId) throw new Error('Not ready')
+        if (!currentWorkspace || !currentUserId) throw new Error('準備ができていません')
 
         const currentDefault = brandProfiles.find((profile) => profile.isDefault) ?? brandProfiles[0]
         const saved = await brandProfilesRepo.saveBrandProfile({
@@ -569,7 +569,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       },
 
       toggleInboxRead: async (inboxItemId) => {
-        if (!currentWorkspace || !currentUserId) throw new Error('Not ready')
+        if (!currentWorkspace || !currentUserId) throw new Error('準備ができていません')
 
         const current = inboxItems.find((item) => item.id === inboxItemId)
         const updated = await inboxRepo.updateInboxItem(currentWorkspace.id, inboxItemId, {
@@ -590,7 +590,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       },
 
       toggleInboxStar: async (inboxItemId) => {
-        if (!currentWorkspace || !currentUserId) throw new Error('Not ready')
+        if (!currentWorkspace || !currentUserId) throw new Error('準備ができていません')
 
         const current = inboxItems.find((item) => item.id === inboxItemId)
         const updated = await inboxRepo.updateInboxItem(currentWorkspace.id, inboxItemId, {
@@ -611,7 +611,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       },
 
       toggleInboxNeedsAction: async (inboxItemId) => {
-        if (!currentWorkspace || !currentUserId) throw new Error('Not ready')
+        if (!currentWorkspace || !currentUserId) throw new Error('準備ができていません')
 
         const current = inboxItems.find((item) => item.id === inboxItemId)
         const updated = await inboxRepo.updateInboxItem(currentWorkspace.id, inboxItemId, {
@@ -639,7 +639,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
                   workspaceId: currentWorkspace.id,
                   userId: recipient.userId,
                   type: 'inbox_needs_action',
-                  title: `${updated.platform} message from ${updated.authorHandle} needs a response`,
+                  title: `${updated.authorHandle}さん（${updated.platform}）からのメッセージに返信が必要です`,
                   targetType: 'inbox_item',
                   targetId: inboxItemId,
                 })),
@@ -653,7 +653,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       },
 
       addInboxNote: async (inboxItemId, text) => {
-        if (!currentWorkspace || !currentUserId) throw new Error('Not ready')
+        if (!currentWorkspace || !currentUserId) throw new Error('準備ができていません')
 
         const note = await inboxRepo.addInboxNote({
           workspaceId: currentWorkspace.id,
@@ -680,7 +680,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       },
 
       retryQueueJob: async (jobId) => {
-        if (!currentWorkspace || !currentUserId) throw new Error('Not ready')
+        if (!currentWorkspace || !currentUserId) throw new Error('準備ができていません')
 
         const job = await queueRepo.retryPublishJob(currentWorkspace.id, jobId)
 
@@ -698,7 +698,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       },
 
       cancelQueueJob: async (jobId) => {
-        if (!currentWorkspace || !currentUserId) throw new Error('Not ready')
+        if (!currentWorkspace || !currentUserId) throw new Error('準備ができていません')
 
         const job = await queueRepo.cancelPublishJob(currentWorkspace.id, jobId)
 
@@ -716,19 +716,19 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       },
 
       scheduleDraft: async (draftId, scheduledAt) => {
-        if (!currentWorkspace || !currentUserId) throw new Error('Not ready')
+        if (!currentWorkspace || !currentUserId) throw new Error('準備ができていません')
         if (!currentMember || !hasPermission(currentMember.role, 'manage_queue')) {
-          throw new Error('Your role cannot schedule publishing.')
+          throw new Error('あなたの役割では公開予約ができません。')
         }
 
         const draft = drafts.find((entry) => entry.id === draftId)
-        if (!draft) throw new Error('Draft not found')
-        if (draft.status !== 'approved') throw new Error('Only an approved draft can be scheduled.')
+        if (!draft) throw new Error('下書きが見つかりません')
+        if (draft.status !== 'approved') throw new Error('承認済みの下書きのみ予約できます。')
 
         // Always the latest approval, not the (possibly since-edited) mutable
         // draft row — a schedule always publishes an immutable Revision.
         const revision = await draftRevisionsRepo.getLatestDraftRevision(currentWorkspace.id, draftId)
-        if (!revision) throw new Error('No approved Revision found for this draft.')
+        if (!revision) throw new Error('この下書きの承認版（Revision）が見つかりません。')
 
         const publishMode = derivePublishMode(draft.channel)
         const job = await queueRepo.createPublishJob({
@@ -756,9 +756,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       },
 
       completeManualPublish: async (jobId, externalUrl) => {
-        if (!currentWorkspace || !currentUserId) throw new Error('Not ready')
+        if (!currentWorkspace || !currentUserId) throw new Error('準備ができていません')
         if (!currentMember || !hasPermission(currentMember.role, 'manage_queue')) {
-          throw new Error('Your role cannot complete a manual publish.')
+          throw new Error('あなたの役割では手動公開を記録できません。')
         }
 
         // Record the attempt first: if this fails, the job is never marked
@@ -787,7 +787,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       },
 
       triggerPublishJob: async (jobId) => {
-        if (!currentWorkspace) throw new Error('Not ready')
+        if (!currentWorkspace) throw new Error('準備ができていません')
 
         const response = await fetch('/api/publish/trigger', {
           method: 'POST',
@@ -795,14 +795,14 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           body: JSON.stringify({ workspaceId: currentWorkspace.id, jobId }),
         })
         const payload = await response.json()
-        if (!response.ok) throw new Error(payload.error ?? 'Unable to publish this job.')
+        if (!response.ok) throw new Error(payload.error ?? 'この投稿を公開できませんでした。')
 
         await refreshWorkspaceData()
         return payload as { success: boolean }
       },
 
       fetchPostMetrics: async (jobId) => {
-        if (!currentWorkspace) throw new Error('Not ready')
+        if (!currentWorkspace) throw new Error('準備ができていません')
 
         const response = await fetch('/api/analytics/metrics', {
           method: 'POST',
@@ -810,7 +810,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           body: JSON.stringify({ workspaceId: currentWorkspace.id, jobId }),
         })
         const payload = await response.json()
-        if (!response.ok) throw new Error(payload.error ?? 'Unable to fetch metrics for this post.')
+        if (!response.ok) throw new Error(payload.error ?? 'この投稿の指標を取得できませんでした。')
 
         return payload as PostMetrics
       },
@@ -821,7 +821,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       },
 
       markAllNotificationsRead: async () => {
-        if (!currentWorkspace) throw new Error('Not ready')
+        if (!currentWorkspace) throw new Error('準備ができていません')
         await notificationsRepo.markAllNotificationsRead(currentWorkspace.id)
         await refreshWorkspaceData()
       },
@@ -833,7 +833,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       // what's exported — per master-plan principle 6, that's the durable
       // "asset" worth having an offline copy of.
       exportWorkspaceData: async () => {
-        if (!currentWorkspace || !currentUserId) throw new Error('Not ready')
+        if (!currentWorkspace || !currentUserId) throw new Error('準備ができていません')
 
         const payload = {
           exportedAt: new Date().toISOString(),
@@ -865,7 +865,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       },
 
       saveDraft: async (draft) => {
-        if (!currentWorkspace || !currentUserId) throw new Error('Not ready')
+        if (!currentWorkspace || !currentUserId) throw new Error('準備ができていません')
 
         const isFirstSave = !draft.id
         const saved = await draftsRepo.upsertSocialDraft(currentWorkspace.id, draft)
@@ -894,7 +894,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
                   workspaceId: currentWorkspace.id,
                   userId: approver.userId,
                   type: 'draft_needs_approval',
-                  title: `A ${saved.channel} draft is ready for your review`,
+                  title: `${saved.channel}の下書きが確認待ちです`,
                   targetType: 'social_draft',
                   targetId: saved.id,
                 })),
@@ -909,7 +909,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
       approveDraft: async (draftId) => {
         const currentDraft = drafts.find((d) => d.id === draftId)
-        if (!currentDraft) throw new Error('Draft not found')
+        if (!currentDraft) throw new Error('下書きが見つかりません')
         return approveDraftContent(currentDraft)
       },
 
@@ -920,7 +920,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       },
 
       generateChannelDrafts: async (seedId, channels, tone, length) => {
-        if (!currentWorkspace) throw new Error('Not ready')
+        if (!currentWorkspace) throw new Error('準備ができていません')
 
         const response = await fetch('/api/drafts/generate', {
           method: 'POST',
@@ -930,7 +930,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
         const payload = await response.json()
         if (!response.ok) {
-          throw new Error(payload.error ?? 'Unable to generate drafts.')
+          throw new Error(payload.error ?? '下書きを生成できませんでした。')
         }
 
         return payload as { source: 'ai' | 'template-fallback'; reason?: string; drafts: SocialDraft[] }
