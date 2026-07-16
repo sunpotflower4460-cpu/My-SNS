@@ -91,3 +91,31 @@ export async function listWorkspaceAiGenerations(workspaceId: string, limit = WO
 
   return (data ?? []).map((row) => mapGeneration(row as AiGenerationRow))
 }
+
+/**
+ * Sum of `cost_usd` for this workspace since the start of the current
+ * calendar month in UTC (not server local time — `created_at` is a
+ * TIMESTAMPTZ, an instant, so UTC is the only unambiguous boundary; do not
+ * "fix" this to use local getFullYear()/getMonth(), which would make the
+ * budget boundary silently depend on the deploying server's timezone) — the
+ * basis for PR9's optional
+ * `ANTHROPIC_MONTHLY_BUDGET_USD` cap. Takes an explicit client because it's
+ * called from /api/drafts/generate's request-scoped server client, before
+ * the Anthropic call itself, not the browser client the rest of this file
+ * uses. Only sums rows already recorded — cannot know this-call's cost in
+ * advance, so it can only block the *next* call once the cap is already met,
+ * not predict whether one specific call will cross it mid-flight.
+ */
+export async function getWorkspaceMonthlyAiCost(supabase: SupabaseClient, workspaceId: string): Promise<number> {
+  const now = new Date()
+  const startOfMonth = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1)).toISOString()
+
+  const { data, error } = await supabase
+    .from('ai_generations')
+    .select('cost_usd')
+    .eq('workspace_id', workspaceId)
+    .gte('created_at', startOfMonth)
+
+  if (error) throw new Error(error.message)
+  return (data ?? []).reduce((sum, row) => sum + Number((row as { cost_usd: number }).cost_usd ?? 0), 0)
+}

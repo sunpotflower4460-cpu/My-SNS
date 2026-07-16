@@ -6,13 +6,15 @@ import { useCurrentUser } from '@/hooks/useCurrentUser'
 import { useCurrentWorkspace } from '@/hooks/useCurrentWorkspace'
 import RoleBadge from '@/components/ui/RoleBadge'
 import WorkspaceSwitcher from './WorkspaceSwitcher'
+import NotificationBell from './NotificationBell'
 
 interface TopBarProps {
   workspace: Workspace
   pageTitle?: string
+  onMenuClick?: () => void
 }
 
-export default function TopBar({ workspace, pageTitle }: TopBarProps) {
+export default function TopBar({ workspace, pageTitle, onMenuClick }: TopBarProps) {
   const router = useRouter()
   const { currentUser, signOut } = useCurrentUser()
   const { currentMember } = useCurrentWorkspace()
@@ -25,6 +27,15 @@ export default function TopBar({ workspace, pageTitle }: TopBarProps) {
   return (
     <header className="sticky top-0 z-20 flex min-h-16 shrink-0 flex-wrap items-center justify-between gap-3 border-b border-stone-200 bg-white/90 px-4 py-3 backdrop-blur sm:px-6 lg:px-8">
       <div className="flex items-center gap-2 text-sm text-gray-500">
+        {onMenuClick && (
+          <button
+            onClick={onMenuClick}
+            aria-label="Open navigation"
+            className="mr-1 rounded-xl border border-stone-200 p-2 text-gray-600 transition hover:bg-stone-50 xl:hidden"
+          >
+            ☰
+          </button>
+        )}
         <span className="truncate text-gray-400">{workspace.name}</span>
         {pageTitle && (
           <>
@@ -34,6 +45,7 @@ export default function TopBar({ workspace, pageTitle }: TopBarProps) {
         )}
       </div>
       <div className="flex flex-wrap items-center justify-end gap-3">
+        <NotificationBell />
         <WorkspaceSwitcher workspace={workspace} />
         <div className="flex items-center gap-3 rounded-2xl border border-stone-200 bg-stone-50 px-3 py-2">
           <div className="flex h-9 w-9 items-center justify-center rounded-full bg-violet-100 text-sm font-semibold text-violet-700">

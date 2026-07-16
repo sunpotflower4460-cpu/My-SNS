@@ -11,6 +11,7 @@ import type {
   InboxItem,
   InboxNote,
   Invitation,
+  Notification,
   PostMetrics,
   PublishAttempt,
   PublishingChannel,
@@ -35,6 +36,7 @@ import * as brandProfilesRepo from '@/lib/repositories/supabase/brand-profiles'
 import * as draftsRepo from '@/lib/repositories/supabase/drafts'
 import * as draftRevisionsRepo from '@/lib/repositories/supabase/draft-revisions'
 import * as inboxRepo from '@/lib/repositories/supabase/inbox'
+import * as notificationsRepo from '@/lib/repositories/supabase/notifications'
 import * as queueRepo from '@/lib/repositories/supabase/queue'
 import { recordPublishAttempt, listWorkspacePublishAttempts } from '@/lib/repositories/supabase/publish-attempts'
 import { listWorkspaceAiGenerations } from '@/lib/repositories/supabase/ai-generations'
@@ -62,6 +64,7 @@ interface AppContextValue {
   draftRevisions: DraftRevision[]
   publishAttempts: PublishAttempt[]
   aiGenerations: AiGeneration[]
+  notifications: Notification[]
   setActiveWorkspaceId: (workspaceId: string) => void
   refreshWorkspaceData: () => Promise<void>
   createSeedItem: (input: {
@@ -109,6 +112,9 @@ interface AppContextValue {
   triggerPublishJob: (jobId: string) => Promise<{ success: boolean }>
   /** Live engagement counts for one published job's post — not cached, see PostMetrics. Throws (does not return zeros) if the platform has no metrics endpoint available. */
   fetchPostMetrics: (jobId: string) => Promise<PostMetrics>
+  markNotificationRead: (notificationId: string) => Promise<void>
+  markAllNotificationsRead: () => Promise<void>
+  exportWorkspaceData: () => Promise<void>
   saveDraft: (draft: Omit<SocialDraft, 'id' | 'createdAt' | 'updatedAt'> & { id?: string }) => Promise<SocialDraft>
   approveDraft: (draftId: string) => Promise<SocialDraft>
   saveAndApproveDraft: (draft: Omit<SocialDraft, 'id' | 'createdAt' | 'updatedAt'> & { id?: string }) => Promise<SocialDraft>
@@ -144,6 +150,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const [draftRevisions, setDraftRevisions] = useState<DraftRevision[]>([])
   const [publishAttempts, setPublishAttempts] = useState<PublishAttempt[]>([])
   const [aiGenerations, setAiGenerations] = useState<AiGeneration[]>([])
+  const [notifications, setNotifications] = useState<Notification[]>([])
   const [isReady, setIsReady] = useState(false)
 
   // Load user workspaces
@@ -196,6 +203,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         draftRevisionsList,
         publishAttemptsList,
         aiGenerationsList,
+        notificationsList,
       ] = await Promise.all([
         workspacesRepo.getWorkspaceById(activeWorkspaceId),
         workspacesRepo.getCurrentMember(activeWorkspaceId, currentUserId),
@@ -213,6 +221,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         draftRevisionsRepo.listWorkspaceDraftRevisions(activeWorkspaceId),
         listWorkspacePublishAttempts(activeWorkspaceId),
         listWorkspaceAiGenerations(activeWorkspaceId),
+        notificationsRepo.listMyNotifications(activeWorkspaceId),
       ])
 
       setCurrentWorkspace(workspace)
@@ -231,6 +240,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       setDraftRevisions(draftRevisionsList)
       setPublishAttempts(publishAttemptsList)
       setAiGenerations(aiGenerationsList)
+      setNotifications(notificationsList)
     } catch (error) {
       console.error('Error loading workspace data:', error)
     }
@@ -313,6 +323,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       draftRevisions,
       publishAttempts,
       aiGenerations,
+      notifications,
       setActiveWorkspaceId,
       refreshWorkspaceData,
 
@@ -616,6 +627,27 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           metadata: { needsAction: updated.needsAction },
         })
 
+        // Only when someone flags it *on*, not off — flagging something off
+        // is "handled," not a new thing for the team to notice.
+        if (updated.needsAction) {
+          const recipients = members.filter((m) => m.userId !== currentUserId && hasPermission(m.role, 'reply_inbox'))
+          if (recipients.length > 0) {
+            await notificationsRepo
+              .createNotifications(
+                createClient(),
+                recipients.map((recipient) => ({
+                  workspaceId: currentWorkspace.id,
+                  userId: recipient.userId,
+                  type: 'inbox_needs_action',
+                  title: `${updated.platform} message from ${updated.authorHandle} needs a response`,
+                  targetType: 'inbox_item',
+                  targetId: inboxItemId,
+                })),
+              )
+              .catch((cause) => console.error('Failed to notify teammates:', cause))
+          }
+        }
+
         await refreshWorkspaceData()
         return updated
       },
@@ -783,9 +815,59 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         return payload as PostMetrics
       },
 
+      markNotificationRead: async (notificationId) => {
+        await notificationsRepo.markNotificationRead(notificationId)
+        await refreshWorkspaceData()
+      },
+
+      markAllNotificationsRead: async () => {
+        if (!currentWorkspace) throw new Error('Not ready')
+        await notificationsRepo.markAllNotificationsRead(currentWorkspace.id)
+        await refreshWorkspaceData()
+      },
+
+      // Client-side only: everything here is already loaded into this
+      // provider's state (RLS-scoped to the caller), so this is a plain
+      // JSON serialization + browser download, not a server export
+      // pipeline. Approved Revisions, not mutable in-progress drafts, are
+      // what's exported — per master-plan principle 6, that's the durable
+      // "asset" worth having an offline copy of.
+      exportWorkspaceData: async () => {
+        if (!currentWorkspace || !currentUserId) throw new Error('Not ready')
+
+        const payload = {
+          exportedAt: new Date().toISOString(),
+          workspace: { id: currentWorkspace.id, name: currentWorkspace.name, slug: currentWorkspace.slug },
+          brandProfiles,
+          seeds,
+          approvedRevisions: draftRevisions,
+          publishAttempts,
+        }
+
+        const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' })
+        const url = URL.createObjectURL(blob)
+        const link = document.createElement('a')
+        link.href = url
+        link.download = `${currentWorkspace.slug || 'workspace'}-export-${new Date().toISOString().slice(0, 10)}.json`
+        document.body.appendChild(link)
+        link.click()
+        document.body.removeChild(link)
+        URL.revokeObjectURL(url)
+
+        await auditRepo.appendAuditLog({
+          workspaceId: currentWorkspace.id,
+          actorId: currentUserId,
+          action: 'workspace_data_exported',
+          targetType: 'workspace',
+          targetId: currentWorkspace.id,
+          metadata: { seeds: seeds.length, revisions: draftRevisions.length },
+        })
+      },
+
       saveDraft: async (draft) => {
         if (!currentWorkspace || !currentUserId) throw new Error('Not ready')
 
+        const isFirstSave = !draft.id
         const saved = await draftsRepo.upsertSocialDraft(currentWorkspace.id, draft)
 
         await auditRepo.appendAuditLog({
@@ -796,6 +878,30 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           targetId: saved.id,
           metadata: { channel: saved.channel, status: saved.status },
         })
+
+        // Only on a draft's first save, not every subsequent edit — otherwise
+        // tweaking wording a few times would re-notify approvers each time.
+        // saveAndApproveDraft (below) skips this entirely: it saves and
+        // approves in the same call, so there is never a "needs approval"
+        // window to notify anyone about.
+        if (isFirstSave && saved.status === 'draft') {
+          const approvers = members.filter((m) => m.userId !== currentUserId && hasPermission(m.role, 'approve_drafts'))
+          if (approvers.length > 0) {
+            await notificationsRepo
+              .createNotifications(
+                createClient(),
+                approvers.map((approver) => ({
+                  workspaceId: currentWorkspace.id,
+                  userId: approver.userId,
+                  type: 'draft_needs_approval',
+                  title: `A ${saved.channel} draft is ready for your review`,
+                  targetType: 'social_draft',
+                  targetId: saved.id,
+                })),
+              )
+              .catch((cause) => console.error('Failed to notify approvers:', cause))
+          }
+        }
 
         await refreshWorkspaceData()
         return saved
@@ -851,6 +957,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     draftRevisions,
     publishAttempts,
     aiGenerations,
+    notifications,
     currentUserId,
     refreshWorkspaceData,
   ])

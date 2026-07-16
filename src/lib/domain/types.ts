@@ -330,6 +330,23 @@ export interface AiReplySuggestion {
   createdAt: string
 }
 
+// ─── Notifications ──────────────────────────────────────────────────────────
+export type NotificationType = 'draft_needs_approval' | 'publish_failed' | 'inbox_needs_action'
+
+/** A per-user, in-app notification — see `notifications` migration's INSERT policy comment for why any workspace member can create one targeting any teammate. */
+export interface Notification {
+  id: string
+  workspaceId: string
+  userId: string
+  type: NotificationType
+  title: string
+  body?: string
+  targetType?: string
+  targetId?: string
+  isRead: boolean
+  createdAt: string
+}
+
 // ─── Audit Logs ───────────────────────────────────────────────────────────────
 export type AuditAction =
   | 'member_invited'
@@ -355,6 +372,7 @@ export type AuditAction =
   | 'inbox_item_needs_action'
   | 'inbox_note_added'
   | 'workspace_settings_updated'
+  | 'workspace_data_exported'
 
 export interface AuditLog {
   id: string

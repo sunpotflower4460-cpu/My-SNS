@@ -29,8 +29,8 @@
 | PR5 | YouTube + TikTok コネクタ + note handoff（ここまででMVP） | ✅ マージ済み — **MVP完成** |
 | PR6 | Webhook + Unified Inbox | ✅ マージ済み（MVP後拡張の第一弾） |
 | PR7 | Analytics + AIの学習 | ✅ マージ済み |
-| PR8 | HP／作品母艦統合 | 次に着手（MVP後、実サイト詳細の要件確認が前提） |
-| PR9 | 運用仕上げ（通知、共同承認、バックアップ、費用管理） | MVP後 |
+| PR8 | HP／作品母艦統合 | 保留（実サイト詳細の要件確認が前提、PR9を先に着手） |
+| PR9 | 運用仕上げ（通知、共同承認、モバイル最適化、バックアップ、費用管理） | ✅ マージ済み（PR8より先に着手 — 要件確認不要なため） |
 
 ## 3. 媒体別の自動化方針（MVP publishMode）
 
@@ -117,10 +117,22 @@
 - AI学習: `/api/drafts/generate`が生成前に`listRecentAiRevisionsForStyleLearning()`（チャンネルごと直近2件、AI提案から実際に編集されたRevisionのみ）を取得し、`DraftGenerationContext.styleExamples`としてAnthropicプロンプトへfew-shot例（「AIの提案 → 人間が承認した最終形」のペア）として渡す。取得失敗時は生成自体をブロックしないbest-effort。
 - 新ルート`/api/analytics/metrics`（`view_queue`権限、読み取り専用）: jobIdから直近の成功した`publish_attempts.external_post_id`を解決し、認証情報解決→アダプタの`fetchMetrics`呼び出し→結果をそのまま返す（キャッシュしない）。
 
-### PR8以降（MVP後）
+### PR9 — 運用仕上げ（通知、共同承認、モバイル最適化、バックアップ、費用管理、マージ済み）
 
-- PR8: 公式サイト／作品母艦との統合、SEO（実サイトの詳細についてユーザーとの要件確認が前提）
-- PR9: 通知、共同承認、モバイル最適化、バックアップ、費用管理
+PR8より先に着手した。理由: PR8（公式サイト統合）は実サイトの詳細というユーザー入力が前提で自動的に進められないが、PR9の5項目はいずれもリポジトリ内の情報だけで設計・実装できたため。
+
+- **モバイル最適化**: `Sidebar.tsx`が`hidden ... xl:flex`のみで、xlブレークポイント未満（スマホ・大半のタブレット）でナビゲーションが一切表示されない実バグを発見・修正。共有`NAV_ITEMS`（`nav-items.ts`）を`Sidebar`と新しい`MobileNav`（ドロワー）で共用し、`TopBar`にハンバーガーボタンを追加。`AppShell`が開閉状態を保持。
+- **通知**: 新しい`notifications`テーブル（`user_id`＝受信者、RLSは自分の行のみSELECT/UPDATE、INSERTは同一ワークスペースメンバーなら誰でも可——`inbox_notes`の投稿権限と同じ信頼レベル）。既存の`refreshWorkspaceData()`と同じタイミングで再取得するpoll-on-load方式とし、Supabase Realtimeなど新しいプッシュ配信の仕組みは導入しない（このアプリには元々一切存在しなかったため、スコープを絞った）。`TopBar`に`NotificationBell`（未読バッジ、ドロップダウン、既読化）を追加。発火ポイント3箇所:
+  1. ドラフトの初回保存時（`saveDraft`、`saveAndApproveDraft`は対象外——保存と同時に承認されるため承認待ち状態が存在しない）に`approve_drafts`権限を持つ全メンバーへ通知。
+  2. Worker/手動投稿失敗時（`publish-worker.ts`）に、ジョブ作成者＋`manage_queue`権限を持つ全メンバーへ通知。
+  3. Inboxアイテムの`needs_action`をオンにした時（オフにした時は通知しない）、`reply_inbox`権限を持つ他メンバーへ通知。
+- **共同承認**: 二重承認必須化ではなく、承認可能な全メンバーへの通知fan-outとして実装（上記1）。どのPRにも二人目承認者の概念は存在せず、これは新規のスコープ判断——1行仕様（「共同承認」）に対する具体化として意図的に選んだ解釈であり、部分実装ではない。
+- **バックアップ**: サーバー側の書き出しパイプラインを新設せず、`AppProvider`に既に読み込まれている（RLSスコープ済みの）Seed・Brand Profile・承認済みRevision・投稿履歴をクライアント側でJSON化してブラウザダウンロードするのみ（Settingsの「Export workspace data」ボタン、`edit_settings`権限）。§7「派手な汎用SaaS化を優先しない」を踏まえ、意図的に最小実装とした。
+- **費用管理**: 任意の`ANTHROPIC_MONTHLY_BUDGET_USD`。未設定時は上限なし（他のコスト関連環境変数と同じ「未設定＝寛容」方針）。`/api/drafts/generate`が実際のAnthropic呼び出し前に当月の`ai_generations.cost_usd`合計を確認し、上限到達時は402で拒否。次の1回の呼び出し自体のコストは呼び出し前には分からないため、「既に使い切った月への新規呼び出しを止める」形のガードレールであり、個別呼び出しのコスト上限予測ではない。
+
+### PR8（保留 — ユーザーとの要件確認が前提）
+
+- 公式サイト／作品母艦との統合、SEO。実サイトの詳細（プラットフォーム、ホスティング方法、「統合」の意味するところ）がユーザーから提供され次第、設計・着手する。
 
 ## 6. 最後にまとめて行う本人操作
 

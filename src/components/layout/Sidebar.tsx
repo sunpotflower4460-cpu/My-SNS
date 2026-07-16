@@ -3,24 +3,7 @@
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import type { User, Workspace, WorkspaceMember } from '@/lib/domain/types'
-
-interface NavItem {
-  label: string
-  href: string
-  icon: string
-}
-
-const NAV_ITEMS: NavItem[] = [
-  { label: 'Dashboard', href: '/app/dashboard', icon: '⊞' },
-  { label: 'Seeds', href: '/app/seeds', icon: '🌱' },
-  { label: 'Brand Profile', href: '/app/brand', icon: '◌' },
-  { label: 'Drafts', href: '/app/drafts', icon: '✏️' },
-  { label: 'Queue', href: '/app/queue', icon: '📅' },
-  { label: 'Analytics', href: '/app/analytics', icon: '📊' },
-  { label: 'Inbox', href: '/app/inbox', icon: '📬' },
-  { label: 'Team', href: '/app/team', icon: '👥' },
-  { label: 'Settings', href: '/app/settings', icon: '⚙️' },
-]
+import { NAV_ITEMS } from './nav-items'
 
 interface SidebarProps {
   workspace: Workspace
