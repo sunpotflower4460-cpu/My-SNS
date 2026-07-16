@@ -1,8 +1,10 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
-import type { PublishFailureReason, SocialPlatform } from '@/lib/domain/types'
+import type { PublishFailureReason, SocialPlatform, WorkspaceRole } from '@/lib/domain/types'
 import { recordPublishAttempt } from '@/lib/repositories/supabase/publish-attempts'
 import { getSocialCredentials, saveSocialCredentials } from '@/lib/repositories/supabase/social-credentials'
+import { createNotifications } from '@/lib/repositories/supabase/notifications'
 import { getConnectorAdapter } from '@/lib/services/connectors'
+import { hasPermission } from '@/lib/permissions'
 
 // Shared by the scheduled Worker (/api/publish/run, batches every due
 // publish_mode='auto' job) and the manual trigger route (/api/publish/trigger,
@@ -46,6 +48,39 @@ async function releasePublishJobClaim(supabase: SupabaseClient, jobId: string, f
     .from('publish_jobs')
     .update({ ...fields, claimed_at: null })
     .eq('id', jobId)
+}
+
+/**
+ * Notifies whoever should hear about a failed publish attempt: the job's
+ * creator (they scheduled it) plus anyone who can act on the Queue
+ * (manage_queue — owner/admin), deduplicated. Failure to notify must never
+ * fail the job itself — this is called from inside the failure path's own
+ * try/catch, so a notification error surfaces as a logged "unexpected"
+ * error, not a second failed publish_attempt.
+ */
+async function notifyPublishFailure(supabase: SupabaseClient, job: PublishableJob, errorMessage: string): Promise<void> {
+  const { data: memberRows } = await supabase
+    .from('workspace_members')
+    .select('user_id, role')
+    .eq('workspace_id', job.workspaceId)
+
+  const recipientIds = new Set<string>([job.createdBy])
+  for (const row of (memberRows ?? []) as Array<{ user_id: string; role: WorkspaceRole }>) {
+    if (hasPermission(row.role, 'manage_queue')) recipientIds.add(row.user_id)
+  }
+
+  await createNotifications(
+    supabase,
+    Array.from(recipientIds).map((userId) => ({
+      workspaceId: job.workspaceId,
+      userId,
+      type: 'publish_failed',
+      title: `${job.channel} publish failed`,
+      body: errorMessage.slice(0, 300),
+      targetType: 'publish_job',
+      targetId: job.id,
+    })),
+  )
 }
 
 // The stub connector's exact wording (see UnavailableSocialConnectorAdapter).
@@ -229,6 +264,8 @@ export async function processPublishJob(supabase: SupabaseClient, job: Publishab
         target_id: job.id,
         metadata: { channel: job.channel, failureReason, errorMessage: message },
       })
+
+      await notifyPublishFailure(supabase, job, message)
     } catch (unexpected) {
       // Safety net: a DB hiccup recording *why* this job failed must never
       // throw out of this function — the batch Worker relies on that to keep

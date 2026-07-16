@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { mapSeed, SEED_SELECT, type SeedRow } from '@/lib/repositories/supabase/seeds'
-import { recordAiGeneration } from '@/lib/repositories/supabase/ai-generations'
+import { getWorkspaceMonthlyAiCost, recordAiGeneration } from '@/lib/repositories/supabase/ai-generations'
 import { listRecentAiRevisionsForStyleLearning } from '@/lib/repositories/supabase/draft-revisions'
 import { PUBLISHING_CHANNEL_CONFIG } from '@/lib/channels/config'
 import { hasPermission } from '@/lib/permissions'
@@ -114,6 +114,25 @@ export async function POST(request: NextRequest) {
       reason: 'ANTHROPIC_API_KEY is not configured yet. Showing deterministic templates instead of AI proposals.',
       drafts,
     })
+  }
+
+  // Optional guardrail (PR9): unset means no cap, matching every other
+  // budget-adjacent env var in this app (unset cost-per-token rates just
+  // mean cost stays 0, never a hard stop) — this is an opt-in ceiling, not
+  // a security boundary, so it fails open rather than closed when unset.
+  // Can only block the *next* call once the cap is already met — there is
+  // no way to know this call's own cost before making it.
+  const monthlyBudgetUsd = Number(process.env.ANTHROPIC_MONTHLY_BUDGET_USD)
+  if (Number.isFinite(monthlyBudgetUsd) && monthlyBudgetUsd > 0) {
+    const spentUsd = await getWorkspaceMonthlyAiCost(supabase, workspaceId)
+    if (spentUsd >= monthlyBudgetUsd) {
+      return NextResponse.json(
+        {
+          error: `This workspace's AI budget for this month ($${monthlyBudgetUsd.toFixed(2)}) has been reached (spent $${spentUsd.toFixed(2)}). Raise ANTHROPIC_MONTHLY_BUDGET_USD, or wait until next month.`,
+        },
+        { status: 402 },
+      )
+    }
   }
 
   try {

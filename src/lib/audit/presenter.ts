@@ -56,6 +56,8 @@ export function describeAuditLog(log: AuditLog): string {
       return `${actor} connected ${typeof log.metadata?.platform === 'string' ? log.metadata.platform : 'a social account'}${typeof log.metadata?.handle === 'string' ? ` (${log.metadata.handle})` : ''}.`
     case 'social_account_disconnected':
       return `${actor} disconnected ${typeof log.metadata?.platform === 'string' ? log.metadata.platform : 'a social account'}.`
+    case 'workspace_data_exported':
+      return `${actor} exported a workspace data backup${typeof log.metadata?.seeds === 'number' ? ` (${log.metadata.seeds} Seeds)` : ''}.`
     default:
       return `${actor} made a workspace update.`
   }

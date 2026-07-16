@@ -36,6 +36,7 @@
 - PR5: YouTube＋TikTok コネクタ＋noteハンドオフ — マージ済み。**MVP完成**（`docs/master-plan.md` §4）。YouTube（assisted）・TikTok（draft）はWorkerが自動実行せず、Queueの「Publish now」で人間が明示的に実行する。YouTube/TikTokもメディア添付が未実装のため投稿時は明示的なエラーで安全に停止する。noteはMarkdownコピー＋手動完了記録で完結。
 - PR6: Webhook受信＋Unified Inbox — マージ済み（MVP後拡張の第一弾）。Instagramのコメント・DMは署名検証済みWebhook（`/api/webhooks/meta`、`X-Hub-Signature-256`）で自動取り込み。YouTubeは実コメントAPIを使ったプル型「Sync inbox」ボタンで取得。同一イベントの重複取り込みは`inbox_items.external_id`＋ユニークインデックスで防止。X・TikTokのコメント/メンション/DM取得、Instagramのmentions解決（webhookペイロードがテキストを含まない）は、それぞれAPIアクセス階層・追加審査・追加API呼び出しが必要という正直な理由付きで未対応のまま。
 - PR7: Analytics＋AI学習 — マージ済み。新しい`/app/analytics`ページで、`publish_attempts`/`ai_generations`/`draft_revisions`から実データのみで媒体別成功率・失敗理由内訳・AIコスト・AI提案の人間編集率を表示。YouTube/Xは実際の視聴回数・いいね・コメント数をオンデマンド取得（`fetchMetrics`、既存スコープでカバー済み）。Instagram/TikTokのメトリクスは追加スコープ・審査が必要な正直な未対応。`social_drafts`/`draft_revisions`に`ai_original_snapshot`列を追加し、AI提案が最初に保存された時点の内容を凍結、人間が編集して承認したRevisionとの差分を次回の`/api/drafts/generate`呼び出しへfew-shot例として渡す（`DraftGenerationContext.styleExamples`）。
+- PR9: 通知＋モバイル最適化＋バックアップ＋費用管理 — マージ済み。アプリ内通知（プッシュではなくpoll-on-load、既存の`refreshWorkspaceData()`と同じタイミングで更新）を追加し、承認待ちドラフト・投稿失敗・チームメイトによるinbox要対応フラグを通知。xlブレークポイント未満（スマホ・大半のタブレット）でSidebarが完全に消えていた実バグを、MobileNavドロワー（ハンバーガーメニュー）で修正。Settingsに「Export workspace data」ボタン（Seed・Brand Profile・承認済みRevision・投稿履歴をJSONダウンロード、サーバー側の書き出しパイプラインなし）を追加。`ANTHROPIC_MONTHLY_BUDGET_USD`（任意）で月次AI予算の上限を設定可能に。「共同承認」は複数承認者への通知fan-outとして実装し、二重承認必須化ではない — 明示的なスコープ判断として記録。
 - 次: PR8 公式サイト／作品母艦との統合（実サイトの詳細が必要なため、ユーザーとの要件確認が前提）
 
 ## 最後にまとめて行う本人操作
