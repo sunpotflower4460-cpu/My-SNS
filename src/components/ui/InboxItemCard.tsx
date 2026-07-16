@@ -65,7 +65,7 @@ export default function InboxItemCard({
           )}
 
           <div className="mt-3 flex flex-wrap items-center gap-2 text-xs">
-            <span className="text-gray-400">{new Date(item.receivedAt).toLocaleString('ja-JP')}</span>
+            <span className="text-gray-400">{new Date(item.receivedAt).toLocaleString('ja-JP', { timeZone: 'Asia/Tokyo' })}</span>
             <div className="ml-auto flex flex-wrap items-center gap-2">
               {onToggleRead && <button onClick={onToggleRead} className="rounded-full border border-stone-200 px-3 py-1 text-gray-600 hover:bg-stone-50 hover:text-gray-900">{item.isRead ? '未読にする' : '既読にする'}</button>}
               {onToggleStar && <button onClick={onToggleStar} className="rounded-full border border-stone-200 px-3 py-1 text-gray-600 hover:bg-stone-50 hover:text-yellow-600">{item.isStarred ? 'スター解除' : 'スターを付ける'}</button>}
@@ -83,7 +83,7 @@ export default function InboxItemCard({
                 {notes.slice(0, 2).map((note) => (
                   <div key={note.id} className="rounded-2xl bg-stone-50 px-3 py-2 text-sm text-gray-600">
                     <p>{note.text}</p>
-                    <p className="mt-1 text-xs text-gray-400">{new Date(note.createdAt).toLocaleString('ja-JP')}</p>
+                    <p className="mt-1 text-xs text-gray-400">{new Date(note.createdAt).toLocaleString('ja-JP', { timeZone: 'Asia/Tokyo' })}</p>
                   </div>
                 ))}
               </div>

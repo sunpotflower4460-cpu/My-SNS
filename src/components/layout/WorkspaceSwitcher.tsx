@@ -41,7 +41,7 @@ export default function WorkspaceSwitcher({ workspace }: WorkspaceSwitcherProps)
       {open && (
         <div className="absolute right-0 top-full z-50 mt-2 w-80 rounded-3xl border border-stone-200 bg-white p-2 shadow-xl shadow-stone-200/70">
           <div className="px-3 py-2">
-            <p className="text-xs font-medium tracking-[0.15em] text-gray-400">ワークスペース一覧</p>
+            <p className="text-xs font-medium text-gray-400">ワークスペース一覧</p>
             <p className="mt-1 text-xs text-gray-500">
               シード・ブランドプロフィール・受信箱・公開キュー・チームの表示先を切り替えます。
             </p>

@@ -44,7 +44,7 @@ export default function DraftEditorCard({ draft, onEdit, onApprove, onRegenerate
       <div className="flex items-center gap-2 mb-3 flex-wrap">
         <ChannelBadge channel={draft.channel} />
         <StatusBadge status={draft.status} />
-        <span className={`rounded-full px-2.5 py-1 text-[11px] font-semibold tracking-[0.05em] ${draft.source === 'ai' ? 'border border-violet-200 bg-violet-50 text-violet-700' : 'border border-stone-200 bg-stone-50 text-stone-500'}`}>
+        <span className={`rounded-full px-2.5 py-1 text-[11px] font-semibold ${draft.source === 'ai' ? 'border border-violet-200 bg-violet-50 text-violet-700' : 'border border-stone-200 bg-stone-50 text-stone-500'}`}>
           {draft.source === 'ai' ? 'AI提案' : 'テンプレート'}
         </span>
         <span className="text-xs text-gray-400 ml-auto">
@@ -67,7 +67,7 @@ export default function DraftEditorCard({ draft, onEdit, onApprove, onRegenerate
 
       {draft.assumptions.length > 0 && (
         <div className="mt-3 rounded-2xl border border-amber-200 bg-amber-50 p-3">
-          <p className="text-[11px] font-semibold tracking-[0.05em] text-amber-700">確認が必要な前提</p>
+          <p className="text-[11px] font-semibold text-amber-700">確認が必要な前提</p>
           <ul className="mt-1.5 space-y-1 text-xs leading-5 text-amber-800">
             {draft.assumptions.map((assumption, index) => <li key={index}>• {assumption}</li>)}
           </ul>
@@ -94,7 +94,7 @@ export default function DraftEditorCard({ draft, onEdit, onApprove, onRegenerate
       )}
 
       <div className="flex items-center gap-2 mt-3">
-        {isDirty && <span className="rounded-full border border-amber-200 bg-amber-50 px-2.5 py-1 text-[11px] font-semibold tracking-[0.05em] text-amber-700">未保存</span>}
+        {isDirty && <span className="rounded-full border border-amber-200 bg-amber-50 px-2.5 py-1 text-[11px] font-semibold text-amber-700">未保存</span>}
         {isDirty && onEdit && (
           <button
             onClick={handleSave}

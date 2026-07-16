@@ -215,7 +215,7 @@ export default function SettingsPage() {
 
         <div className="rounded-[2rem] border border-stone-200 bg-white p-6 shadow-sm shadow-stone-100/80">
           <h2 className="mb-2 text-base font-semibold text-gray-900">データのエクスポート</h2>
-          <p className="mb-4 text-sm text-gray-500">このワークスペースのSeed、ブランドプロフィール、承認済みのRevision、投稿履歴をJSON形式のスナップショットとしてダウンロードできます。本アプリに依存せず、いつでも取り出せるご自身のコンテンツ資産として保管いただけます。</p>
+          <p className="mb-4 text-sm text-gray-500">このワークスペースのシード、ブランドプロフィール、承認済みのRevision、投稿履歴をJSON形式のスナップショットとしてダウンロードできます。本アプリに依存せず、いつでも取り出せるご自身のコンテンツ資産として保管いただけます。</p>
           {exportError && <div className="mb-4 rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{exportError}</div>}
           <PermissionGate requiredPermission="edit_settings" currentRole={currentMember?.role ?? 'viewer'}>
             <button
@@ -231,7 +231,7 @@ export default function SettingsPage() {
         <div className="rounded-[2rem] border border-stone-200 bg-white p-6 shadow-sm shadow-stone-100/80">
           <h2 className="mb-2 text-base font-semibold text-gray-900">現在の対応範囲</h2>
           <p className="text-sm leading-6 text-gray-500">
-            設定・メンバーシップ・Seed・ブランドプロフィール・キューの更新・受信箱でのやり取り・非公開アセットのメタデータは、いずれもSupabaseに保存されます。X・Instagram・YouTube・TikTokはOAuthで接続でき、いずれも実際に投稿を実行できます。noteは公式APIがないため、手動でコピーして確認する引き渡し方式にとどめています。Instagramのコメント・DMはWebhook経由で受信箱に自動的に取り込まれます。それ以外の媒体は「受信箱を同期」ボタンでの取得となり（YouTubeは実際のコメントを取得できますが、XとTikTokは各プラットフォームがより広いAPIアクセスを許可するまで対応できていません。これは隠さずお伝えする、正直な未対応部分です）。
+            設定・メンバーシップ・シード・ブランドプロフィール・キューの更新・受信箱でのやり取り・非公開アセットのメタデータは、いずれもSupabaseに保存されます。X・Instagram・YouTube・TikTokはOAuthで接続でき、いずれも実際に投稿を実行できます。noteは公式APIがないため、手動でコピーして確認する引き渡し方式にとどめています。Instagramのコメント・DMはWebhook経由で受信箱に自動的に取り込まれます。それ以外の媒体は「受信箱を同期」ボタンでの取得となり（YouTubeは実際のコメントを取得できますが、XとTikTokは各プラットフォームがより広いAPIアクセスを許可するまで対応できていません。これは隠さずお伝えする、正直な未対応部分です）。
           </p>
         </div>
       </div>

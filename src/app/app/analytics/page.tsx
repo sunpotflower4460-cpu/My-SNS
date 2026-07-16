@@ -190,7 +190,7 @@ export default function AnalyticsPage() {
                   </div>
                   <div className="min-w-0 flex-1">
                     <p className="truncate text-sm font-medium text-gray-900">{seedTitle}</p>
-                    <p className="mt-1 text-xs text-gray-500">{new Date(attempt.createdAt).toLocaleString('ja-JP')}</p>
+                    <p className="mt-1 text-xs text-gray-500">{new Date(attempt.createdAt).toLocaleString('ja-JP', { timeZone: 'Asia/Tokyo' })}</p>
                     {state?.status === 'loaded' && (
                       <p className="mt-1 text-xs text-gray-600">
                         {[

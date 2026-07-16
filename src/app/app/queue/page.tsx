@@ -163,13 +163,13 @@ export default function QueuePage() {
                       : job.status === 'cancelled'
                         ? '公開キューから除外されています'
                         : job.status === 'published'
-                          ? job.publishedAt ? `公開日時: ${new Date(job.publishedAt).toLocaleString('ja-JP')}` : '公開済み'
+                          ? job.publishedAt ? `公開日時: ${new Date(job.publishedAt).toLocaleString('ja-JP', { timeZone: 'Asia/Tokyo' })}` : '公開済み'
                           : job.publishMode === 'manual'
                             ? 'ご自身で投稿し、「投稿済みにする」から完了を記録してください'
                             : job.publishMode === 'assisted' || job.publishMode === 'draft'
                               ? '自動では公開されません。「今すぐ公開」を押して手動で公開してください'
                               : job.scheduledAt
-                                ? `予約日時: ${new Date(job.scheduledAt).toLocaleString('ja-JP')}`
+                                ? `予約日時: ${new Date(job.scheduledAt).toLocaleString('ja-JP', { timeZone: 'Asia/Tokyo' })}`
                                 : 'まだ予約されていません'}
                   </p>
                   {job.errorMessage && <p className="mt-2 text-xs text-red-500">{job.errorMessage}</p>}

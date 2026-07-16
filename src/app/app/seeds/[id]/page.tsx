@@ -207,7 +207,7 @@ export default function SeedDetailPage() {
 
           <div className="rounded-[2rem] border border-stone-200 bg-white p-6 shadow-sm shadow-stone-100/80">
             <h2 className="mb-4 text-base font-semibold text-gray-900">公開キューの抜粋</h2>
-            {jobs.length === 0 ? <p className="text-sm text-gray-500">このシードからキューに入ったジョブはありません。</p> : <div className="space-y-3">{jobs.map((job) => <div key={job.id} className="rounded-2xl border border-stone-100 bg-stone-50 p-4"><div className="mb-2 flex items-center gap-2"><ChannelBadge channel={job.channel} /><StatusBadge status={job.status} /></div><p className="text-xs text-gray-500">{job.scheduledAt ? `予約日時 ${new Date(job.scheduledAt).toLocaleString('ja-JP')}` : '予約設定待ち'}</p></div>)}</div>}
+            {jobs.length === 0 ? <p className="text-sm text-gray-500">このシードからキューに入ったジョブはありません。</p> : <div className="space-y-3">{jobs.map((job) => <div key={job.id} className="rounded-2xl border border-stone-100 bg-stone-50 p-4"><div className="mb-2 flex items-center gap-2"><ChannelBadge channel={job.channel} /><StatusBadge status={job.status} /></div><p className="text-xs text-gray-500">{job.scheduledAt ? `予約日時 ${new Date(job.scheduledAt).toLocaleString('ja-JP', { timeZone: 'Asia/Tokyo' })}` : '予約設定待ち'}</p></div>)}</div>}
           </div>
 
           <div className="rounded-[2rem] border border-stone-200 bg-white p-6 shadow-sm shadow-stone-100/80">

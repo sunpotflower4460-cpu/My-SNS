@@ -192,7 +192,7 @@ export default function NewSeedPage() {
         <section className="space-y-6">
           <div className="rounded-[2rem] border border-stone-200 bg-white p-6 shadow-sm shadow-stone-100/80">
             <div className="mb-5">
-              <p className="text-xs font-semibold text-violet-500 tracking-[0.1em]">1・原文</p>
+              <p className="text-xs font-semibold text-violet-500">1・原文</p>
               <h2 className="mt-1 text-lg font-semibold text-gray-900">何を伝えたいですか？</h2>
             </div>
             <div className="grid gap-4">
@@ -228,7 +228,7 @@ export default function NewSeedPage() {
 
           <div className="rounded-[2rem] border border-stone-200 bg-white p-6 shadow-sm shadow-stone-100/80">
             <div className="mb-5">
-              <p className="text-xs font-semibold text-violet-500 tracking-[0.1em]">2・文脈</p>
+              <p className="text-xs font-semibold text-violet-500">2・文脈</p>
               <h2 className="mt-1 text-lg font-semibold text-gray-900">編集の役に立つ制約を伝える</h2>
             </div>
             <div className="grid gap-4 sm:grid-cols-2">
@@ -257,7 +257,7 @@ export default function NewSeedPage() {
 
           <div className="rounded-[2rem] border border-stone-200 bg-white p-6 shadow-sm shadow-stone-100/80">
             <div className="mb-5">
-              <p className="text-xs font-semibold text-violet-500 tracking-[0.1em]">3・配信媒体</p>
+              <p className="text-xs font-semibold text-violet-500">3・配信媒体</p>
               <h2 className="mt-1 text-lg font-semibold text-gray-900">どこに向けて提案を準備しますか？</h2>
             </div>
             <div className="grid gap-3 sm:grid-cols-2">
@@ -322,7 +322,7 @@ export default function NewSeedPage() {
           </div>
 
           <div className="rounded-[2rem] border border-violet-100 bg-violet-50 p-6">
-            <p className="text-xs font-semibold text-violet-500 tracking-[0.08em]">現在のワークスペース</p>
+            <p className="text-xs font-semibold text-violet-500">現在のワークスペース</p>
             <p className="mt-2 text-sm font-medium text-violet-950">{currentWorkspace?.name}</p>
             <p className="mt-1 text-xs leading-5 text-violet-700">ブランド: {selectedBrandProfile?.name}</p>
           </div>

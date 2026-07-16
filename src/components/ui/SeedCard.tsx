@@ -49,7 +49,7 @@ export default function SeedCard({ seed, onClick }: SeedCardProps) {
 
       <div className="mt-4 flex items-center justify-between border-t border-stone-100 pt-4 text-xs text-gray-400">
         <span>{seed.brandProfile?.name ?? 'ブランドプロフィール未設定'}</span>
-        <span>{new Date(seed.updatedAt).toLocaleDateString('ja-JP')}</span>
+        <span>{new Date(seed.updatedAt).toLocaleDateString('ja-JP', { timeZone: 'Asia/Tokyo' })}</span>
       </div>
     </button>
   )

@@ -189,7 +189,7 @@ export default function TeamPage() {
                   <div className="min-w-0 flex-1">
                     <p className="truncate text-sm font-medium text-gray-900">{invitation.email}</p>
                     <p className="text-xs text-gray-400">
-                      保留中 · 作成日 {new Date(invitation.createdAt).toLocaleDateString('ja-JP')} · 有効期限 {new Date(invitation.expiresAt).toLocaleDateString('ja-JP')}
+                      保留中 · 作成日 {new Date(invitation.createdAt).toLocaleDateString('ja-JP', { timeZone: 'Asia/Tokyo' })} · 有効期限 {new Date(invitation.expiresAt).toLocaleDateString('ja-JP', { timeZone: 'Asia/Tokyo' })}
                     </p>
                   </div>
                   <div className="flex items-center gap-3">

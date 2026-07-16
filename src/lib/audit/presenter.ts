@@ -1,7 +1,7 @@
 import type { AuditLog } from '@/lib/domain/types'
 
 function formatTimestamp(value: string) {
-  return new Date(value).toLocaleString('ja-JP')
+  return new Date(value).toLocaleString('ja-JP', { timeZone: 'Asia/Tokyo' })
 }
 
 export function describeAuditLog(log: AuditLog): string {
