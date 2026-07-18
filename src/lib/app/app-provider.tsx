@@ -8,6 +8,8 @@ import type {
   AuditLog,
   BrandProfile,
   BrandProfileInput,
+  CalendarEvent,
+  CalendarEventInput,
   DraftRevision,
   InboxItem,
   InboxNote,
@@ -42,6 +44,12 @@ import * as inboxRepo from '@/lib/repositories/supabase/inbox'
 import { listWorkspaceMessagingContacts, setContactAutoSend as setContactAutoSendRepo } from '@/lib/repositories/supabase/messaging-contacts'
 import { listWorkspaceReplySuggestions } from '@/lib/repositories/supabase/reply-suggestions'
 import { listWorkspaceReplyJobs, cancelReplyJob as cancelReplyJobRepo } from '@/lib/repositories/supabase/reply-queue'
+import {
+  listWorkspaceCalendarEvents,
+  createCalendarEvent as createCalendarEventRepo,
+  updateCalendarEvent as updateCalendarEventRepo,
+  deleteCalendarEvent as deleteCalendarEventRepo,
+} from '@/lib/repositories/supabase/calendar-events'
 import * as notificationsRepo from '@/lib/repositories/supabase/notifications'
 import * as queueRepo from '@/lib/repositories/supabase/queue'
 import { recordPublishAttempt, listWorkspacePublishAttempts } from '@/lib/repositories/supabase/publish-attempts'
@@ -74,6 +82,7 @@ interface AppContextValue {
   messagingContacts: MessagingContact[]
   replySuggestions: AiReplySuggestion[]
   replyJobs: ReplyJob[]
+  calendarEvents: CalendarEvent[]
   setActiveWorkspaceId: (workspaceId: string) => void
   refreshWorkspaceData: () => Promise<void>
   createSeedItem: (input: {
@@ -123,6 +132,9 @@ interface AppContextValue {
   getReplyJob: (inboxItemId: string) => ReplyJob | null
   getMessagingContact: (contactId: string) => MessagingContact | null
   setContactAutoSend: (contactId: string, enabled: boolean) => Promise<MessagingContact>
+  createCalendarEvent: (input: CalendarEventInput) => Promise<CalendarEvent>
+  updateCalendarEvent: (eventId: string, input: CalendarEventInput) => Promise<CalendarEvent>
+  deleteCalendarEvent: (eventId: string) => Promise<void>
   retryQueueJob: (jobId: string) => Promise<PublishJob>
   cancelQueueJob: (jobId: string) => Promise<PublishJob>
   scheduleDraft: (draftId: string, scheduledAt?: string) => Promise<PublishJob>
@@ -172,6 +184,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const [messagingContacts, setMessagingContacts] = useState<MessagingContact[]>([])
   const [replySuggestions, setReplySuggestions] = useState<AiReplySuggestion[]>([])
   const [replyJobs, setReplyJobs] = useState<ReplyJob[]>([])
+  const [calendarEvents, setCalendarEvents] = useState<CalendarEvent[]>([])
   const [isReady, setIsReady] = useState(false)
 
   // Load user workspaces
@@ -228,6 +241,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         messagingContactsList,
         replySuggestionsList,
         replyJobsList,
+        calendarEventsList,
       ] = await Promise.all([
         workspacesRepo.getWorkspaceById(activeWorkspaceId),
         workspacesRepo.getCurrentMember(activeWorkspaceId, currentUserId),
@@ -249,6 +263,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         listWorkspaceMessagingContacts(activeWorkspaceId),
         listWorkspaceReplySuggestions(activeWorkspaceId),
         listWorkspaceReplyJobs(activeWorkspaceId),
+        listWorkspaceCalendarEvents(activeWorkspaceId),
       ])
 
       setCurrentWorkspace(workspace)
@@ -271,6 +286,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       setMessagingContacts(messagingContactsList)
       setReplySuggestions(replySuggestionsList)
       setReplyJobs(replyJobsList)
+      setCalendarEvents(calendarEventsList)
     } catch (error) {
       console.error('Error loading workspace data:', error)
     }
@@ -357,6 +373,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       messagingContacts,
       replySuggestions,
       replyJobs,
+      calendarEvents,
       setActiveWorkspaceId,
       refreshWorkspaceData,
 
@@ -841,6 +858,71 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         return contact
       },
 
+      createCalendarEvent: async (input) => {
+        if (!currentWorkspace || !currentUserId) throw new Error('準備ができていません')
+        if (!currentMember || !hasPermission(currentMember.role, 'manage_calendar')) {
+          throw new Error('あなたの役割ではカレンダーを編集できません。')
+        }
+
+        const event = await createCalendarEventRepo(createClient(), {
+          workspaceId: currentWorkspace.id,
+          createdBy: currentUserId,
+          input,
+        })
+
+        await auditRepo.appendAuditLog({
+          workspaceId: currentWorkspace.id,
+          actorId: currentUserId,
+          action: 'calendar_event_created',
+          targetType: 'calendar_event',
+          targetId: event.id,
+          metadata: { title: event.title, source: event.source },
+        })
+
+        await refreshWorkspaceData()
+        return event
+      },
+
+      updateCalendarEvent: async (eventId, input) => {
+        if (!currentWorkspace || !currentUserId) throw new Error('準備ができていません')
+        if (!currentMember || !hasPermission(currentMember.role, 'manage_calendar')) {
+          throw new Error('あなたの役割ではカレンダーを編集できません。')
+        }
+
+        const event = await updateCalendarEventRepo(currentWorkspace.id, eventId, input)
+
+        await auditRepo.appendAuditLog({
+          workspaceId: currentWorkspace.id,
+          actorId: currentUserId,
+          action: 'calendar_event_updated',
+          targetType: 'calendar_event',
+          targetId: eventId,
+          metadata: { title: event.title },
+        })
+
+        await refreshWorkspaceData()
+        return event
+      },
+
+      deleteCalendarEvent: async (eventId) => {
+        if (!currentWorkspace || !currentUserId) throw new Error('準備ができていません')
+        if (!currentMember || !hasPermission(currentMember.role, 'manage_calendar')) {
+          throw new Error('あなたの役割ではカレンダーを編集できません。')
+        }
+
+        await deleteCalendarEventRepo(currentWorkspace.id, eventId)
+
+        await auditRepo.appendAuditLog({
+          workspaceId: currentWorkspace.id,
+          actorId: currentUserId,
+          action: 'calendar_event_deleted',
+          targetType: 'calendar_event',
+          targetId: eventId,
+        })
+
+        await refreshWorkspaceData()
+      },
+
       retryQueueJob: async (jobId) => {
         if (!currentWorkspace || !currentUserId) throw new Error('準備ができていません')
 
@@ -1123,6 +1205,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     messagingContacts,
     replySuggestions,
     replyJobs,
+    calendarEvents,
     currentUserId,
     refreshWorkspaceData,
   ])

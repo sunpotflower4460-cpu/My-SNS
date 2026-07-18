@@ -417,6 +417,41 @@ export interface ReplyAttempt {
   createdAt: string
 }
 
+// ─── Calendar Events ──────────────────────────────────────────────────────────
+/**
+ * One event on the workspace in-app calendar. `source='extracted'` rows are
+ * promoted from an AI schedule proposal only after the human approves — nothing
+ * is written here automatically.
+ */
+export interface CalendarEvent {
+  id: string
+  workspaceId: string
+  title: string
+  description?: string
+  startsAt: string
+  endsAt?: string
+  allDay: boolean
+  location?: string
+  source: 'manual' | 'extracted'
+  inboxItemId?: string
+  contactId?: string
+  createdBy: string
+  createdAt: string
+  updatedAt: string
+}
+
+export interface CalendarEventInput {
+  title: string
+  description?: string
+  startsAt: string
+  endsAt?: string
+  allDay?: boolean
+  location?: string
+  source?: 'manual' | 'extracted'
+  inboxItemId?: string
+  contactId?: string
+}
+
 // ─── Notifications ──────────────────────────────────────────────────────────
 export type NotificationType = 'draft_needs_approval' | 'publish_failed' | 'inbox_needs_action' | 'reply_failed' | 'auto_reply_scheduled'
 
@@ -452,6 +487,9 @@ export type AuditAction =
   | 'inbox_reply_sent'
   | 'inbox_reply_failed'
   | 'inbox_reply_cancelled'
+  | 'calendar_event_created'
+  | 'calendar_event_updated'
+  | 'calendar_event_deleted'
   | 'queue_item_scheduled'
   | 'queue_item_cancelled'
   | 'queue_item_published'
