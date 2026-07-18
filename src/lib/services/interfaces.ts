@@ -60,6 +60,29 @@ export interface ReplyGeneratorService {
   generateReply(inboundText: string, context?: ReplyGenerationContext): Promise<ReplyProposal>
 }
 
+// ─── Schedule Extractor ───────────────────────────────────────────────────────
+/** One calendar event the AI extracted from a conversation. The human approves each before it lands on the calendar. */
+export interface ScheduleProposal {
+  title: string
+  /** Absolute ISO 8601 instant (UTC) the model resolved from the conversation, given "now" in JST. */
+  startsAt: string
+  endsAt?: string
+  allDay: boolean
+  location?: string
+  /** A short Japanese note on what in the message this was drawn from / any assumption made. */
+  note?: string
+}
+
+export interface ScheduleExtractionContext {
+  /** The current instant in Asia/Tokyo, so the model can resolve relative dates ("来週火曜") to absolute ones. */
+  nowJst: string
+  contactDisplayName?: string
+}
+
+export interface ScheduleExtractor {
+  extractSchedule(conversationText: string, context: ScheduleExtractionContext): Promise<ScheduleProposal[]>
+}
+
 // ─── Social Connector Adapter ─────────────────────────────────────────────────
 /**
  * The already-approved Revision content, plus a live decrypted access token,
