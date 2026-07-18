@@ -1,3 +1,4 @@
+import type { SupabaseClient } from '@supabase/supabase-js'
 import type { BrandProfile, BrandProfileInput } from '@/lib/domain/types'
 import { createClient } from '@/lib/supabase/client'
 
@@ -37,6 +38,28 @@ function mapBrandProfile(row: BrandProfileRow): BrandProfile {
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   }
+}
+
+/**
+ * The workspace's default Brand Profile (or its first, or null), fetched with a
+ * caller-provided client — used server-side (API routes) where the browser
+ * client isn't available. Mirrors how the app-provider derives defaultBrandProfile.
+ */
+export async function getDefaultBrandProfileForClient(
+  supabase: SupabaseClient,
+  workspaceId: string,
+): Promise<BrandProfile | null> {
+  const { data, error } = await supabase
+    .from('brand_profiles')
+    .select('*')
+    .eq('workspace_id', workspaceId)
+    .order('is_default', { ascending: false })
+    .order('created_at', { ascending: true })
+    .limit(1)
+    .maybeSingle()
+
+  if (error) throw new Error(error.message)
+  return data ? mapBrandProfile(data as BrandProfileRow) : null
 }
 
 export async function listWorkspaceBrandProfiles(workspaceId: string): Promise<BrandProfile[]> {

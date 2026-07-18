@@ -30,6 +30,8 @@ export function describeAuditLog(log: AuditLog): string {
       return `${actor}さんがAI提案を生成しました${Array.isArray(log.metadata?.channels) ? `（${log.metadata.channels.join(', ')}）` : ''}。`
     case 'draft_revision_approved':
       return `${actor}さんが下書き${typeof log.metadata?.channel === 'string' ? `（${log.metadata.channel}）` : ''}を承認し、Revisionを記録しました。`
+    case 'inbox_reply_ai_generated':
+      return `${actor}さんが受信メッセージへのAI返信案を生成しました${typeof log.metadata?.platform === 'string' ? `（${log.metadata.platform}）` : ''}。`
     case 'queue_item_scheduled':
       return log.metadata?.retried
         ? `${actor}さんがキュー項目を再度スケジュールしました。`

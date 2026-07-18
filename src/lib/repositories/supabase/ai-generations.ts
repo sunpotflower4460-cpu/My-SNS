@@ -5,7 +5,9 @@ import { createClient } from '@/lib/supabase/client'
 interface AiGenerationRow {
   id: string
   workspace_id: string
-  seed_id: string
+  seed_id: string | null
+  inbox_item_id: string | null
+  purpose: 'draft' | 'reply'
   channels: PublishingChannel[]
   model: string
   input_tokens: number
@@ -19,7 +21,9 @@ function mapGeneration(row: AiGenerationRow): AiGeneration {
   return {
     id: row.id,
     workspaceId: row.workspace_id,
-    seedId: row.seed_id,
+    seedId: row.seed_id ?? undefined,
+    inboxItemId: row.inbox_item_id ?? undefined,
+    purpose: row.purpose,
     channels: row.channels,
     model: row.model,
     inputTokens: row.input_tokens,
@@ -32,7 +36,10 @@ function mapGeneration(row: AiGenerationRow): AiGeneration {
 
 export interface RecordAiGenerationInput {
   workspaceId: string
-  seedId: string
+  /** Set for draft generations; a reply generation passes inboxItemId + purpose:'reply' instead. */
+  seedId?: string
+  inboxItemId?: string
+  purpose?: 'draft' | 'reply'
   channels: PublishingChannel[]
   model: string
   inputTokens: number
@@ -42,9 +49,11 @@ export interface RecordAiGenerationInput {
 }
 
 /**
- * Records one real AI generation call for cost/usage tracking. Requires a
- * caller-provided Supabase client (the API route's authenticated server
- * client) — this is never called for template fallbacks, which cost nothing.
+ * Records one real AI generation call for cost/usage tracking — drafts (keyed
+ * by seedId) and DM replies (keyed by inboxItemId, purpose:'reply') share one
+ * ledger and one monthly budget sum. Requires a caller-provided Supabase client
+ * (the API route's authenticated server client); never called for template
+ * fallbacks, which cost nothing.
  */
 export async function recordAiGeneration(
   supabase: SupabaseClient,
@@ -54,7 +63,9 @@ export async function recordAiGeneration(
     .from('ai_generations')
     .insert({
       workspace_id: input.workspaceId,
-      seed_id: input.seedId,
+      seed_id: input.seedId ?? null,
+      inbox_item_id: input.inboxItemId ?? null,
+      purpose: input.purpose ?? 'draft',
       channels: input.channels,
       model: input.model,
       input_tokens: input.inputTokens,
