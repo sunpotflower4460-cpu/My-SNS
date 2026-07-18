@@ -31,6 +31,7 @@ import type {
   WorkspaceMember,
   WorkspaceRole,
 } from '@/lib/domain/types'
+import type { ScheduleProposal } from '@/lib/services/interfaces'
 import { useAuth } from '@/lib/auth/auth-provider'
 import { hasPermission } from '@/lib/permissions'
 import { derivePublishMode } from '@/lib/channels/config'
@@ -135,6 +136,7 @@ interface AppContextValue {
   createCalendarEvent: (input: CalendarEventInput) => Promise<CalendarEvent>
   updateCalendarEvent: (eventId: string, input: CalendarEventInput) => Promise<CalendarEvent>
   deleteCalendarEvent: (eventId: string) => Promise<void>
+  extractSchedule: (inboxItemId: string) => Promise<{ source: 'ai' | 'unavailable'; reason?: string; proposals: ScheduleProposal[] }>
   retryQueueJob: (jobId: string) => Promise<PublishJob>
   cancelQueueJob: (jobId: string) => Promise<PublishJob>
   scheduleDraft: (draftId: string, scheduledAt?: string) => Promise<PublishJob>
@@ -921,6 +923,25 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         })
 
         await refreshWorkspaceData()
+      },
+
+      extractSchedule: async (inboxItemId) => {
+        if (!currentWorkspace) throw new Error('準備ができていません')
+        if (!currentMember || !hasPermission(currentMember.role, 'manage_calendar')) {
+          throw new Error('あなたの役割ではカレンダーを編集できません。')
+        }
+
+        const response = await fetch('/api/inbox/schedule/extract', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ workspaceId: currentWorkspace.id, inboxItemId }),
+        })
+        const payload = await response.json()
+        if (!response.ok) throw new Error(payload.error ?? '予定を抽出できませんでした。')
+
+        // Extraction doesn't write anything, so no refresh is needed here — the
+        // caller approves individual proposals via createCalendarEvent.
+        return payload as { source: 'ai' | 'unavailable'; reason?: string; proposals: ScheduleProposal[] }
       },
 
       retryQueueJob: async (jobId) => {

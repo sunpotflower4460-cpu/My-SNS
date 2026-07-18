@@ -3,6 +3,7 @@
 import { useMemo, useState } from 'react'
 import Link from 'next/link'
 import type { InboxItem } from '@/lib/domain/types'
+import type { ScheduleProposal } from '@/lib/services/interfaces'
 import { useApp } from '@/lib/app/app-provider'
 import { hasPermission } from '@/lib/permissions'
 
@@ -48,6 +49,8 @@ export default function ConciergeReplyPanel({ item }: { item: InboxItem }) {
     cancelReplyJob,
     getMessagingContact,
     setContactAutoSend,
+    extractSchedule,
+    createCalendarEvent,
   } = useApp()
 
   const suggestion = getReplySuggestion(item.id)
@@ -56,9 +59,13 @@ export default function ConciergeReplyPanel({ item }: { item: InboxItem }) {
 
   const [replyText, setReplyText] = useState(suggestion?.suggestedText ?? '')
   const [timing, setTiming] = useState<'recommended' | 'now'>('recommended')
-  const [busy, setBusy] = useState<null | 'generate' | 'send' | 'trigger' | 'cancel' | 'autosend'>(null)
+  const [busy, setBusy] = useState<null | 'generate' | 'send' | 'trigger' | 'cancel' | 'autosend' | 'schedule' | number>(null)
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
+  // Schedule extraction is ephemeral: proposals live in local state until the
+  // human approves one, which is the only thing that writes to the calendar.
+  const [scheduleProposals, setScheduleProposals] = useState<ScheduleProposal[] | null>(null)
+  const [addedProposals, setAddedProposals] = useState<Set<number>>(new Set())
   // The suggestion text should seed the editor once, but not clobber the user's
   // edits on every re-render. Track which suggestion id we've already applied.
   const [seededFrom, setSeededFrom] = useState<string | null>(suggestion?.id ?? null)
@@ -72,6 +79,8 @@ export default function ConciergeReplyPanel({ item }: { item: InboxItem }) {
   // Phase 1 send matrix: LINE sends; Instagram is receive-only; others unsupported.
   const sendSupported = item.platform === 'line'
   const isInstagram = item.platform === 'instagram'
+
+  const canManageCalendar = Boolean(currentMember && hasPermission(currentMember.role, 'manage_calendar'))
 
   // Seed the editor when a newer suggestion arrives (e.g. right after generate).
   if (suggestion && suggestion.id !== seededFrom) {
@@ -165,6 +174,49 @@ export default function ConciergeReplyPanel({ item }: { item: InboxItem }) {
       )
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : '自動送信の設定を変更できませんでした。')
+    } finally {
+      setBusy(null)
+    }
+  }
+
+  const handleExtractSchedule = async () => {
+    resetMessages()
+    setBusy('schedule')
+    try {
+      const result = await extractSchedule(item.id)
+      setScheduleProposals(result.proposals)
+      setAddedProposals(new Set())
+      if (result.source === 'unavailable') {
+        setNotice(result.reason ?? 'AIが未設定のため、予定の抽出は利用できません。')
+      } else if (result.proposals.length === 0) {
+        setNotice('この会話から追加できそうな予定は見つかりませんでした。')
+      }
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : '予定を抽出できませんでした。')
+    } finally {
+      setBusy(null)
+    }
+  }
+
+  const handleAddProposal = async (proposal: ScheduleProposal, index: number) => {
+    resetMessages()
+    setBusy(index)
+    try {
+      await createCalendarEvent({
+        title: proposal.title,
+        startsAt: proposal.startsAt,
+        endsAt: proposal.endsAt,
+        allDay: proposal.allDay,
+        location: proposal.location,
+        description: proposal.note,
+        source: 'extracted',
+        inboxItemId: item.id,
+        contactId: item.contactId,
+      })
+      setAddedProposals((prev) => new Set(prev).add(index))
+      setNotice('カレンダーに追加しました。')
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'カレンダーに追加できませんでした。')
     } finally {
       setBusy(null)
     }
@@ -340,6 +392,54 @@ export default function ConciergeReplyPanel({ item }: { item: InboxItem }) {
               </div>
             )}
           </div>
+        </div>
+      )}
+
+      {/* Schedule extraction (Phase 3). Proposal-only: nothing lands on the
+          calendar until the human taps カレンダーに追加 on a specific proposal. */}
+      {canManageCalendar && (
+        <div className="mt-4 rounded-2xl border border-stone-200 bg-white px-4 py-3">
+          <div className="flex items-center justify-between gap-3">
+            <p className="text-xs font-semibold text-gray-600">会話から予定を抽出</p>
+            <button
+              onClick={handleExtractSchedule}
+              disabled={busy === 'schedule'}
+              className="rounded-full border border-violet-200 px-3 py-1 text-xs font-medium text-violet-700 hover:bg-violet-50 disabled:opacity-50"
+            >
+              {busy === 'schedule' ? '抽出中…' : scheduleProposals ? '再抽出' : '予定を抽出'}
+            </button>
+          </div>
+
+          {scheduleProposals && scheduleProposals.length > 0 && (
+            <div className="mt-3 space-y-2">
+              {scheduleProposals.map((proposal, index) => (
+                <div key={index} className="rounded-xl border border-stone-200 bg-stone-50 px-3 py-2">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <p className="text-sm font-medium text-gray-800">{proposal.title}</p>
+                      <p className="mt-0.5 text-xs text-gray-500">
+                        {proposal.allDay ? '終日' : formatJst(proposal.startsAt)}
+                        {proposal.endsAt && !proposal.allDay ? ` 〜 ${formatJst(proposal.endsAt)}` : ''}
+                        {proposal.location ? `・${proposal.location}` : ''}
+                      </p>
+                      {proposal.note && <p className="mt-0.5 text-[11px] text-gray-400">{proposal.note}</p>}
+                    </div>
+                    {addedProposals.has(index) ? (
+                      <span className="shrink-0 text-xs text-green-700">✓ 追加済み</span>
+                    ) : (
+                      <button
+                        onClick={() => handleAddProposal(proposal, index)}
+                        disabled={busy === index}
+                        className="shrink-0 rounded-full bg-gray-900 px-3 py-1 text-xs font-medium text-white hover:bg-gray-700 disabled:opacity-50"
+                      >
+                        {busy === index ? '追加中…' : 'カレンダーに追加'}
+                      </button>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       )}
 

@@ -7,7 +7,7 @@ interface AiGenerationRow {
   workspace_id: string
   seed_id: string | null
   inbox_item_id: string | null
-  purpose: 'draft' | 'reply'
+  purpose: 'draft' | 'reply' | 'schedule'
   channels: PublishingChannel[]
   model: string
   input_tokens: number
@@ -39,7 +39,7 @@ export interface RecordAiGenerationInput {
   /** Set for draft generations; a reply generation passes inboxItemId + purpose:'reply' instead. */
   seedId?: string
   inboxItemId?: string
-  purpose?: 'draft' | 'reply'
+  purpose?: 'draft' | 'reply' | 'schedule'
   channels: PublishingChannel[]
   model: string
   inputTokens: number

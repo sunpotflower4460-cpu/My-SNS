@@ -209,7 +209,7 @@ export interface AiGeneration {
   seedId?: string
   /** Set for reply generations (purpose 'reply'); undefined for draft generations. */
   inboxItemId?: string
-  purpose: 'draft' | 'reply'
+  purpose: 'draft' | 'reply' | 'schedule'
   channels: PublishingChannel[]
   model: string
   inputTokens: number
