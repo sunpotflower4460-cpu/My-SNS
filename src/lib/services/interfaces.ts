@@ -82,11 +82,33 @@ export interface InboxFetchRequest {
   handle?: string
 }
 
+/**
+ * One outbound direct-message reply the reply Worker hands to an adapter —
+ * mirrors PublishRequest's philosophy: the adapter never touches the database
+ * or resolves its own credentials, it just receives the decrypted token, the
+ * send target, and the final approved text.
+ */
+export interface SendMessageRequest {
+  platform: SocialPlatform
+  accessToken: string
+  /** The platform-native recipient id to push to (LINE userId / Instagram PSID). */
+  target: string
+  text: string
+  externalAccountId?: string
+}
+
+export interface SendMessageResult {
+  /** The platform's own message/request id, when it returns one. */
+  externalMessageId?: string
+}
+
 export interface SocialConnectorAdapter {
   connect(platform: SocialPlatform, authCode: string, options: ConnectOptions): Promise<ConnectedAccount>
   disconnect(platform: SocialPlatform): Promise<void>
   refreshAccessToken(platform: SocialPlatform, refreshToken: string): Promise<ConnectedAccount>
   publish(request: PublishRequest): Promise<PublishResult>
+  /** Send one outbound DM reply. Only real messaging connectors (LINE) implement this; every other adapter fails closed. */
+  sendMessage(request: SendMessageRequest): Promise<SendMessageResult>
   fetchInbox(request: InboxFetchRequest): Promise<InboundInboxEvent[]>
   fetchComments(request: InboxFetchRequest & { postId: string }): Promise<InboundInboxEvent[]>
   fetchMentions(request: InboxFetchRequest): Promise<InboundInboxEvent[]>

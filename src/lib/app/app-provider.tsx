@@ -11,6 +11,7 @@ import type {
   InboxItem,
   InboxNote,
   Invitation,
+  MessagingContact,
   Notification,
   PostMetrics,
   PublishAttempt,
@@ -36,6 +37,7 @@ import * as brandProfilesRepo from '@/lib/repositories/supabase/brand-profiles'
 import * as draftsRepo from '@/lib/repositories/supabase/drafts'
 import * as draftRevisionsRepo from '@/lib/repositories/supabase/draft-revisions'
 import * as inboxRepo from '@/lib/repositories/supabase/inbox'
+import { listWorkspaceMessagingContacts } from '@/lib/repositories/supabase/messaging-contacts'
 import * as notificationsRepo from '@/lib/repositories/supabase/notifications'
 import * as queueRepo from '@/lib/repositories/supabase/queue'
 import { recordPublishAttempt, listWorkspacePublishAttempts } from '@/lib/repositories/supabase/publish-attempts'
@@ -65,6 +67,7 @@ interface AppContextValue {
   publishAttempts: PublishAttempt[]
   aiGenerations: AiGeneration[]
   notifications: Notification[]
+  messagingContacts: MessagingContact[]
   setActiveWorkspaceId: (workspaceId: string) => void
   refreshWorkspaceData: () => Promise<void>
   createSeedItem: (input: {
@@ -98,6 +101,7 @@ interface AppContextValue {
   removeMember: (userId: string) => Promise<void>
   saveWorkspaceSettings: (name: string, slug: string) => Promise<Workspace>
   disconnectSocialAccount: (accountId: string) => Promise<SocialAccount>
+  connectLineAccount: () => Promise<void>
   syncInboxFromPlatform: (platform: SocialPlatform) => Promise<{ ingested: number }>
   saveDefaultBrandProfile: (input: BrandProfileInput) => Promise<BrandProfile>
   toggleInboxRead: (inboxItemId: string) => Promise<InboxItem>
@@ -151,6 +155,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const [publishAttempts, setPublishAttempts] = useState<PublishAttempt[]>([])
   const [aiGenerations, setAiGenerations] = useState<AiGeneration[]>([])
   const [notifications, setNotifications] = useState<Notification[]>([])
+  const [messagingContacts, setMessagingContacts] = useState<MessagingContact[]>([])
   const [isReady, setIsReady] = useState(false)
 
   // Load user workspaces
@@ -204,6 +209,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         publishAttemptsList,
         aiGenerationsList,
         notificationsList,
+        messagingContactsList,
       ] = await Promise.all([
         workspacesRepo.getWorkspaceById(activeWorkspaceId),
         workspacesRepo.getCurrentMember(activeWorkspaceId, currentUserId),
@@ -222,6 +228,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         listWorkspacePublishAttempts(activeWorkspaceId),
         listWorkspaceAiGenerations(activeWorkspaceId),
         notificationsRepo.listMyNotifications(activeWorkspaceId),
+        listWorkspaceMessagingContacts(activeWorkspaceId),
       ])
 
       setCurrentWorkspace(workspace)
@@ -241,6 +248,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       setPublishAttempts(publishAttemptsList)
       setAiGenerations(aiGenerationsList)
       setNotifications(notificationsList)
+      setMessagingContacts(messagingContactsList)
     } catch (error) {
       console.error('Error loading workspace data:', error)
     }
@@ -324,6 +332,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       publishAttempts,
       aiGenerations,
       notifications,
+      messagingContacts,
       setActiveWorkspaceId,
       refreshWorkspaceData,
 
@@ -521,6 +530,25 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
         await refreshWorkspaceData()
         return payload.account as SocialAccount
+      },
+
+      connectLineAccount: async () => {
+        if (!currentWorkspace || !currentUserId) throw new Error('準備ができていません')
+        if (!currentMember || !hasPermission(currentMember.role, 'manage_social_accounts')) {
+          throw new Error('あなたの役割ではSNSアカウントを接続できません。')
+        }
+
+        // LINE connects with a channel token from the environment (no OAuth
+        // redirect), so this is a plain POST — see src/app/api/social/line/connect.
+        const response = await fetch('/api/social/line/connect', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ workspaceId: currentWorkspace.id }),
+        })
+        const payload = await response.json()
+        if (!response.ok) throw new Error(payload.error ?? 'LINEの接続に失敗しました。')
+
+        await refreshWorkspaceData()
       },
 
       syncInboxFromPlatform: async (platform) => {
@@ -958,6 +986,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     publishAttempts,
     aiGenerations,
     notifications,
+    messagingContacts,
     currentUserId,
     refreshWorkspaceData,
   ])

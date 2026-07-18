@@ -10,6 +10,7 @@ const CHANNEL_STYLES: Record<PublishingChannel, string> = {
   threads: 'border-gray-200 bg-gray-50 text-gray-700',
   facebook: 'border-blue-200 bg-blue-50 text-blue-700',
   website: 'border-violet-200 bg-violet-50 text-violet-700',
+  line: 'border-green-200 bg-green-50 text-green-700',
 }
 
 export default function ChannelBadge({ channel }: { channel: PublishingChannel }) {

@@ -5,6 +5,7 @@ import type {
   InboxFetchRequest,
   PublishRequest,
   PublishResult,
+  SendMessageResult,
   SocialConnectorAdapter,
 } from '../interfaces'
 import { deriveCodeChallenge, generateCodeVerifier } from './pkce'
@@ -157,6 +158,12 @@ export class XConnectorAdapter implements SocialConnectorAdapter {
       externalPostId: firstId,
       externalUrl: firstId ? `https://x.com/${username}/status/${firstId}` : undefined,
     }
+  }
+
+  async sendMessage(): Promise<SendMessageResult> {
+    // Honest gap: X DM send requires dm.write on a paid Basic-or-higher API
+    // tier; this app only requests free-tier write scopes for publishing.
+    throw new Error('X DMの送信は有料APIティア（Basic以上、dm.write）が必要なため未対応です。')
   }
 
   // Honest gap, not a stub: X has no webhook this app can receive without an

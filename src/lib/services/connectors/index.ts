@@ -5,10 +5,16 @@ import { XConnectorAdapter, buildXAuthorizeUrl, isXConfigured } from './x-connec
 import { InstagramConnectorAdapter, buildInstagramAuthorizeUrl, isInstagramConfigured } from './instagram-connector'
 import { YouTubeConnectorAdapter, buildYouTubeAuthorizeUrl, isYouTubeConfigured } from './youtube-connector'
 import { TikTokConnectorAdapter, buildTikTokAuthorizeUrl, isTikTokConfigured } from './tiktok-connector'
+import { LineConnectorAdapter } from './line-connector'
 import type { ConnectablePlatform } from './platforms'
 
 export type { ConnectablePlatform } from './platforms'
 export { isConnectablePlatform, CONNECTABLE_PLATFORMS } from './platforms'
+// LINE is deliberately NOT a ConnectablePlatform (it has no OAuth authorize
+// redirect — see line-connector.ts). It connects via its own dedicated route
+// (/api/social/line/connect), so it only needs the adapter registry + config
+// check, not buildAuthorizeUrl / isPlatformConfigured.
+export { isLineConfigured } from './line-connector'
 
 export function isPlatformConfigured(platform: ConnectablePlatform): boolean {
   switch (platform) {
@@ -51,6 +57,8 @@ export function getConnectorAdapter(platform: SocialPlatform): SocialConnectorAd
       return new YouTubeConnectorAdapter()
     case 'tiktok':
       return new TikTokConnectorAdapter()
+    case 'line':
+      return new LineConnectorAdapter()
     default:
       return new UnavailableSocialConnectorAdapter()
   }

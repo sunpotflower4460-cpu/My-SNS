@@ -20,10 +20,11 @@ const PLATFORM_ICONS: Record<SocialPlatform, string> = {
   x: '𝕏',
   tiktok: '♪',
   facebook: '𝑓',
+  line: '💬',
 }
 
 export default function SettingsPage() {
-  const { currentMember, currentWorkspace, defaultBrandProfile, disconnectSocialAccount, exportWorkspaceData, saveWorkspaceSettings, socialAccounts, syncInboxFromPlatform } = useApp()
+  const { connectLineAccount, currentMember, currentWorkspace, defaultBrandProfile, disconnectSocialAccount, exportWorkspaceData, saveWorkspaceSettings, socialAccounts, syncInboxFromPlatform } = useApp()
   const { currentUser } = useCurrentUser()
   const searchParams = useSearchParams()
   const [workspaceName, setWorkspaceName] = useState(currentWorkspace?.name ?? '')
@@ -48,6 +49,22 @@ export default function SettingsPage() {
     if (connected) setPlatformFeedback(`${PUBLISHING_CHANNEL_CONFIG[connected as SocialPlatform]?.label ?? connected} に接続しました。`)
     if (oauthError) setPlatformError(oauthError)
   }, [searchParams])
+
+  const lineAccount = socialAccounts.find((account) => account.platform === 'line' && account.connected)
+
+  const handleConnectLine = async () => {
+    setBusyPlatform('line')
+    try {
+      await connectLineAccount()
+      setPlatformFeedback('LINE公式アカウントを接続しました。')
+      setPlatformError('')
+    } catch (cause) {
+      setPlatformError(cause instanceof Error ? cause.message : 'LINEの接続に失敗しました。')
+      setPlatformFeedback('')
+    } finally {
+      setBusyPlatform(null)
+    }
+  }
 
   const handleSaveWorkspace = async () => {
     try {
@@ -199,7 +216,7 @@ export default function SettingsPage() {
               )
             })}
             {socialAccounts
-              .filter((account) => account.connected && !isConnectablePlatform(account.platform))
+              .filter((account) => account.connected && !isConnectablePlatform(account.platform) && account.platform !== 'line')
               .map((account) => (
                 <div key={account.id} className="flex flex-col gap-3 rounded-2xl border border-stone-100 bg-stone-50 p-4 sm:flex-row sm:items-center">
                   <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-white text-sm font-bold text-gray-600">{PLATFORM_ICONS[account.platform]}</div>
@@ -210,6 +227,47 @@ export default function SettingsPage() {
                   <span className="rounded-full border border-green-200 bg-green-50 px-2.5 py-1 text-xs text-green-600">接続済み</span>
                 </div>
               ))}
+          </div>
+        </div>
+
+        <div className="rounded-[2rem] border border-stone-200 bg-white p-6 shadow-sm shadow-stone-100/80">
+          <h2 className="mb-1 text-base font-semibold text-gray-900">メッセージ（LINE・DM）</h2>
+          <p className="mb-4 text-sm text-gray-500">LINE公式アカウントを接続すると、届いたメッセージを受信箱で一元管理し、AIの要約・返信提案・承認後の送信ができます。</p>
+          <div className="space-y-3">
+            <div className="flex flex-col gap-3 rounded-2xl border border-stone-100 bg-stone-50 p-4 sm:flex-row sm:items-center">
+              <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-white text-sm font-bold text-gray-600">{PLATFORM_ICONS.line}</div>
+              <div className="min-w-0 flex-1">
+                <p className="text-sm font-medium text-gray-900">LINE公式アカウント</p>
+                <p className="truncate text-xs text-gray-500">{lineAccount?.handle ?? '未接続'}</p>
+              </div>
+              {lineAccount ? (
+                <div className="flex items-center gap-2">
+                  <span className="rounded-full border border-green-200 bg-green-50 px-2.5 py-1 text-xs text-green-600">接続済み</span>
+                  {canManageSocialAccounts && (
+                    <button
+                      onClick={() => void handleDisconnect(lineAccount)}
+                      disabled={busyPlatform === 'line'}
+                      className="rounded-xl border border-stone-200 px-3 py-1.5 text-xs font-medium text-gray-600 transition hover:bg-white hover:text-red-600 disabled:cursor-wait disabled:opacity-50"
+                    >
+                      接続を解除
+                    </button>
+                  )}
+                </div>
+              ) : canManageSocialAccounts ? (
+                <button
+                  onClick={() => void handleConnectLine()}
+                  disabled={busyPlatform === 'line'}
+                  className="rounded-xl bg-violet-600 px-3 py-1.5 text-xs font-medium text-white transition hover:bg-violet-700 disabled:cursor-wait disabled:opacity-50"
+                >
+                  {busyPlatform === 'line' ? '接続中…' : '接続する'}
+                </button>
+              ) : (
+                <span className="rounded-full border border-stone-200 bg-white px-2.5 py-1 text-xs text-gray-400">未接続</span>
+              )}
+            </div>
+            <p className="text-xs text-gray-400">
+              Instagram DMは受信のみ対応です（送信は今後のアップデートで対応予定 — Metaのメッセージ権限と審査が前提のためです）。
+            </p>
           </div>
         </div>
 
