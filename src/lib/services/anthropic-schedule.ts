@@ -73,6 +73,24 @@ export function buildScheduleExtractionPrompt(
   return { system, user }
 }
 
+// An ISO instant is unambiguous only with a timezone designator (Z or ±HH:MM).
+const TZ_OFFSET_RE = /(Z|[+-]\d{2}:?\d{2})$/
+
+/**
+ * Resolves a model-supplied datetime to an absolute-instant epoch-ms. The prompt
+ * asks for a +09:00 offset, but models sometimes omit it — and a naive
+ * "YYYY-MM-DDTHH:mm:ss" would otherwise be parsed against the SERVER's clock
+ * (UTC in prod), silently shifting a JST-intended time by 9h. Since the whole
+ * extraction context is Asia/Tokyo, a missing offset is treated as +09:00 (what
+ * the prompt asked for) rather than left to drift. Anything still unparseable
+ * (a relative phrase, a bare date) becomes NaN and is dropped by the caller.
+ */
+function toInstantMs(value: string | undefined): number {
+  if (!value) return NaN
+  const normalized = TZ_OFFSET_RE.test(value) ? value : `${value}+09:00`
+  return new Date(normalized).getTime()
+}
+
 /**
  * Parses + validates the tool output. Drops any event whose startsAt is not a
  * real date (the model must return an absolute instant); normalizes to UTC ISO.
@@ -87,10 +105,10 @@ export function parseScheduleProposals(toolInput: unknown): ScheduleProposal[] {
   const proposals: ScheduleProposal[] = []
   for (const event of raw.events) {
     const title = event.title?.trim()
-    const startsMs = event.startsAt ? new Date(event.startsAt).getTime() : NaN
+    const startsMs = toInstantMs(event.startsAt)
     if (!title || Number.isNaN(startsMs)) continue // skip anything without a title or a resolvable start
 
-    const endsMs = event.endsAt ? new Date(event.endsAt).getTime() : NaN
+    const endsMs = toInstantMs(event.endsAt)
     // Drop an end that isn't a real date or precedes the start.
     const endsAt = !Number.isNaN(endsMs) && endsMs >= startsMs ? new Date(endsMs).toISOString() : undefined
 

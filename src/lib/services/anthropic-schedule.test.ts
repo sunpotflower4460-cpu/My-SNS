@@ -55,6 +55,21 @@ describe('parseScheduleProposals', () => {
     expect(event.endsAt).toBeUndefined()
   })
 
+  it('treats a naive datetime (no offset) as JST, not the server clock — the 9h-shift guard', () => {
+    // The model omitted the +09:00 offset but meant JST 15:00. Without the guard
+    // this would parse against the server's UTC clock and land at 15:00Z.
+    const [event] = parseScheduleProposals({
+      events: [{ title: 'x', startsAt: '2026-07-21T15:00:00', endsAt: '2026-07-21T16:00:00', allDay: false }],
+    })
+    expect(event.startsAt).toBe('2026-07-21T06:00:00.000Z') // 15:00 JST, correct
+    expect(event.endsAt).toBe('2026-07-21T07:00:00.000Z')
+  })
+
+  it('respects an explicit Z (UTC) offset when the model gives one', () => {
+    const [event] = parseScheduleProposals({ events: [{ title: 'x', startsAt: '2026-07-21T15:00:00Z', allDay: false }] })
+    expect(event.startsAt).toBe('2026-07-21T15:00:00.000Z')
+  })
+
   it('throws when the tool output has no events array', () => {
     expect(() => parseScheduleProposals({})).toThrow()
     expect(() => parseScheduleProposals(undefined)).toThrow()
