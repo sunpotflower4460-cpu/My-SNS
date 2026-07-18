@@ -1,5 +1,5 @@
 import type { InboundInboxEvent, PostMetrics, SocialPlatform } from '@/lib/domain/types'
-import type { ConnectedAccount, InboxFetchRequest, PublishRequest, PublishResult, SocialConnectorAdapter } from './interfaces'
+import type { ConnectedAccount, InboxFetchRequest, PublishRequest, PublishResult, SendMessageRequest, SendMessageResult, SocialConnectorAdapter } from './interfaces'
 
 function connectorUnavailable(operation: string, platform?: SocialPlatform): never {
   const target = platform ? ` for ${platform}` : ''
@@ -21,6 +21,10 @@ export class UnavailableSocialConnectorAdapter implements SocialConnectorAdapter
 
   async publish(request: PublishRequest): Promise<PublishResult> {
     return connectorUnavailable('Publishing', request.platform)
+  }
+
+  async sendMessage(request: SendMessageRequest): Promise<SendMessageResult> {
+    return connectorUnavailable('Message send', request.platform)
   }
 
   async fetchInbox(request: InboxFetchRequest): Promise<InboundInboxEvent[]> {
@@ -52,6 +56,7 @@ export class UnavailableSocialConnectorAdapter implements SocialConnectorAdapter
       x: `https://x.com/${cleanHandle}`,
       tiktok: `https://tiktok.com/@${cleanHandle}`,
       facebook: `https://facebook.com/${cleanHandle}`,
+      line: 'https://line.me/',
     }
     return urls[platform]
   }

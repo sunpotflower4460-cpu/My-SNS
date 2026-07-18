@@ -48,6 +48,12 @@ const CHANNEL_TEMPLATES: Record<PublishingChannel, (seed: Seed, tone: string, le
   website: (seed) => {
     return [seed.title, seed.sourceText, keyPoints(seed), seed.callToAction].filter(Boolean).join('\n\n')
   },
+  // LINE is a messaging platform, never a publishing channel — this entry only
+  // satisfies the exhaustive Record<PublishingChannel, …> and is never reached
+  // via the Seed channel picker (CORE_PUBLISHING_CHANNELS excludes it).
+  line: (seed) => {
+    return [seed.title, seed.sourceText, seed.callToAction].filter(Boolean).join('\n\n')
+  },
 }
 
 export function resetTemplateDraft(draft: SocialDraft, seed: Seed): string {

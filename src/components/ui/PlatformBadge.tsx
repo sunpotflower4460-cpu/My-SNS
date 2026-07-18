@@ -11,6 +11,7 @@ const PLATFORM_STYLES: Record<SocialPlatform, { label: string; cls: string }> = 
   x: { label: 'X', cls: 'bg-gray-900 text-white border-gray-800' },
   tiktok: { label: 'TikTok', cls: 'bg-gray-900 text-white border-gray-800' },
   facebook: { label: 'Facebook', cls: 'bg-blue-100 text-blue-700 border-blue-200' },
+  line: { label: 'LINE', cls: 'bg-green-100 text-green-700 border-green-200' },
 }
 
 export default function PlatformBadge({ platform }: PlatformBadgeProps) {

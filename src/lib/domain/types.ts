@@ -45,7 +45,11 @@ export interface Invitation {
 }
 
 // ─── Social Accounts ──────────────────────────────────────────────────────────
-export type SocialPlatform = 'youtube' | 'instagram' | 'threads' | 'x' | 'tiktok' | 'facebook'
+// 'line' is a messaging platform (LINE Official Account), not a publishing
+// channel — it never appears in the Seed channel picker (CORE_PUBLISHING_CHANNELS)
+// and is never scheduled as a post. It rides the same social_platform enum so
+// LINE DMs land in the unified inbox alongside Instagram DMs.
+export type SocialPlatform = 'youtube' | 'instagram' | 'threads' | 'x' | 'tiktok' | 'facebook' | 'line'
 
 export type PublishingChannel = SocialPlatform | 'note' | 'website'
 
@@ -271,6 +275,10 @@ export interface InboxItem {
   authorAvatarUrl?: string
   text: string
   seedId?: string
+  /** The conversational contact this item belongs to (set for DMs ingested with a contact). */
+  contactId?: string
+  /** AI-judged reply urgency, written when a reply suggestion is generated. Used to order the inbox. */
+  aiPriority?: 'high' | 'normal' | 'low'
   /** The platform-native id (e.g. an Instagram comment id) — set for items ingested from a webhook or a sync, absent for anything else. */
   externalId?: string
   receivedAt: string
@@ -279,6 +287,28 @@ export interface InboxItem {
   isStarred: boolean
   aiSummary?: string
   relatedSeed?: Seed
+}
+
+// ─── Messaging Contacts ────────────────────────────────────────────────────────
+/**
+ * One person the workspace converses with on one platform (LINE userId /
+ * Instagram PSID). `externalContactId` is the send target for replies, and the
+ * timezone / quiet-hours fields drive recipient-appropriate send timing.
+ */
+export interface MessagingContact {
+  id: string
+  workspaceId: string
+  platform: SocialPlatform
+  externalContactId: string
+  displayName?: string
+  avatarUrl?: string
+  timezone?: string
+  quietHoursStart?: number
+  quietHoursEnd?: number
+  priorityHint?: 'high' | 'normal' | 'low'
+  lastMessageAt?: string
+  createdAt: string
+  updatedAt: string
 }
 
 // ─── Inbound Inbox Events (not yet persisted) ──────────────────────────────────
@@ -367,6 +397,7 @@ export type AuditAction =
   | 'queue_item_manual_completed'
   | 'social_account_connected'
   | 'social_account_disconnected'
+  | 'line_account_connected'
   | 'inbox_item_read'
   | 'inbox_item_starred'
   | 'inbox_item_needs_action'

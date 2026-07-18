@@ -4,6 +4,7 @@ import type {
   ConnectOptions,
   PublishRequest,
   PublishResult,
+  SendMessageResult,
   SocialConnectorAdapter,
 } from '../interfaces'
 
@@ -206,6 +207,14 @@ export class InstagramConnectorAdapter implements SocialConnectorAdapter {
     if (usage && usage.quota_usage >= usage.config.quota_total) {
       throw new Error(`Instagram publishing limit reached (${usage.quota_usage}/${usage.config.quota_total} in 24h).`)
     }
+  }
+
+  async sendMessage(): Promise<SendMessageResult> {
+    // Honest gap (Phase 1 = receive-only for Instagram DM): sending a DM reply
+    // needs the Instagram messaging scopes (pages_messaging / human_agent) and
+    // Meta App Review, neither of which this app requests. Inbound DMs still
+    // arrive via the Meta webhook; only sending is deferred.
+    throw new Error('Instagram DMの送信はMessaging権限（pages_messaging等）とMeta App Reviewが必要なため未対応です。Phase 1は受信のみ対応です。')
   }
 
   // Comments and DMs arrive via webhook push (see src/app/api/webhooks/meta),

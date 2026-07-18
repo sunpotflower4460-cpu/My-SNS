@@ -4,6 +4,7 @@ import type {
   ConnectOptions,
   PublishRequest,
   PublishResult,
+  SendMessageResult,
   SocialConnectorAdapter,
 } from '../interfaces'
 import { deriveCodeChallenge, generateCodeVerifier } from './pkce'
@@ -246,6 +247,11 @@ export class TikTokConnectorAdapter implements SocialConnectorAdapter {
 
   async fetchMetrics(): Promise<PostMetrics> {
     throw new Error(this.readAccessGap)
+  }
+
+  async sendMessage(): Promise<SendMessageResult> {
+    // TikTok has no third-party consumer DM API — sending replies is not possible.
+    throw new Error('TikTokは第三者向けのDM APIを提供していないため、返信の送信は未対応です。')
   }
 
   generateOpenUrl(_platform: SocialPlatform, handle: string): string {

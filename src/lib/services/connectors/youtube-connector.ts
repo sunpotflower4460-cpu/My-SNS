@@ -5,6 +5,7 @@ import type {
   InboxFetchRequest,
   PublishRequest,
   PublishResult,
+  SendMessageResult,
   SocialConnectorAdapter,
 } from '../interfaces'
 
@@ -302,6 +303,10 @@ export class YouTubeConnectorAdapter implements SocialConnectorAdapter {
 
   async fetchMessages(): Promise<InboundInboxEvent[]> {
     throw new Error('YouTube has no direct-message API for creators.')
+  }
+
+  async sendMessage(): Promise<SendMessageResult> {
+    throw new Error('YouTube has no direct-message API for creators — sending replies is not possible.')
   }
 
   /** `videos.list?part=statistics` — covered by the already-granted youtube.readonly scope, no new consent needed. */

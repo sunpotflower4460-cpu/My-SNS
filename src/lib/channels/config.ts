@@ -83,6 +83,18 @@ export const PUBLISHING_CHANNEL_CONFIG: Record<PublishingChannel, PublishingChan
     description: 'クリエイター自身のサイト向けのコピーを作成します。',
     mvpPublishMode: 'owned',
   },
+  // LINE is a messaging platform (LINE公式アカウント), NOT a publishing channel.
+  // It is present here only because PublishingChannel ⊇ SocialPlatform; it is
+  // never offered in the Seed channel picker (not in CORE_PUBLISHING_CHANNELS)
+  // and `mvpPublishMode: 'manual'` ensures the Worker never auto-publishes it.
+  line: {
+    label: 'LINE',
+    shortLabel: 'LINE',
+    icon: 'L',
+    delivery: 'manual-copy',
+    description: 'LINE公式アカウントのメッセージ（投稿チャンネルではありません）。',
+    mvpPublishMode: 'manual',
+  },
 }
 
 export function isManualCopyChannel(channel: PublishingChannel): boolean {

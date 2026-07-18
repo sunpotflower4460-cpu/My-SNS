@@ -56,6 +56,8 @@ export function describeAuditLog(log: AuditLog): string {
       return `${actor}さんが${typeof log.metadata?.platform === 'string' ? log.metadata.platform : 'SNSアカウント'}を接続しました${typeof log.metadata?.handle === 'string' ? `（${log.metadata.handle}）` : ''}。`
     case 'social_account_disconnected':
       return `${actor}さんが${typeof log.metadata?.platform === 'string' ? log.metadata.platform : 'SNSアカウント'}の接続を解除しました。`
+    case 'line_account_connected':
+      return `${actor}さんがLINE公式アカウントを接続しました${typeof log.metadata?.handle === 'string' ? `（${log.metadata.handle}）` : ''}。`
     case 'workspace_data_exported':
       return `${actor}さんがワークスペースデータをエクスポートしました${typeof log.metadata?.seeds === 'number' ? `（シード${log.metadata.seeds}件）` : ''}。`
     default:
