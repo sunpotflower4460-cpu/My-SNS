@@ -27,6 +27,39 @@ export interface DraftGeneratorService {
   ): Promise<SocialDraft[]>
 }
 
+// ─── Reply Generator ──────────────────────────────────────────────────────────
+/** One prior AI reply a human edited before sending, for the same contact — few-shot style hint (Phase 2 fuel; empty in Phase 1). */
+export interface ReplyStyleExample {
+  inbound: string
+  aiProposed: string
+  humanApproved: string
+}
+
+export interface ReplyGenerationContext {
+  brandProfile?: BrandProfile | null
+  contactDisplayName?: string
+  /** A few recent messages from this thread, oldest→newest, for context. */
+  recentMessages?: string[]
+  styleExamples?: ReplyStyleExample[]
+}
+
+/** The AI's proposal for one inbound DM — a soft summary, a reply in the creator's voice, and the guesses it made. The human approves before anything sends. */
+export interface ReplyProposal {
+  /** Soft, clear Japanese summary of what the sender is asking ("この方はこう仰っています"). */
+  summary: string
+  /** Proposed reply in the creator's voice. */
+  reply: string
+  tone: string
+  /** Every gap the AI filled with a guess rather than a confirmed fact. Empty if none. */
+  assumptions: string[]
+  /** AI-judged reply urgency, used to order the inbox. */
+  priority: 'high' | 'normal' | 'low'
+}
+
+export interface ReplyGeneratorService {
+  generateReply(inboundText: string, context?: ReplyGenerationContext): Promise<ReplyProposal>
+}
+
 // ─── Social Connector Adapter ─────────────────────────────────────────────────
 /**
  * The already-approved Revision content, plus a live decrypted access token,

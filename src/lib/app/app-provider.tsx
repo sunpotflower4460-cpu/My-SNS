@@ -3,6 +3,7 @@
 import { createContext, useContext, useEffect, useMemo, useState, useCallback } from 'react'
 import type {
   AiGeneration,
+  AiReplySuggestion,
   Asset,
   AuditLog,
   BrandProfile,
@@ -38,6 +39,7 @@ import * as draftsRepo from '@/lib/repositories/supabase/drafts'
 import * as draftRevisionsRepo from '@/lib/repositories/supabase/draft-revisions'
 import * as inboxRepo from '@/lib/repositories/supabase/inbox'
 import { listWorkspaceMessagingContacts } from '@/lib/repositories/supabase/messaging-contacts'
+import { listWorkspaceReplySuggestions } from '@/lib/repositories/supabase/reply-suggestions'
 import * as notificationsRepo from '@/lib/repositories/supabase/notifications'
 import * as queueRepo from '@/lib/repositories/supabase/queue'
 import { recordPublishAttempt, listWorkspacePublishAttempts } from '@/lib/repositories/supabase/publish-attempts'
@@ -68,6 +70,7 @@ interface AppContextValue {
   aiGenerations: AiGeneration[]
   notifications: Notification[]
   messagingContacts: MessagingContact[]
+  replySuggestions: AiReplySuggestion[]
   setActiveWorkspaceId: (workspaceId: string) => void
   refreshWorkspaceData: () => Promise<void>
   createSeedItem: (input: {
@@ -109,6 +112,8 @@ interface AppContextValue {
   toggleInboxNeedsAction: (inboxItemId: string) => Promise<InboxItem>
   addInboxNote: (inboxItemId: string, text: string) => Promise<InboxNote>
   getInboxNotes: (inboxItemId: string) => InboxNote[]
+  generateInboxReply: (inboxItemId: string) => Promise<{ source: 'ai' | 'template-fallback'; reason?: string; summary: string; reply: string; tone: string; assumptions: string[]; priority: 'high' | 'normal' | 'low'; suggestionId: string }>
+  getReplySuggestion: (inboxItemId: string) => AiReplySuggestion | null
   retryQueueJob: (jobId: string) => Promise<PublishJob>
   cancelQueueJob: (jobId: string) => Promise<PublishJob>
   scheduleDraft: (draftId: string, scheduledAt?: string) => Promise<PublishJob>
@@ -156,6 +161,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const [aiGenerations, setAiGenerations] = useState<AiGeneration[]>([])
   const [notifications, setNotifications] = useState<Notification[]>([])
   const [messagingContacts, setMessagingContacts] = useState<MessagingContact[]>([])
+  const [replySuggestions, setReplySuggestions] = useState<AiReplySuggestion[]>([])
   const [isReady, setIsReady] = useState(false)
 
   // Load user workspaces
@@ -210,6 +216,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         aiGenerationsList,
         notificationsList,
         messagingContactsList,
+        replySuggestionsList,
       ] = await Promise.all([
         workspacesRepo.getWorkspaceById(activeWorkspaceId),
         workspacesRepo.getCurrentMember(activeWorkspaceId, currentUserId),
@@ -229,6 +236,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         listWorkspaceAiGenerations(activeWorkspaceId),
         notificationsRepo.listMyNotifications(activeWorkspaceId),
         listWorkspaceMessagingContacts(activeWorkspaceId),
+        listWorkspaceReplySuggestions(activeWorkspaceId),
       ])
 
       setCurrentWorkspace(workspace)
@@ -249,6 +257,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       setAiGenerations(aiGenerationsList)
       setNotifications(notificationsList)
       setMessagingContacts(messagingContactsList)
+      setReplySuggestions(replySuggestionsList)
     } catch (error) {
       console.error('Error loading workspace data:', error)
     }
@@ -333,6 +342,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       aiGenerations,
       notifications,
       messagingContacts,
+      replySuggestions,
       setActiveWorkspaceId,
       refreshWorkspaceData,
 
@@ -707,6 +717,39 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         return inboxNotes.filter((note) => note.inboxItemId === inboxItemId)
       },
 
+      generateInboxReply: async (inboxItemId) => {
+        if (!currentWorkspace) throw new Error('準備ができていません')
+        if (!currentMember || !hasPermission(currentMember.role, 'reply_inbox')) {
+          throw new Error('あなたの役割では返信を作成できません。')
+        }
+
+        const response = await fetch('/api/inbox/reply/generate', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ workspaceId: currentWorkspace.id, inboxItemId }),
+        })
+        const payload = await response.json()
+        if (!response.ok) throw new Error(payload.error ?? '返信案を生成できませんでした。')
+
+        await refreshWorkspaceData()
+        return payload as {
+          source: 'ai' | 'template-fallback'
+          reason?: string
+          summary: string
+          reply: string
+          tone: string
+          assumptions: string[]
+          priority: 'high' | 'normal' | 'low'
+          suggestionId: string
+        }
+      },
+
+      getReplySuggestion: (inboxItemId) => {
+        // replySuggestions is ordered newest-first by the repo, so the first
+        // match is the latest suggestion for this item.
+        return replySuggestions.find((suggestion) => suggestion.inboxItemId === inboxItemId) ?? null
+      },
+
       retryQueueJob: async (jobId) => {
         if (!currentWorkspace || !currentUserId) throw new Error('準備ができていません')
 
@@ -987,6 +1030,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     aiGenerations,
     notifications,
     messagingContacts,
+    replySuggestions,
     currentUserId,
     refreshWorkspaceData,
   ])
