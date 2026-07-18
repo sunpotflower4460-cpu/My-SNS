@@ -18,6 +18,7 @@ import type {
   PublishAttempt,
   PublishingChannel,
   PublishJob,
+  ReplyJob,
   Seed,
   SeedKind,
   SeedStatus,
@@ -40,6 +41,7 @@ import * as draftRevisionsRepo from '@/lib/repositories/supabase/draft-revisions
 import * as inboxRepo from '@/lib/repositories/supabase/inbox'
 import { listWorkspaceMessagingContacts } from '@/lib/repositories/supabase/messaging-contacts'
 import { listWorkspaceReplySuggestions } from '@/lib/repositories/supabase/reply-suggestions'
+import { listWorkspaceReplyJobs, cancelReplyJob as cancelReplyJobRepo } from '@/lib/repositories/supabase/reply-queue'
 import * as notificationsRepo from '@/lib/repositories/supabase/notifications'
 import * as queueRepo from '@/lib/repositories/supabase/queue'
 import { recordPublishAttempt, listWorkspacePublishAttempts } from '@/lib/repositories/supabase/publish-attempts'
@@ -71,6 +73,7 @@ interface AppContextValue {
   notifications: Notification[]
   messagingContacts: MessagingContact[]
   replySuggestions: AiReplySuggestion[]
+  replyJobs: ReplyJob[]
   setActiveWorkspaceId: (workspaceId: string) => void
   refreshWorkspaceData: () => Promise<void>
   createSeedItem: (input: {
@@ -114,6 +117,10 @@ interface AppContextValue {
   getInboxNotes: (inboxItemId: string) => InboxNote[]
   generateInboxReply: (inboxItemId: string) => Promise<{ source: 'ai' | 'template-fallback'; reason?: string; summary: string; reply: string; tone: string; assumptions: string[]; priority: 'high' | 'normal' | 'low'; suggestionId: string }>
   getReplySuggestion: (inboxItemId: string) => AiReplySuggestion | null
+  approveAndSendReply: (input: { inboxItemId: string; replyText: string; suggestionId?: string; sendNow?: boolean }) => Promise<{ status: 'scheduled' | 'sent' | 'failed'; job: ReplyJob }>
+  triggerReplyJob: (jobId: string) => Promise<void>
+  cancelReplyJob: (jobId: string) => Promise<ReplyJob>
+  getReplyJob: (inboxItemId: string) => ReplyJob | null
   retryQueueJob: (jobId: string) => Promise<PublishJob>
   cancelQueueJob: (jobId: string) => Promise<PublishJob>
   scheduleDraft: (draftId: string, scheduledAt?: string) => Promise<PublishJob>
@@ -162,6 +169,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const [notifications, setNotifications] = useState<Notification[]>([])
   const [messagingContacts, setMessagingContacts] = useState<MessagingContact[]>([])
   const [replySuggestions, setReplySuggestions] = useState<AiReplySuggestion[]>([])
+  const [replyJobs, setReplyJobs] = useState<ReplyJob[]>([])
   const [isReady, setIsReady] = useState(false)
 
   // Load user workspaces
@@ -217,6 +225,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         notificationsList,
         messagingContactsList,
         replySuggestionsList,
+        replyJobsList,
       ] = await Promise.all([
         workspacesRepo.getWorkspaceById(activeWorkspaceId),
         workspacesRepo.getCurrentMember(activeWorkspaceId, currentUserId),
@@ -237,6 +246,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         notificationsRepo.listMyNotifications(activeWorkspaceId),
         listWorkspaceMessagingContacts(activeWorkspaceId),
         listWorkspaceReplySuggestions(activeWorkspaceId),
+        listWorkspaceReplyJobs(activeWorkspaceId),
       ])
 
       setCurrentWorkspace(workspace)
@@ -258,6 +268,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       setNotifications(notificationsList)
       setMessagingContacts(messagingContactsList)
       setReplySuggestions(replySuggestionsList)
+      setReplyJobs(replyJobsList)
     } catch (error) {
       console.error('Error loading workspace data:', error)
     }
@@ -343,6 +354,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       notifications,
       messagingContacts,
       replySuggestions,
+      replyJobs,
       setActiveWorkspaceId,
       refreshWorkspaceData,
 
@@ -750,6 +762,68 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         return replySuggestions.find((suggestion) => suggestion.inboxItemId === inboxItemId) ?? null
       },
 
+      approveAndSendReply: async ({ inboxItemId, replyText, suggestionId, sendNow }) => {
+        if (!currentWorkspace) throw new Error('準備ができていません')
+        if (!currentMember || !hasPermission(currentMember.role, 'reply_inbox')) {
+          throw new Error('あなたの役割では返信を送信できません。')
+        }
+
+        const response = await fetch('/api/inbox/reply/approve', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ workspaceId: currentWorkspace.id, inboxItemId, replyText, suggestionId, sendNow }),
+        })
+        const payload = await response.json()
+        if (!response.ok) throw new Error(payload.error ?? '返信を送信できませんでした。')
+
+        await refreshWorkspaceData()
+        return payload as { status: 'scheduled' | 'sent' | 'failed'; job: ReplyJob }
+      },
+
+      triggerReplyJob: async (jobId) => {
+        if (!currentWorkspace) throw new Error('準備ができていません')
+        if (!currentMember || !hasPermission(currentMember.role, 'reply_inbox')) {
+          throw new Error('あなたの役割では返信を送信できません。')
+        }
+
+        const response = await fetch('/api/messaging/trigger', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ workspaceId: currentWorkspace.id, jobId }),
+        })
+        const payload = await response.json()
+        if (!response.ok) throw new Error(payload.error ?? '返信を送信できませんでした。')
+
+        await refreshWorkspaceData()
+      },
+
+      cancelReplyJob: async (jobId) => {
+        if (!currentWorkspace || !currentUserId) throw new Error('準備ができていません')
+        if (!currentMember || !hasPermission(currentMember.role, 'reply_inbox')) {
+          throw new Error('あなたの役割では返信を取り消せません。')
+        }
+
+        const job = await cancelReplyJobRepo(currentWorkspace.id, jobId)
+
+        await auditRepo.appendAuditLog({
+          workspaceId: currentWorkspace.id,
+          actorId: currentUserId,
+          action: 'inbox_reply_cancelled',
+          targetType: 'inbox_item',
+          targetId: job.inboxItemId,
+          metadata: { replyJobId: jobId },
+        })
+
+        await refreshWorkspaceData()
+        return job
+      },
+
+      getReplyJob: (inboxItemId) => {
+        // replyJobs is ordered newest-first by the repo (created_at desc), so the
+        // first match is the most recent reply job for this item.
+        return replyJobs.find((job) => job.inboxItemId === inboxItemId) ?? null
+      },
+
       retryQueueJob: async (jobId) => {
         if (!currentWorkspace || !currentUserId) throw new Error('準備ができていません')
 
@@ -1031,6 +1105,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     notifications,
     messagingContacts,
     replySuggestions,
+    replyJobs,
     currentUserId,
     refreshWorkspaceData,
   ])

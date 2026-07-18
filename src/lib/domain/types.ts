@@ -370,8 +370,53 @@ export interface AiReplySuggestion {
   createdAt: string
 }
 
+// ─── Reply Jobs (outbound DM sends) ───────────────────────────────────────────
+/** Whether a reply is sent on its recipient-appropriate schedule, or (Phase 2) auto-sent for pre-approved contacts. */
+export type ReplySendMode = 'scheduled' | 'auto'
+export type ReplyJobStatus = 'scheduled' | 'sent' | 'failed' | 'cancelled'
+
+/**
+ * One approved outbound DM reply, awaiting or past its scheduled send — the
+ * messaging-side twin of PublishJob. `replyText` and `sendTarget` are immutable
+ * snapshots captured at approval; `scheduledAt` is absolute UTC, computed once
+ * at enqueue from the recipient's timezone / quiet hours so the Worker stays
+ * timezone-agnostic.
+ */
+export interface ReplyJob {
+  id: string
+  workspaceId: string
+  inboxItemId: string
+  contactId?: string
+  suggestionId?: string
+  platform: SocialPlatform
+  replyText: string
+  sendTarget: string
+  replyMode: ReplySendMode
+  status: ReplyJobStatus
+  scheduledAt: string
+  sentAt?: string
+  errorMessage?: string
+  claimedAt?: string
+  createdBy: string
+  createdAt: string
+}
+
+/** Append-only send-attempt history for a ReplyJob — the twin of PublishAttempt. */
+export interface ReplyAttempt {
+  id: string
+  workspaceId: string
+  replyJobId: string
+  attemptNumber: number
+  status: PublishAttemptStatus
+  failureReason?: PublishFailureReason
+  errorMessage?: string
+  externalMessageId?: string
+  createdBy?: string
+  createdAt: string
+}
+
 // ─── Notifications ──────────────────────────────────────────────────────────
-export type NotificationType = 'draft_needs_approval' | 'publish_failed' | 'inbox_needs_action'
+export type NotificationType = 'draft_needs_approval' | 'publish_failed' | 'inbox_needs_action' | 'reply_failed'
 
 /** A per-user, in-app notification — see `notifications` migration's INSERT policy comment for why any workspace member can create one targeting any teammate. */
 export interface Notification {
@@ -401,6 +446,10 @@ export type AuditAction =
   | 'draft_ai_generated'
   | 'draft_revision_approved'
   | 'inbox_reply_ai_generated'
+  | 'inbox_reply_scheduled'
+  | 'inbox_reply_sent'
+  | 'inbox_reply_failed'
+  | 'inbox_reply_cancelled'
   | 'queue_item_scheduled'
   | 'queue_item_cancelled'
   | 'queue_item_published'
