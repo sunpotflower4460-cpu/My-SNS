@@ -198,14 +198,36 @@ export async function POST(request: NextRequest) {
     createdBy: job.createdBy,
   })
 
-  if (!result.success) {
-    // The job row now carries status='failed' + error_message; surface that the
-    // send didn't go through rather than reporting a false success.
-    return NextResponse.json(
-      { status: 'failed', job, error: '返信の送信に失敗しました。受信箱で詳細を確認してください。' },
-      { status: 502 },
-    )
+  if (result.success) {
+    return NextResponse.json({ status: 'sent', job })
   }
 
-  return NextResponse.json({ status: 'sent', job })
+  if (result.skipped) {
+    // The scheduled Worker claimed this brand-new due job in the tiny window
+    // between enqueue and our inline claim — it may well have already delivered
+    // it. Don't report a false failure: re-read the authoritative row status
+    // and surface that instead (the UI reflects the final state on next refresh).
+    const { data: current } = await serviceClient
+      .from('reply_jobs')
+      .select('status')
+      .eq('id', job.id)
+      .maybeSingle()
+    const status = (current?.status as 'scheduled' | 'sent' | 'failed' | 'cancelled' | undefined) ?? 'scheduled'
+    if (status === 'failed') {
+      return NextResponse.json(
+        { status: 'failed', job, error: '返信の送信に失敗しました。受信箱で詳細を確認してください。' },
+        { status: 502 },
+      )
+    }
+    // 'sent' (Worker delivered it) or 'scheduled' (Worker is sending it right
+    // now) — either way this is not a failure.
+    return NextResponse.json({ status: status === 'sent' ? 'sent' : 'scheduled', job })
+  }
+
+  // A genuine failure: the job row now carries status='failed' + error_message;
+  // surface that the send didn't go through rather than reporting a false success.
+  return NextResponse.json(
+    { status: 'failed', job, error: '返信の送信に失敗しました。受信箱で詳細を確認してください。' },
+    { status: 502 },
+  )
 }

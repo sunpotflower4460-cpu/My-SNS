@@ -799,6 +799,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
       cancelReplyJob: async (jobId) => {
         if (!currentWorkspace || !currentUserId) throw new Error('準備ができていません')
+        if (!currentMember || !hasPermission(currentMember.role, 'reply_inbox')) {
+          throw new Error('あなたの役割では返信を取り消せません。')
+        }
 
         const job = await cancelReplyJobRepo(currentWorkspace.id, jobId)
 
