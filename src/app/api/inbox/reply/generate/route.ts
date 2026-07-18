@@ -4,6 +4,7 @@ import { createClient } from '@/lib/supabase/server'
 import { createServiceClient } from '@/lib/supabase/service'
 import { getWorkspaceMonthlyAiCost, recordAiGeneration } from '@/lib/repositories/supabase/ai-generations'
 import { getDefaultBrandProfileForClient } from '@/lib/repositories/supabase/brand-profiles'
+import { listContactReplyExamples } from '@/lib/repositories/supabase/reply-learning'
 import { hasPermission } from '@/lib/permissions'
 import type { WorkspaceRole } from '@/lib/domain/types'
 import { TemplateReplyGeneratorService } from '@/lib/services/ai-reply'
@@ -93,7 +94,7 @@ export async function POST(request: NextRequest) {
 
   const { data: item, error: itemError } = await supabase
     .from('inbox_items')
-    .select('id, text, platform')
+    .select('id, text, platform, contact_id')
     .eq('id', inboxItemId)
     .eq('workspace_id', workspaceId)
     .maybeSingle()
@@ -108,6 +109,18 @@ export async function POST(request: NextRequest) {
     console.error('Failed to load Brand Profile for reply generation:', cause)
     return null
   })
+
+  // Per-contact learning (Phase 2): the creator's past approved replies to THIS
+  // contact become few-shot style examples, so the proposal drifts toward how
+  // they actually write to this person. Best-effort — never blocks generation,
+  // and only meaningful once there's approved history (empty otherwise).
+  const styleExamples = item.contact_id
+    ? await listContactReplyExamples(supabase, workspaceId, item.contact_id).catch((cause) => {
+        console.error('Failed to load per-contact reply examples:', cause)
+        return []
+      })
+    : []
+
   const serviceClient = createServiceClient()
 
   if (!isAnthropicConfigured()) {
@@ -145,7 +158,7 @@ export async function POST(request: NextRequest) {
   }
 
   try {
-    const result = await generateReplyWithAnthropic(item.text, { brandProfile })
+    const result = await generateReplyWithAnthropic(item.text, { brandProfile, styleExamples })
     const costUsd = calculateGenerationCost(result.inputTokens, result.outputTokens)
 
     const generation = await recordAiGeneration(supabase, {
