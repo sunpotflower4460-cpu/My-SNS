@@ -43,6 +43,12 @@ export function describeAuditLog(log: AuditLog): string {
       return `${actor}さんの承認した返信の送信に失敗しました${typeof log.metadata?.failureReason === 'string' ? `（理由: ${log.metadata.failureReason}）` : ''}。`
     case 'inbox_reply_cancelled':
       return `${actor}さんが予約した返信を取り消しました。`
+    case 'calendar_event_created':
+      return `${actor}さんがカレンダーに予定${typeof log.metadata?.title === 'string' ? `「${log.metadata.title}」` : ''}を追加しました。`
+    case 'calendar_event_updated':
+      return `${actor}さんがカレンダーの予定を更新しました。`
+    case 'calendar_event_deleted':
+      return `${actor}さんがカレンダーの予定を削除しました。`
     case 'queue_item_scheduled':
       return log.metadata?.retried
         ? `${actor}さんがキュー項目を再度スケジュールしました。`

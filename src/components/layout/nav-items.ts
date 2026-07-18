@@ -14,6 +14,7 @@ export const NAV_ITEMS: NavItem[] = [
   { label: '公開キュー', href: '/app/queue', icon: '📅' },
   { label: '分析', href: '/app/analytics', icon: '📊' },
   { label: '受信箱', href: '/app/inbox', icon: '📬' },
+  { label: 'カレンダー', href: '/app/calendar', icon: '🗓️' },
   { label: 'チーム', href: '/app/team', icon: '👥' },
   { label: '設定', href: '/app/settings', icon: '⚙️' },
 ]

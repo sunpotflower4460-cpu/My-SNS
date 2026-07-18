@@ -17,6 +17,8 @@ export type Permission =
   | 'view_analytics'
   | 'view_inbox'
   | 'reply_inbox'
+  | 'view_calendar'
+  | 'manage_calendar'
   | 'view_team'
   | 'invite_members'
   | 'remove_members'
@@ -48,6 +50,8 @@ export const ROLE_PERMISSIONS: Record<WorkspaceRole, Permission[]> = {
     'view_analytics',
     'view_inbox',
     'reply_inbox',
+    'view_calendar',
+    'manage_calendar',
     'view_team',
     'invite_members',
     'remove_members',
@@ -77,6 +81,8 @@ export const ROLE_PERMISSIONS: Record<WorkspaceRole, Permission[]> = {
     'view_analytics',
     'view_inbox',
     'reply_inbox',
+    'view_calendar',
+    'manage_calendar',
     'view_team',
     'invite_members',
     'remove_members',
@@ -101,6 +107,8 @@ export const ROLE_PERMISSIONS: Record<WorkspaceRole, Permission[]> = {
     'view_analytics',
     'view_inbox',
     'reply_inbox',
+    'view_calendar',
+    'manage_calendar',
     'view_team',
     'view_settings',
     'upload_assets',
@@ -113,6 +121,7 @@ export const ROLE_PERMISSIONS: Record<WorkspaceRole, Permission[]> = {
     'view_queue',
     'view_analytics',
     'view_inbox',
+    'view_calendar',
     'view_team',
     'upload_assets',
   ],
@@ -122,6 +131,7 @@ export const ROLE_PERMISSIONS: Record<WorkspaceRole, Permission[]> = {
     'view_queue',
     'view_analytics',
     'view_inbox',
+    'view_calendar',
     'view_team',
     'view_settings',
   ],
