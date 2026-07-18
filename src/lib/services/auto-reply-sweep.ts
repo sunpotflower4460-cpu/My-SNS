@@ -140,7 +140,10 @@ export async function runAutoReplySweep(supabase: SupabaseClient, now: Date = ne
 
   for (const row of rows) {
     const contact = firstContact(row.messaging_contacts)
-    if (!contact || alreadyHandled.has(row.id)) {
+    // The inner-join query already guarantees auto_send_enabled=true; this
+    // re-check is belt-and-suspenders on the single most safety-critical
+    // invariant (never auto-send to a contact who didn't opt in).
+    if (!contact || !contact.auto_send_enabled || alreadyHandled.has(row.id)) {
       skipped += 1
       continue
     }
@@ -212,6 +215,10 @@ export async function runAutoReplySweep(supabase: SupabaseClient, now: Date = ne
       })
       const scheduledAt = ensureMinimumLead(recipientTime, now)
 
+      // If a concurrent sweep (or a sweep racing a human) already enqueued an
+      // active auto reply for this item, the partial unique index
+      // reply_jobs_one_active_auto_per_item makes this INSERT fail — the catch
+      // below then skips the item, so the recipient never gets a duplicate DM.
       const job = await createReplyJob(supabase, {
         workspaceId: row.workspace_id,
         inboxItemId: row.id,
