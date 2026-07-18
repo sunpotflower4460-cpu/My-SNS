@@ -27,8 +27,16 @@ export function mapReplySuggestion(row: AiReplySuggestionRow): AiReplySuggestion
   }
 }
 
+// See WORKSPACE_PUBLISH_ATTEMPTS_LIMIT's comment in publish-attempts.ts —
+// bound the working set so a busy inbox can't grow this fetch without limit.
+// The inbox only needs the latest suggestion per item, which lives at the top.
+export const WORKSPACE_REPLY_SUGGESTIONS_LIMIT = 2000
+
 /** All reply suggestions in the workspace, newest first (the inbox picks the latest per item). */
-export async function listWorkspaceReplySuggestions(workspaceId: string): Promise<AiReplySuggestion[]> {
+export async function listWorkspaceReplySuggestions(
+  workspaceId: string,
+  limit = WORKSPACE_REPLY_SUGGESTIONS_LIMIT,
+): Promise<AiReplySuggestion[]> {
   const supabase = createClient()
 
   const { data, error } = await supabase
@@ -36,6 +44,7 @@ export async function listWorkspaceReplySuggestions(workspaceId: string): Promis
     .select('*')
     .eq('workspace_id', workspaceId)
     .order('created_at', { ascending: false })
+    .limit(limit)
 
   if (error) {
     console.error('Error fetching reply suggestions:', error)

@@ -36,7 +36,7 @@ COMMENT ON COLUMN public.ai_generations.purpose IS
 -- it is empty and workspace_id can go straight to NOT NULL.
 ALTER TABLE public.ai_reply_suggestions
   ADD COLUMN workspace_id UUID REFERENCES public.workspaces(id) ON DELETE CASCADE,
-  ADD COLUMN source TEXT NOT NULL DEFAULT 'ai',
+  ADD COLUMN source TEXT NOT NULL DEFAULT 'template', -- fail-closed default: never claim AI origin unless the route sets it explicitly
   ADD COLUMN assumptions TEXT[] NOT NULL DEFAULT '{}',
   ADD COLUMN ai_generation_id UUID REFERENCES public.ai_generations(id) ON DELETE SET NULL;
 
