@@ -32,6 +32,16 @@ export function describeAuditLog(log: AuditLog): string {
       return `${actor}さんが下書き${typeof log.metadata?.channel === 'string' ? `（${log.metadata.channel}）` : ''}を承認し、Revisionを記録しました。`
     case 'inbox_reply_ai_generated':
       return `${actor}さんが受信メッセージへのAI返信案を生成しました${typeof log.metadata?.platform === 'string' ? `（${log.metadata.platform}）` : ''}。`
+    case 'inbox_reply_scheduled':
+      return log.metadata?.sendNow
+        ? `${actor}さんが返信を承認し、すぐに送信しました。`
+        : `${actor}さんが返信を承認し、相手に適した時刻に送信予約しました。`
+    case 'inbox_reply_sent':
+      return `${actor}さんの承認した返信が送信されました。`
+    case 'inbox_reply_failed':
+      return `${actor}さんの承認した返信の送信に失敗しました${typeof log.metadata?.failureReason === 'string' ? `（理由: ${log.metadata.failureReason}）` : ''}。`
+    case 'inbox_reply_cancelled':
+      return `${actor}さんが予約した返信を取り消しました。`
     case 'queue_item_scheduled':
       return log.metadata?.retried
         ? `${actor}さんがキュー項目を再度スケジュールしました。`
