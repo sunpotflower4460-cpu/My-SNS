@@ -149,9 +149,12 @@ export default function ConciergeReplyPanel({ item }: { item: InboxItem }) {
     }
   }
 
-  // An active (scheduled) job locks the composer — you can send now or cancel,
-  // but not silently queue a second reply on top of a pending one.
-  const hasPendingJob = replyJob?.status === 'scheduled'
+  // The composer is shown only when there's no reply job for this item, or the
+  // last one was cancelled. Once a reply is scheduled, sent, or failed, the
+  // job-status box below owns the next action (send-now / cancel / retry) — this
+  // prevents an armed composer from sitting above an already-sent reply, which
+  // could otherwise be re-approved into a duplicate DM to the recipient.
+  const canCompose = !replyJob || replyJob.status === 'cancelled'
 
   return (
     <div className="mt-4 rounded-2xl border border-violet-200 bg-violet-50/40 p-4">
@@ -202,8 +205,9 @@ export default function ConciergeReplyPanel({ item }: { item: InboxItem }) {
         </button>
       )}
 
-      {/* Recommended reply editor + send controls */}
-      {suggestion && (
+      {/* Recommended reply editor + send controls — only while composing (no
+          active/terminal job, or the last one was cancelled). */}
+      {suggestion && canCompose && (
         <div className="mt-4">
           <div className="flex items-center justify-between gap-2">
             <p className="text-xs font-semibold text-gray-500">おすすめの返信</p>
@@ -216,12 +220,12 @@ export default function ConciergeReplyPanel({ item }: { item: InboxItem }) {
             value={replyText}
             onChange={(event) => setReplyText(event.target.value)}
             rows={4}
-            disabled={hasPendingJob || !canReply}
+            disabled={!canReply}
             className="mt-2 w-full rounded-2xl border border-stone-200 bg-white px-4 py-3 text-sm leading-6 focus:outline-none focus:ring-2 focus:ring-violet-300 disabled:bg-stone-50 disabled:text-gray-500"
             placeholder="返信内容を編集できます…"
           />
 
-          {canReply && !hasPendingJob && sendSupported && (
+          {canReply && sendSupported && (
             <>
               {!lineConnected && (
                 <p className="mt-2 text-xs text-amber-700">
@@ -263,12 +267,12 @@ export default function ConciergeReplyPanel({ item }: { item: InboxItem }) {
           )}
 
           {/* Honest disabled states for sending */}
-          {canReply && !hasPendingJob && isInstagram && (
+          {canReply && isInstagram && (
             <p className="mt-3 rounded-xl border border-stone-200 bg-white px-3 py-2 text-xs text-gray-500">
               Instagram DMは現在<strong>受信のみ</strong>対応です（送信はMetaのメッセージ送信権限と審査が必要なため、今後対応予定）。要約と返信案の作成まではご利用いただけます。
             </p>
           )}
-          {canReply && !hasPendingJob && !sendSupported && !isInstagram && (
+          {canReply && !sendSupported && !isInstagram && (
             <p className="mt-3 rounded-xl border border-stone-200 bg-white px-3 py-2 text-xs text-gray-500">
               この媒体への返信送信は現在未対応です（Phase 1で送信できるのはLINEのみです）。
             </p>
@@ -276,38 +280,45 @@ export default function ConciergeReplyPanel({ item }: { item: InboxItem }) {
         </div>
       )}
 
-      {/* Reply job status */}
-      {replyJob && (
+      {/* Reply job status. A cancelled job shows nothing here — the composer is
+          re-enabled above so the user can write a fresh reply. */}
+      {replyJob && replyJob.status !== 'cancelled' && (
         <div className="mt-4 rounded-2xl border border-stone-200 bg-white px-4 py-3 text-sm">
-          {replyJob.status === 'scheduled' && (
-            <div className="flex flex-wrap items-center gap-2">
-              <span className="text-gray-700">🕒 {formatJst(replyJob.scheduledAt)} に送信予定</span>
-              {canReply && (
-                <div className="ml-auto flex items-center gap-2">
-                  <button onClick={handleTrigger} disabled={busy === 'trigger'} className="rounded-full border border-stone-200 px-3 py-1 text-xs text-gray-600 hover:bg-stone-50 disabled:opacity-50">
-                    今すぐ送信
+          {/* The approved reply text this job carries (immutable snapshot). */}
+          <p className="whitespace-pre-wrap text-sm leading-6 text-gray-600">{replyJob.replyText}</p>
+
+          <div className="mt-3 border-t border-stone-100 pt-3">
+            {replyJob.status === 'scheduled' && (
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="text-gray-700">🕒 {formatJst(replyJob.scheduledAt)} に送信予定</span>
+                {canReply && (
+                  <div className="ml-auto flex items-center gap-2">
+                    <button onClick={handleTrigger} disabled={busy === 'trigger'} className="rounded-full border border-stone-200 px-3 py-1 text-xs text-gray-600 hover:bg-stone-50 disabled:opacity-50">
+                      今すぐ送信
+                    </button>
+                    <button onClick={handleCancel} disabled={busy === 'cancel'} className="rounded-full border border-stone-200 px-3 py-1 text-xs text-gray-600 hover:bg-stone-50 disabled:opacity-50">
+                      取り消し
+                    </button>
+                  </div>
+                )}
+              </div>
+            )}
+            {replyJob.status === 'sent' && (
+              <span className="text-green-700">✓ 送信済み{replyJob.sentAt ? `（${formatJst(replyJob.sentAt)}）` : ''}</span>
+            )}
+            {replyJob.status === 'failed' && (
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="text-rose-700">✗ 送信失敗{replyJob.errorMessage ? `: ${replyJob.errorMessage}` : ''}</span>
+                {/* Retry re-sends this same job's approved text — the single,
+                    unambiguous "send again" path for a failed reply. */}
+                {canReply && sendSupported && (
+                  <button onClick={handleTrigger} disabled={busy === 'trigger'} className="ml-auto rounded-full border border-stone-200 px-3 py-1 text-xs text-gray-600 hover:bg-stone-50 disabled:opacity-50">
+                    再送
                   </button>
-                  <button onClick={handleCancel} disabled={busy === 'cancel'} className="rounded-full border border-stone-200 px-3 py-1 text-xs text-gray-600 hover:bg-stone-50 disabled:opacity-50">
-                    取り消し
-                  </button>
-                </div>
-              )}
-            </div>
-          )}
-          {replyJob.status === 'sent' && (
-            <span className="text-green-700">✓ 送信済み{replyJob.sentAt ? `（${formatJst(replyJob.sentAt)}）` : ''}</span>
-          )}
-          {replyJob.status === 'failed' && (
-            <div className="flex flex-wrap items-center gap-2">
-              <span className="text-rose-700">✗ 送信失敗{replyJob.errorMessage ? `: ${replyJob.errorMessage}` : ''}</span>
-              {canReply && sendSupported && (
-                <button onClick={handleTrigger} disabled={busy === 'trigger'} className="ml-auto rounded-full border border-stone-200 px-3 py-1 text-xs text-gray-600 hover:bg-stone-50 disabled:opacity-50">
-                  再送
-                </button>
-              )}
-            </div>
-          )}
-          {replyJob.status === 'cancelled' && <span className="text-gray-400">取り消し済み</span>}
+                )}
+              </div>
+            )}
+          </div>
         </div>
       )}
 
