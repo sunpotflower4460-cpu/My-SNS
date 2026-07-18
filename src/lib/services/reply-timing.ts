@@ -73,6 +73,19 @@ export function isQuietHour(hour: number, start: number, end: number): boolean {
   return hour >= start || hour < end // wraps midnight (e.g. 22 → 8)
 }
 
+// Auto-sent replies are never delivered instantly: they always carry a minimum
+// lead so the creator has a window to edit or cancel before the reply goes out,
+// even if the recipient-appropriate time is "now" (waking hours). Manual sends
+// are unaffected — this only floors the auto-reply sweep's schedule.
+export const MIN_AUTO_SEND_LEAD_MINUTES = 15
+
+/** The later of `scheduledAtIso` and `now + minMinutes` — a floor guaranteeing a cancel window. */
+export function ensureMinimumLead(scheduledAtIso: string, now: Date, minMinutes = MIN_AUTO_SEND_LEAD_MINUTES): string {
+  const floor = now.getTime() + minMinutes * 60_000
+  const scheduled = new Date(scheduledAtIso).getTime()
+  return new Date(Math.max(scheduled, floor)).toISOString()
+}
+
 export interface RecipientTimingOptions {
   timeZone?: string
   quietStart?: number

@@ -39,7 +39,7 @@ import * as brandProfilesRepo from '@/lib/repositories/supabase/brand-profiles'
 import * as draftsRepo from '@/lib/repositories/supabase/drafts'
 import * as draftRevisionsRepo from '@/lib/repositories/supabase/draft-revisions'
 import * as inboxRepo from '@/lib/repositories/supabase/inbox'
-import { listWorkspaceMessagingContacts } from '@/lib/repositories/supabase/messaging-contacts'
+import { listWorkspaceMessagingContacts, setContactAutoSend as setContactAutoSendRepo } from '@/lib/repositories/supabase/messaging-contacts'
 import { listWorkspaceReplySuggestions } from '@/lib/repositories/supabase/reply-suggestions'
 import { listWorkspaceReplyJobs, cancelReplyJob as cancelReplyJobRepo } from '@/lib/repositories/supabase/reply-queue'
 import * as notificationsRepo from '@/lib/repositories/supabase/notifications'
@@ -121,6 +121,8 @@ interface AppContextValue {
   triggerReplyJob: (jobId: string) => Promise<void>
   cancelReplyJob: (jobId: string) => Promise<ReplyJob>
   getReplyJob: (inboxItemId: string) => ReplyJob | null
+  getMessagingContact: (contactId: string) => MessagingContact | null
+  setContactAutoSend: (contactId: string, enabled: boolean) => Promise<MessagingContact>
   retryQueueJob: (jobId: string) => Promise<PublishJob>
   cancelQueueJob: (jobId: string) => Promise<PublishJob>
   scheduleDraft: (draftId: string, scheduledAt?: string) => Promise<PublishJob>
@@ -822,6 +824,21 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         // replyJobs is ordered newest-first by the repo (created_at desc), so the
         // first match is the most recent reply job for this item.
         return replyJobs.find((job) => job.inboxItemId === inboxItemId) ?? null
+      },
+
+      getMessagingContact: (contactId) => {
+        return messagingContacts.find((contact) => contact.id === contactId) ?? null
+      },
+
+      setContactAutoSend: async (contactId, enabled) => {
+        if (!currentWorkspace) throw new Error('準備ができていません')
+        if (!currentMember || !hasPermission(currentMember.role, 'reply_inbox')) {
+          throw new Error('あなたの役割では自動送信の設定を変更できません。')
+        }
+
+        const contact = await setContactAutoSendRepo(currentWorkspace.id, contactId, enabled)
+        await refreshWorkspaceData()
+        return contact
       },
 
       retryQueueJob: async (jobId) => {

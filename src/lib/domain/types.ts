@@ -310,6 +310,8 @@ export interface MessagingContact {
   quietHoursStart?: number
   quietHoursEnd?: number
   priorityHint?: 'high' | 'normal' | 'low'
+  /** Opt-in: when true, the auto-reply sweep may draft + enqueue a reply to this contact without per-message approval (always with a cancel window). */
+  autoSendEnabled: boolean
   lastMessageAt?: string
   createdAt: string
   updatedAt: string
@@ -416,7 +418,7 @@ export interface ReplyAttempt {
 }
 
 // ─── Notifications ──────────────────────────────────────────────────────────
-export type NotificationType = 'draft_needs_approval' | 'publish_failed' | 'inbox_needs_action' | 'reply_failed'
+export type NotificationType = 'draft_needs_approval' | 'publish_failed' | 'inbox_needs_action' | 'reply_failed' | 'auto_reply_scheduled'
 
 /** A per-user, in-app notification — see `notifications` migration's INSERT policy comment for why any workspace member can create one targeting any teammate. */
 export interface Notification {

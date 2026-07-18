@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { computeRecipientSendTime, isQuietHour } from './reply-timing'
+import { computeRecipientSendTime, ensureMinimumLead, isQuietHour } from './reply-timing'
 
 describe('isQuietHour', () => {
   it('treats a midnight-wrapping window (22→8) correctly', () => {
@@ -67,5 +67,24 @@ describe('computeRecipientSendTime (non-Tokyo timezone)', () => {
     // 15:00 EDT on the 18th == 19:00 UTC on the 18th → waking
     const now = new Date('2026-07-18T19:00:00.000Z')
     expect(computeRecipientSendTime(now, { timeZone: 'America/New_York' })).toBe('2026-07-18T19:00:00.000Z')
+  })
+})
+
+describe('ensureMinimumLead', () => {
+  it('floors a "now" schedule to now + lead so there is always a cancel window', () => {
+    const now = new Date('2026-07-18T05:00:00.000Z')
+    // recipient time == now (waking) → floored to now + 15 min
+    expect(ensureMinimumLead('2026-07-18T05:00:00.000Z', now, 15)).toBe('2026-07-18T05:15:00.000Z')
+  })
+
+  it('leaves a schedule already beyond the lead untouched', () => {
+    const now = new Date('2026-07-18T05:00:00.000Z')
+    // deferred to tomorrow morning → far past the 15-min floor
+    expect(ensureMinimumLead('2026-07-18T23:00:00.000Z', now, 15)).toBe('2026-07-18T23:00:00.000Z')
+  })
+
+  it('uses the default lead when none is given', () => {
+    const now = new Date('2026-07-18T05:00:00.000Z')
+    expect(ensureMinimumLead('2026-07-18T05:00:00.000Z', now)).toBe('2026-07-18T05:15:00.000Z')
   })
 })

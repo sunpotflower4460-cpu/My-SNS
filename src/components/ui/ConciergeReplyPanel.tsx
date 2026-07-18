@@ -46,14 +46,17 @@ export default function ConciergeReplyPanel({ item }: { item: InboxItem }) {
     approveAndSendReply,
     triggerReplyJob,
     cancelReplyJob,
+    getMessagingContact,
+    setContactAutoSend,
   } = useApp()
 
   const suggestion = getReplySuggestion(item.id)
   const replyJob = getReplyJob(item.id)
+  const contact = item.contactId ? getMessagingContact(item.contactId) : null
 
   const [replyText, setReplyText] = useState(suggestion?.suggestedText ?? '')
   const [timing, setTiming] = useState<'recommended' | 'now'>('recommended')
-  const [busy, setBusy] = useState<null | 'generate' | 'send' | 'trigger' | 'cancel'>(null)
+  const [busy, setBusy] = useState<null | 'generate' | 'send' | 'trigger' | 'cancel' | 'autosend'>(null)
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
   // The suggestion text should seed the editor once, but not clobber the user's
@@ -144,6 +147,24 @@ export default function ConciergeReplyPanel({ item }: { item: InboxItem }) {
       setNotice('返信予約を取り消しました。')
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : '取り消せませんでした。')
+    } finally {
+      setBusy(null)
+    }
+  }
+
+  const handleToggleAutoSend = async () => {
+    resetMessages()
+    if (!contact) return
+    setBusy('autosend')
+    try {
+      const updated = await setContactAutoSend(contact.id, !contact.autoSendEnabled)
+      setNotice(
+        updated.autoSendEnabled
+          ? 'この相手への自動返信をオンにしました。以後、AIが返信案を作成し、確認・取り消しできる余裕をもって送信予約します。'
+          : 'この相手への自動返信をオフにしました。以後は承認してから送信します。',
+      )
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : '自動送信の設定を変更できませんでした。')
     } finally {
       setBusy(null)
     }
@@ -319,6 +340,31 @@ export default function ConciergeReplyPanel({ item }: { item: InboxItem }) {
               </div>
             )}
           </div>
+        </div>
+      )}
+
+      {/* Per-contact auto-send opt-in (LINE only). Off by default. When on, the
+          concierge drafts and queues replies to THIS contact without per-message
+          approval — always with a cancel window + notification, never instant. */}
+      {canReply && sendSupported && contact && (
+        <div className="mt-4 flex items-start justify-between gap-3 rounded-2xl border border-stone-200 bg-white px-4 py-3">
+          <div className="min-w-0">
+            <p className="text-xs font-semibold text-gray-600">この相手への自動返信</p>
+            <p className="mt-0.5 text-[11px] leading-5 text-gray-400">
+              {contact.autoSendEnabled
+                ? 'オン: AIが返信案を作成し、確認・取り消しできる余裕をもって自動で送信予約します。'
+                : 'オフ: これまで通り、承認してから送信します。'}
+            </p>
+          </div>
+          <button
+            onClick={handleToggleAutoSend}
+            disabled={busy === 'autosend'}
+            role="switch"
+            aria-checked={contact.autoSendEnabled}
+            className={`mt-0.5 inline-flex h-6 w-11 shrink-0 items-center rounded-full transition disabled:opacity-50 ${contact.autoSendEnabled ? 'bg-violet-600' : 'bg-stone-300'}`}
+          >
+            <span className={`inline-block h-5 w-5 transform rounded-full bg-white shadow transition ${contact.autoSendEnabled ? 'translate-x-5' : 'translate-x-0.5'}`} />
+          </button>
         </div>
       )}
 

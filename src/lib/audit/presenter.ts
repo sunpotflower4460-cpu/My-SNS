@@ -33,6 +33,7 @@ export function describeAuditLog(log: AuditLog): string {
     case 'inbox_reply_ai_generated':
       return `${actor}さんが受信メッセージへのAI返信案を生成しました${typeof log.metadata?.platform === 'string' ? `（${log.metadata.platform}）` : ''}。`
     case 'inbox_reply_scheduled':
+      if (log.metadata?.auto) return `AIコンシェルジュが自動返信を予約しました（確認・取り消し可）。`
       return log.metadata?.sendNow
         ? `${actor}さんが返信を承認し、すぐに送信しました。`
         : `${actor}さんが返信を承認し、相手に適した時刻に送信予約しました。`
