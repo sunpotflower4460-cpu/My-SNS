@@ -3,9 +3,26 @@
 import { useMemo, useState } from 'react'
 import PageHeader from '@/components/ui/PageHeader'
 import InboxItemCard from '@/components/ui/InboxItemCard'
+import ConciergeReplyPanel from '@/components/ui/ConciergeReplyPanel'
 import EmptyState from '@/components/ui/EmptyState'
 import { useApp } from '@/lib/app/app-provider'
 import type { InboxItem, InboxKind } from '@/lib/domain/types'
+
+// Inbox ordering: reply-urgency first (AI-judged high → normal → low → unscored),
+// then human "要対応" flags, then most recent. This is what makes the concierge
+// promise real — the messages that need a fast reply float to the top.
+const PRIORITY_RANK: Record<'high' | 'normal' | 'low', number> = { high: 0, normal: 1, low: 2 }
+
+function priorityRank(item: InboxItem): number {
+  return item.aiPriority ? PRIORITY_RANK[item.aiPriority] : 3
+}
+
+function compareForInbox(left: InboxItem, right: InboxItem): number {
+  const byPriority = priorityRank(left) - priorityRank(right)
+  if (byPriority !== 0) return byPriority
+  if (left.needsAction !== right.needsAction) return left.needsAction ? -1 : 1
+  return new Date(right.receivedAt).getTime() - new Date(left.receivedAt).getTime()
+}
 
 type FilterTab = 'all' | InboxKind | 'unread' | 'needs_action' | 'starred'
 
@@ -42,7 +59,7 @@ export default function InboxPage() {
   const [feedback, setFeedback] = useState('')
 
   const filtered = useMemo(
-    () => filterItems(inboxItems, activeTab).sort((left, right) => new Date(right.receivedAt).getTime() - new Date(left.receivedAt).getTime()),
+    () => filterItems(inboxItems, activeTab).slice().sort(compareForInbox),
     [activeTab, inboxItems],
   )
 
@@ -77,37 +94,41 @@ export default function InboxPage() {
           {filtered.map((item) => {
             const notes = getInboxNotes(item.id)
             return (
-              <InboxItemCard
-                key={item.id}
-                item={item}
-                notes={notes}
-                noteDraft={draftNotes[item.id] ?? ''}
-                relatedSeedTitle={
-                  item.seedId
-                    ? seeds.find((seed) => seed.id === item.seedId)?.title ?? 'リンクされたシード'
-                    : null
-                }
-                relatedSeedHref={item.seedId ? `/app/seeds/${item.seedId}` : null}
-                onChangeNote={(value) => setDraftNotes((prev) => ({ ...prev, [item.id]: value }))}
-                onSaveNote={async () => {
-                  if (!draftNotes[item.id]?.trim()) return
-                  await addInboxNote(item.id, draftNotes[item.id])
-                  setDraftNotes((prev) => ({ ...prev, [item.id]: '' }))
-                  setFeedback('内部メモをこのワークスペースに保存しました。')
-                }}
-                onToggleRead={async () => {
-                  await toggleInboxRead(item.id)
-                  setFeedback(item.isRead ? '未読にしました。' : '既読にしました。')
-                }}
-                onToggleStar={async () => {
-                  await toggleInboxStar(item.id)
-                  setFeedback(item.isStarred ? 'スターを外しました。' : 'フォローアップ用にスターを付けました。')
-                }}
-                onToggleNeedsAction={async () => {
-                  await toggleInboxNeedsAction(item.id)
-                  setFeedback(item.needsAction ? '要対応を解除しました。' : '要対応としてフラグを立てました。')
-                }}
-              />
+              <div key={item.id}>
+                <InboxItemCard
+                  item={item}
+                  notes={notes}
+                  noteDraft={draftNotes[item.id] ?? ''}
+                  relatedSeedTitle={
+                    item.seedId
+                      ? seeds.find((seed) => seed.id === item.seedId)?.title ?? 'リンクされたシード'
+                      : null
+                  }
+                  relatedSeedHref={item.seedId ? `/app/seeds/${item.seedId}` : null}
+                  onChangeNote={(value) => setDraftNotes((prev) => ({ ...prev, [item.id]: value }))}
+                  onSaveNote={async () => {
+                    if (!draftNotes[item.id]?.trim()) return
+                    await addInboxNote(item.id, draftNotes[item.id])
+                    setDraftNotes((prev) => ({ ...prev, [item.id]: '' }))
+                    setFeedback('内部メモをこのワークスペースに保存しました。')
+                  }}
+                  onToggleRead={async () => {
+                    await toggleInboxRead(item.id)
+                    setFeedback(item.isRead ? '未読にしました。' : '既読にしました。')
+                  }}
+                  onToggleStar={async () => {
+                    await toggleInboxStar(item.id)
+                    setFeedback(item.isStarred ? 'スターを外しました。' : 'フォローアップ用にスターを付けました。')
+                  }}
+                  onToggleNeedsAction={async () => {
+                    await toggleInboxNeedsAction(item.id)
+                    setFeedback(item.needsAction ? '要対応を解除しました。' : '要対応としてフラグを立てました。')
+                  }}
+                />
+                {/* The concierge (summary + reply proposal + timed send) is for
+                    conversational DMs — comments/mentions/replies use notes only. */}
+                {item.kind === 'dm' && <ConciergeReplyPanel item={item} />}
+              </div>
             )
           })}
         </div>

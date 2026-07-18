@@ -289,7 +289,7 @@ export default function SettingsPage() {
         <div className="rounded-[2rem] border border-stone-200 bg-white p-6 shadow-sm shadow-stone-100/80">
           <h2 className="mb-2 text-base font-semibold text-gray-900">現在の対応範囲</h2>
           <p className="text-sm leading-6 text-gray-500">
-            設定・メンバーシップ・シード・ブランドプロフィール・キューの更新・受信箱でのやり取り・非公開アセットのメタデータは、いずれもSupabaseに保存されます。X・Instagram・YouTube・TikTokはOAuthで接続でき、いずれも実際に投稿を実行できます。noteは公式APIがないため、手動でコピーして確認する引き渡し方式にとどめています。Instagramのコメント・DMはWebhook経由で受信箱に自動的に取り込まれます。それ以外の媒体は「受信箱を同期」ボタンでの取得となり（YouTubeは実際のコメントを取得できますが、XとTikTokは各プラットフォームがより広いAPIアクセスを許可するまで対応できていません。これは隠さずお伝えする、正直な未対応部分です）。
+            設定・メンバーシップ・シード・ブランドプロフィール・キューの更新・受信箱でのやり取り・非公開アセットのメタデータは、いずれもSupabaseに保存されます。X・Instagram・YouTube・TikTokはOAuthで接続でき、いずれも実際に投稿を実行できます。noteは公式APIがないため、手動でコピーして確認する引き渡し方式にとどめています。Instagramのコメント・DMはWebhook経由で受信箱に自動的に取り込まれます。それ以外の媒体は「受信箱を同期」ボタンでの取得となり（YouTubeは実際のコメントを取得できますが、XとTikTokは各プラットフォームがより広いAPIアクセスを許可するまで対応できていません。これは隠さずお伝えする、正直な未対応部分です）。メッセージのAIコンシェルジュ（要約・返信提案・承認後の送信）は、送信までフル対応しているのはLINE公式アカウントのみです。承認した返信は相手の生活時間に合わせた時刻に自動送信され（深夜は避け、「今すぐ送信」も選べます）、LINE未接続やAI未設定の場合は偽の成功を返さず安全に停止します。Instagram DMは受信・要約・返信案の作成までで、送信はMetaの審査が前提のため未対応です。
           </p>
         </div>
       </div>
