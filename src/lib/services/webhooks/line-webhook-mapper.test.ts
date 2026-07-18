@@ -47,6 +47,17 @@ describe('mapLineWebhookBody', () => {
     expect(mapLineWebhookBody(body)).toEqual([])
   })
 
+  it('skips a group source even when it carries a userId (1:1-only Phase 1 scope)', () => {
+    // LINE includes source.userId in a group event when the sender friended the
+    // OA — a presence check alone would mislabel this group message as a DM.
+    const body: LineWebhookBody = {
+      events: [
+        { type: 'message', source: { type: 'group', groupId: 'G1', userId: 'U1' }, message: { id: 'm', type: 'text', text: 'hi all' } },
+      ],
+    }
+    expect(mapLineWebhookBody(body)).toEqual([])
+  })
+
   it('skips non-message events (follow/join/postback)', () => {
     const body: LineWebhookBody = {
       events: [{ type: 'follow', source: { type: 'user', userId: 'U1' } }],

@@ -46,7 +46,14 @@ export function mapLineWebhookBody(body: LineWebhookBody): InboundInboxEvent[] {
     if (event.type !== 'message') continue
     if (event.message?.type !== 'text') continue
 
-    const userId = event.source?.userId
+    // 1:1 chats only. A group/room message event can still carry source.userId
+    // (when the sender has added the Official Account as a friend), so checking
+    // the userId's presence alone is not enough — we must require source.type
+    // 'user', or a group member's message would be mislabeled as a private DM
+    // and become a push-reply target they never opened a 1:1 with.
+    if (event.source?.type !== 'user') continue
+
+    const userId = event.source.userId
     if (!userId || !event.message.id || !event.message.text) continue
 
     events.push({
