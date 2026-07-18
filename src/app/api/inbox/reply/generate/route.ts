@@ -5,6 +5,7 @@ import { createServiceClient } from '@/lib/supabase/service'
 import { getWorkspaceMonthlyAiCost, recordAiGeneration } from '@/lib/repositories/supabase/ai-generations'
 import { getDefaultBrandProfileForClient } from '@/lib/repositories/supabase/brand-profiles'
 import { listContactReplyExamples } from '@/lib/repositories/supabase/reply-learning'
+import { getMyCreatorStatus } from '@/lib/repositories/supabase/creator-status'
 import { hasPermission } from '@/lib/permissions'
 import type { WorkspaceRole } from '@/lib/domain/types'
 import { TemplateReplyGeneratorService } from '@/lib/services/ai-reply'
@@ -121,6 +122,11 @@ export async function POST(request: NextRequest) {
       })
     : []
 
+  // The creator's current status (Phase 5), conveyed only if they chose to share
+  // it. Best-effort — never blocks generation.
+  const status = await getMyCreatorStatus(supabase, workspaceId, user.id).catch(() => null)
+  const creatorStatus = status?.shareWithContacts ? { mood: status.mood, note: status.note } : undefined
+
   const serviceClient = createServiceClient()
 
   if (!isAnthropicConfigured()) {
@@ -158,7 +164,7 @@ export async function POST(request: NextRequest) {
   }
 
   try {
-    const result = await generateReplyWithAnthropic(item.text, { brandProfile, styleExamples })
+    const result = await generateReplyWithAnthropic(item.text, { brandProfile, styleExamples, creatorStatus })
     const costUsd = calculateGenerationCost(result.inputTokens, result.outputTokens)
 
     const generation = await recordAiGeneration(supabase, {

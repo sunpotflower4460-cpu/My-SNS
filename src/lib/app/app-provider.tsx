@@ -10,6 +10,8 @@ import type {
   BrandProfileInput,
   CalendarEvent,
   CalendarEventInput,
+  CreatorStatus,
+  CreatorStatusInput,
   DraftRevision,
   InboxItem,
   InboxNote,
@@ -51,6 +53,7 @@ import {
   updateCalendarEvent as updateCalendarEventRepo,
   deleteCalendarEvent as deleteCalendarEventRepo,
 } from '@/lib/repositories/supabase/calendar-events'
+import { getMyCreatorStatus, upsertMyCreatorStatus } from '@/lib/repositories/supabase/creator-status'
 import * as notificationsRepo from '@/lib/repositories/supabase/notifications'
 import * as queueRepo from '@/lib/repositories/supabase/queue'
 import { recordPublishAttempt, listWorkspacePublishAttempts } from '@/lib/repositories/supabase/publish-attempts'
@@ -84,6 +87,7 @@ interface AppContextValue {
   replySuggestions: AiReplySuggestion[]
   replyJobs: ReplyJob[]
   calendarEvents: CalendarEvent[]
+  myCreatorStatus: CreatorStatus | null
   setActiveWorkspaceId: (workspaceId: string) => void
   refreshWorkspaceData: () => Promise<void>
   createSeedItem: (input: {
@@ -137,6 +141,7 @@ interface AppContextValue {
   updateCalendarEvent: (eventId: string, input: CalendarEventInput) => Promise<CalendarEvent>
   deleteCalendarEvent: (eventId: string) => Promise<void>
   extractSchedule: (inboxItemId: string) => Promise<{ source: 'ai' | 'unavailable'; reason?: string; proposals: ScheduleProposal[] }>
+  setMyCreatorStatus: (input: CreatorStatusInput) => Promise<CreatorStatus>
   retryQueueJob: (jobId: string) => Promise<PublishJob>
   cancelQueueJob: (jobId: string) => Promise<PublishJob>
   scheduleDraft: (draftId: string, scheduledAt?: string) => Promise<PublishJob>
@@ -187,6 +192,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const [replySuggestions, setReplySuggestions] = useState<AiReplySuggestion[]>([])
   const [replyJobs, setReplyJobs] = useState<ReplyJob[]>([])
   const [calendarEvents, setCalendarEvents] = useState<CalendarEvent[]>([])
+  const [myCreatorStatus, setMyCreatorStatusState] = useState<CreatorStatus | null>(null)
   const [isReady, setIsReady] = useState(false)
 
   // Load user workspaces
@@ -244,6 +250,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         replySuggestionsList,
         replyJobsList,
         calendarEventsList,
+        myCreatorStatusResult,
       ] = await Promise.all([
         workspacesRepo.getWorkspaceById(activeWorkspaceId),
         workspacesRepo.getCurrentMember(activeWorkspaceId, currentUserId),
@@ -266,6 +273,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         listWorkspaceReplySuggestions(activeWorkspaceId),
         listWorkspaceReplyJobs(activeWorkspaceId),
         listWorkspaceCalendarEvents(activeWorkspaceId),
+        getMyCreatorStatus(createClient(), activeWorkspaceId, currentUserId),
       ])
 
       setCurrentWorkspace(workspace)
@@ -289,6 +297,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       setReplySuggestions(replySuggestionsList)
       setReplyJobs(replyJobsList)
       setCalendarEvents(calendarEventsList)
+      setMyCreatorStatusState(myCreatorStatusResult)
     } catch (error) {
       console.error('Error loading workspace data:', error)
     }
@@ -376,6 +385,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       replySuggestions,
       replyJobs,
       calendarEvents,
+      myCreatorStatus,
       setActiveWorkspaceId,
       refreshWorkspaceData,
 
@@ -944,6 +954,14 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         return payload as { source: 'ai' | 'unavailable'; reason?: string; proposals: ScheduleProposal[] }
       },
 
+      setMyCreatorStatus: async (input) => {
+        if (!currentWorkspace || !currentUserId) throw new Error('準備ができていません')
+
+        const status = await upsertMyCreatorStatus(currentWorkspace.id, currentUserId, input)
+        setMyCreatorStatusState(status)
+        return status
+      },
+
       retryQueueJob: async (jobId) => {
         if (!currentWorkspace || !currentUserId) throw new Error('準備ができていません')
 
@@ -1227,6 +1245,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     replySuggestions,
     replyJobs,
     calendarEvents,
+    myCreatorStatus,
     currentUserId,
     refreshWorkspaceData,
   ])

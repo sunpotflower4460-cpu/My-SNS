@@ -59,6 +59,7 @@ export function buildReplyGenerationPrompt(
     'Summarize what the sender is asking softly and clearly (`summary`), in Japanese, so the creator understands it at a glance.',
     'Judge how urgently a reply is needed and set `priority` accordingly.',
     'If past-edit examples are provided, they show how this creator tends to change your proposals — write closer to the "creator approved" style, without copying the example\'s facts.',
+    "If the creator's current status is provided, weave it into the reply ONLY when it genuinely helps the recipient (e.g. to set expectations about reply speed or availability) — naturally, briefly, and never as an overshare or an excuse if it isn't relevant.",
     'Call the propose_reply tool exactly once.',
   ].join(' ')
 
@@ -95,9 +96,15 @@ export function buildReplyGenerationPrompt(
       ? `Recent messages in this thread (oldest first):\n${context.recentMessages.map((m) => `- ${m}`).join('\n')}`
       : ''
 
+  const status = context?.creatorStatus
+  const statusBlock = status
+    ? `Creator's current status (share with the recipient only if it genuinely helps): ${status.mood}${status.note ? ` — ${status.note}` : ''}`
+    : ''
+
   const user = [
     brandProfileBlock,
     context?.contactDisplayName ? `\nContact: ${context.contactDisplayName}` : '',
+    statusBlock ? `\n${statusBlock}` : '',
     recentBlock ? `\n${recentBlock}` : '',
     `\nIncoming message to reply to:\n"${inboundText}"`,
     styleExamplesBlock ? `\n${styleExamplesBlock}` : '',

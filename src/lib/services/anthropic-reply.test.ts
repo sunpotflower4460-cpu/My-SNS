@@ -81,4 +81,19 @@ describe('buildReplyGenerationPrompt', () => {
     expect(user).toContain('Past edits this creator made')
     expect(user).toContain('こちらこそありがとうございます。')
   })
+
+  it('surfaces the creator status (mood + note) only when provided', () => {
+    const without = buildReplyGenerationPrompt('hi', { brandProfile })
+    expect(without.user).not.toContain("Creator's current status")
+
+    const withStatus = buildReplyGenerationPrompt('hi', {
+      brandProfile,
+      creatorStatus: { mood: '忙しい', note: '今週は制作に集中しています' },
+    })
+    expect(withStatus.user).toContain("Creator's current status")
+    expect(withStatus.user).toContain('忙しい')
+    expect(withStatus.user).toContain('今週は制作に集中しています')
+    // The guardrail to only share when it helps lives in the system prompt.
+    expect(withStatus.system).toContain('ONLY when it genuinely helps')
+  })
 })

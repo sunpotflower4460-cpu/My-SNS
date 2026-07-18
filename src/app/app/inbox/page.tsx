@@ -4,6 +4,7 @@ import { useMemo, useState } from 'react'
 import PageHeader from '@/components/ui/PageHeader'
 import InboxItemCard from '@/components/ui/InboxItemCard'
 import ConciergeReplyPanel from '@/components/ui/ConciergeReplyPanel'
+import CreatorStatusBar from '@/components/ui/CreatorStatusBar'
 import EmptyState from '@/components/ui/EmptyState'
 import { useApp } from '@/lib/app/app-provider'
 import type { InboxItem, InboxKind } from '@/lib/domain/types'
@@ -68,6 +69,8 @@ export default function InboxPage() {
   return (
     <div>
       <PageHeader title="受信箱" description={`現在のワークスペースに未読の会話が${unreadCount}件あります。`} />
+
+      <CreatorStatusBar />
 
       {feedback && (
         <div className="mb-5 rounded-2xl border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-700">
