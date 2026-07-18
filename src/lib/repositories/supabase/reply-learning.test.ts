@@ -61,4 +61,13 @@ describe('buildStyleExamples', () => {
     expect(buildStyleExamples([row(null, null, 'x')])).toEqual([])
     expect(buildStyleExamples([])).toEqual([])
   })
+
+  it('caps each field so a very long past reply cannot blow up the prompt', () => {
+    const long = 'あ'.repeat(900)
+    const [example] = buildStyleExamples([row(long, long, long)])
+    expect(example.inbound).toHaveLength(501) // 500 chars + the … marker
+    expect(example.inbound.endsWith('…')).toBe(true)
+    expect(example.aiProposed).toHaveLength(501)
+    expect(example.humanApproved).toHaveLength(501)
+  })
 })

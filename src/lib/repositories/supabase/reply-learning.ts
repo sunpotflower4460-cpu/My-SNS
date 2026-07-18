@@ -27,6 +27,15 @@ function firstOf<T>(value: Embedded<T>): T | null {
   return Array.isArray(value) ? (value[0] ?? null) : value
 }
 
+// A style example only needs to convey voice/length, not a whole essay. Capping
+// each field keeps input-token cost predictable even if a past reply was long
+// (the fields are unbounded TEXT). A DM-length reply is far under this.
+const MAX_EXAMPLE_FIELD_CHARS = 500
+
+function cap(value: string): string {
+  return value.length > MAX_EXAMPLE_FIELD_CHARS ? `${value.slice(0, MAX_EXAMPLE_FIELD_CHARS)}…` : value
+}
+
 /**
  * Pure: map raw joined rows (newest-first) to at most `limit` style examples.
  * Drops rows missing the inbound text or the AI proposal, then orders
@@ -54,7 +63,9 @@ export function buildStyleExamples(rows: ReplyExampleRow[], limit = 3): ReplySty
     ...examples.filter((example) => !example.edited),
   ]
 
-  return ordered.slice(0, limit).map(({ inbound, aiProposed, humanApproved }) => ({ inbound, aiProposed, humanApproved }))
+  return ordered
+    .slice(0, limit)
+    .map(({ inbound, aiProposed, humanApproved }) => ({ inbound: cap(inbound), aiProposed: cap(aiProposed), humanApproved: cap(humanApproved) }))
 }
 
 /**
