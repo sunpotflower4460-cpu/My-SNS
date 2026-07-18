@@ -6,6 +6,7 @@ import { computeRecipientSendTime, ensureMinimumLead } from './reply-timing'
 import { getWorkspaceMonthlyAiCost, recordAiGeneration } from '@/lib/repositories/supabase/ai-generations'
 import { getDefaultBrandProfileForClient } from '@/lib/repositories/supabase/brand-profiles'
 import { listContactReplyExamples } from '@/lib/repositories/supabase/reply-learning'
+import { getMyCreatorStatus } from '@/lib/repositories/supabase/creator-status'
 import { createReplyJob } from '@/lib/repositories/supabase/reply-queue'
 import { createNotifications } from '@/lib/repositories/supabase/notifications'
 
@@ -58,12 +59,13 @@ export interface AutoReplySweepResult {
   reason?: string
 }
 
-/** Per-workspace cache so we resolve owner / LINE-connection / brand profile / budget once. */
+/** Per-workspace cache so we resolve owner / LINE-connection / brand profile / budget / status once. */
 interface WorkspaceContext {
   ownerId: string | null
   lineConnected: boolean
   brandProfile: BrandProfile | null
   overBudget: boolean
+  creatorStatus?: { mood: string; note?: string }
 }
 
 async function loadWorkspaceContext(supabase: SupabaseClient, workspaceId: string, monthlyBudgetUsd: number | null): Promise<WorkspaceContext> {
@@ -79,11 +81,19 @@ async function loadWorkspaceContext(supabase: SupabaseClient, workspaceId: strin
     overBudget = spent >= monthlyBudgetUsd
   }
 
+  const ownerId = (owner?.user_id as string | undefined) ?? null
+  // The owner's status (Phase 5), conveyed by an auto reply only if shared. The
+  // sweep uses the service client, so RLS is bypassed — we still honor the
+  // owner's share_with_contacts flag explicitly here.
+  const status = ownerId ? await getMyCreatorStatus(supabase, workspaceId, ownerId).catch(() => null) : null
+  const creatorStatus = status?.shareWithContacts ? { mood: status.mood, note: status.note } : undefined
+
   return {
-    ownerId: (owner?.user_id as string | undefined) ?? null,
+    ownerId,
     lineConnected: Boolean(account),
     brandProfile,
     overBudget,
+    creatorStatus,
   }
 }
 
@@ -170,6 +180,7 @@ export async function runAutoReplySweep(supabase: SupabaseClient, now: Date = ne
         brandProfile: context.brandProfile,
         contactDisplayName: contact.display_name ?? undefined,
         styleExamples,
+        creatorStatus: context.creatorStatus,
       })
       const costUsd = calculateGenerationCost(result.inputTokens, result.outputTokens)
 

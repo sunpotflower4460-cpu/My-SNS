@@ -452,6 +452,24 @@ export interface CalendarEventInput {
   contactId?: string
 }
 
+// ─── Creator Status ───────────────────────────────────────────────────────────
+/** The creator's current mood/availability (Phase 5). Conveyed to contacts by the concierge only when shareWithContacts is true. One per creator per workspace. */
+export interface CreatorStatus {
+  id: string
+  workspaceId: string
+  userId: string
+  mood: string
+  note?: string
+  shareWithContacts: boolean
+  updatedAt: string
+}
+
+export interface CreatorStatusInput {
+  mood: string
+  note?: string
+  shareWithContacts: boolean
+}
+
 // ─── Notifications ──────────────────────────────────────────────────────────
 export type NotificationType = 'draft_needs_approval' | 'publish_failed' | 'inbox_needs_action' | 'reply_failed' | 'auto_reply_scheduled'
 

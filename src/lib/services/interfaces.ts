@@ -35,12 +35,20 @@ export interface ReplyStyleExample {
   humanApproved: string
 }
 
+/** The creator's current mood/availability, conveyed to a contact only when relevant (Phase 5). Present only when the creator opted to share it. */
+export interface CreatorStatusContext {
+  mood: string
+  note?: string
+}
+
 export interface ReplyGenerationContext {
   brandProfile?: BrandProfile | null
   contactDisplayName?: string
   /** A few recent messages from this thread, oldest→newest, for context. */
   recentMessages?: string[]
   styleExamples?: ReplyStyleExample[]
+  /** The creator's current status, if they chose to share it — the AI weaves it in only when it genuinely helps. */
+  creatorStatus?: CreatorStatusContext
 }
 
 /** The AI's proposal for one inbound DM — a soft summary, a reply in the creator's voice, and the guesses it made. The human approves before anything sends. */
