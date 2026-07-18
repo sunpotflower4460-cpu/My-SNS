@@ -55,7 +55,12 @@ export async function listWorkspaceCalendarEvents(workspaceId: string): Promise<
   return (data ?? []).map((row) => mapCalendarEvent(row as CalendarEventRow))
 }
 
-function toRowValues(input: CalendarEventInput) {
+// The user-editable content fields. Deliberately excludes source /
+// inbox_item_id / contact_id: those are provenance set once at creation (manual
+// vs. an approved extraction) and must NOT be rewritten on a later edit — an
+// edit that only changed the time would otherwise silently reset an extracted
+// event to 'manual' and drop its link back to the originating conversation.
+function toContentValues(input: CalendarEventInput) {
   return {
     title: input.title.trim(),
     description: input.description?.trim() || null,
@@ -63,6 +68,12 @@ function toRowValues(input: CalendarEventInput) {
     ends_at: input.endsAt || null,
     all_day: input.allDay ?? false,
     location: input.location?.trim() || null,
+  }
+}
+
+function toInsertValues(input: CalendarEventInput) {
+  return {
+    ...toContentValues(input),
     source: input.source ?? 'manual',
     inbox_item_id: input.inboxItemId ?? null,
     contact_id: input.contactId ?? null,
@@ -80,7 +91,7 @@ export async function createCalendarEvent(
 ): Promise<CalendarEvent> {
   const { data, error } = await supabase
     .from('calendar_events')
-    .insert({ ...toRowValues(params.input), workspace_id: params.workspaceId, created_by: params.createdBy })
+    .insert({ ...toInsertValues(params.input), workspace_id: params.workspaceId, created_by: params.createdBy })
     .select()
     .single()
 
@@ -93,7 +104,7 @@ export async function updateCalendarEvent(workspaceId: string, eventId: string, 
 
   const { data, error } = await supabase
     .from('calendar_events')
-    .update(toRowValues(input))
+    .update(toContentValues(input))
     .eq('id', eventId)
     .eq('workspace_id', workspaceId)
     .select()
