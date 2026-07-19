@@ -44,7 +44,7 @@ function jstDayKey(iso: string): string {
 }
 
 export default function CalendarPage() {
-  const { calendarEvents, currentMember, createCalendarEvent, updateCalendarEvent, deleteCalendarEvent } = useApp()
+  const { calendarEvents, currentMember, createCalendarEvent, updateCalendarEvent, deleteCalendarEvent, syncCalendarEvent } = useApp()
 
   const canManage = Boolean(currentMember && hasPermission(currentMember.role, 'manage_calendar'))
 
@@ -131,6 +131,32 @@ export default function CalendarPage() {
       resetForm()
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : '予定を保存できませんでした。')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const PROVIDER_LABELS: Record<string, string> = { notion: 'Notion', timetree: 'TimeTree' }
+
+  const handleSync = async (event: CalendarEvent) => {
+    setError('')
+    setFeedback('')
+    setBusy(true)
+    try {
+      const outcomes = await syncCalendarEvent(event.id)
+      const synced = outcomes.filter((o) => o.status === 'synced').map((o) => PROVIDER_LABELS[o.provider] ?? o.provider)
+      const failed = outcomes.filter((o) => o.status === 'failed').map((o) => PROVIDER_LABELS[o.provider] ?? o.provider)
+      const available = outcomes.some((o) => o.status !== 'unavailable')
+      if (!available) {
+        setError('外部カレンダー連携（Notion / TimeTree）が未設定です。設定でトークンを設定すると同期できます。')
+      } else {
+        // Always report what DID sync, even alongside a failure, so a retry
+        // doesn't re-push an already-synced provider.
+        if (synced.length > 0) setFeedback(`${synced.join('、')}に同期しました。`)
+        if (failed.length > 0) setError(`同期に失敗しました: ${failed.join('、')}。`)
+      }
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : '同期できませんでした。')
     } finally {
       setBusy(false)
     }
@@ -230,6 +256,7 @@ export default function CalendarPage() {
                       </div>
                       {canManage && (
                         <div className="flex shrink-0 items-center gap-2">
+                          <button onClick={() => handleSync(event)} disabled={busy} className="rounded-full border border-stone-200 px-3 py-1 text-xs text-gray-600 hover:bg-violet-50 hover:text-violet-700 disabled:opacity-50">同期</button>
                           <button onClick={() => startEdit(event)} className="rounded-full border border-stone-200 px-3 py-1 text-xs text-gray-600 hover:bg-stone-50">編集</button>
                           <button onClick={() => handleDelete(event)} disabled={busy} className="rounded-full border border-stone-200 px-3 py-1 text-xs text-gray-600 hover:bg-rose-50 hover:text-rose-600 disabled:opacity-50">削除</button>
                         </div>

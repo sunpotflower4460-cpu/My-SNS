@@ -287,6 +287,26 @@ export default function SettingsPage() {
         </div>
 
         <div className="rounded-[2rem] border border-stone-200 bg-white p-6 shadow-sm shadow-stone-100/80">
+          <h2 className="mb-1 text-base font-semibold text-gray-900">外部カレンダー連携（Notion / TimeTree）</h2>
+          <p className="mb-4 text-sm text-gray-500">
+            アプリ内カレンダーの予定を、Notion または TimeTree に「同期」ボタンで書き出せます。接続はサーバー側の環境変数（Notionは連携トークン＋データベースID、TimeTreeはアクセストークン＋カレンダーID）で設定します。
+          </p>
+          <ul className="space-y-2 text-sm text-gray-600">
+            <li className="flex items-start gap-2">
+              <span className="mt-0.5 text-gray-400">•</span>
+              <span><strong>Notion</strong>: <a href="https://www.notion.so/my-integrations" className="text-violet-700 hover:text-violet-900" target="_blank" rel="noreferrer">連携を作成</a>し、対象データベース（タイトル「Name」・日付「Date」プロパティ）に共有して、<code className="rounded bg-stone-100 px-1 text-xs">NOTION_INTEGRATION_TOKEN</code> と <code className="rounded bg-stone-100 px-1 text-xs">NOTION_CALENDAR_DATABASE_ID</code> を設定します。</span>
+            </li>
+            <li className="flex items-start gap-2">
+              <span className="mt-0.5 text-gray-400">•</span>
+              <span><strong>TimeTree</strong>: <a href="https://developers.timetree.app/" className="text-violet-700 hover:text-violet-900" target="_blank" rel="noreferrer">アプリを登録</a>し、<code className="rounded bg-stone-100 px-1 text-xs">TIMETREE_ACCESS_TOKEN</code> と <code className="rounded bg-stone-100 px-1 text-xs">TIMETREE_CALENDAR_ID</code> を設定します。</span>
+            </li>
+          </ul>
+          <p className="mt-4 rounded-2xl border border-stone-200 bg-stone-50 px-4 py-3 text-xs text-gray-500">
+            トークン発行・共有設定はご本人の操作が必要です。未設定の間は「同期」を押しても偽の成功は返さず、「未設定」と正直にお伝えして安全に停止します。
+          </p>
+        </div>
+
+        <div className="rounded-[2rem] border border-stone-200 bg-white p-6 shadow-sm shadow-stone-100/80">
           <h2 className="mb-2 text-base font-semibold text-gray-900">現在の対応範囲</h2>
           <p className="text-sm leading-6 text-gray-500">
             設定・メンバーシップ・シード・ブランドプロフィール・キューの更新・受信箱でのやり取り・非公開アセットのメタデータは、いずれもSupabaseに保存されます。X・Instagram・YouTube・TikTokはOAuthで接続でき、いずれも実際に投稿を実行できます。noteは公式APIがないため、手動でコピーして確認する引き渡し方式にとどめています。Instagramのコメント・DMはWebhook経由で受信箱に自動的に取り込まれます。それ以外の媒体は「受信箱を同期」ボタンでの取得となり（YouTubeは実際のコメントを取得できますが、XとTikTokは各プラットフォームがより広いAPIアクセスを許可するまで対応できていません。これは隠さずお伝えする、正直な未対応部分です）。メッセージのAIコンシェルジュ（要約・返信提案・承認後の送信）は、送信までフル対応しているのはLINE公式アカウントのみです。承認した返信は相手の生活時間に合わせた時刻に自動送信され（深夜は避け、「今すぐ送信」も選べます）、LINE未接続やAI未設定の場合は偽の成功を返さず安全に停止します。Instagram DMは受信・要約・返信案の作成までで、送信はMetaの審査が前提のため未対応です。
