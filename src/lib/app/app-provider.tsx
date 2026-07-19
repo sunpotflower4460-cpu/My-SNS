@@ -34,6 +34,7 @@ import type {
   WorkspaceRole,
 } from '@/lib/domain/types'
 import type { ScheduleProposal } from '@/lib/services/interfaces'
+import type { ProviderSyncOutcome } from '@/lib/services/calendar-sync'
 import { useAuth } from '@/lib/auth/auth-provider'
 import { hasPermission } from '@/lib/permissions'
 import { derivePublishMode } from '@/lib/channels/config'
@@ -140,6 +141,7 @@ interface AppContextValue {
   createCalendarEvent: (input: CalendarEventInput) => Promise<CalendarEvent>
   updateCalendarEvent: (eventId: string, input: CalendarEventInput) => Promise<CalendarEvent>
   deleteCalendarEvent: (eventId: string) => Promise<void>
+  syncCalendarEvent: (eventId: string) => Promise<ProviderSyncOutcome[]>
   extractSchedule: (inboxItemId: string) => Promise<{ source: 'ai' | 'unavailable'; reason?: string; proposals: ScheduleProposal[] }>
   setMyCreatorStatus: (input: CreatorStatusInput) => Promise<CreatorStatus>
   retryQueueJob: (jobId: string) => Promise<PublishJob>
@@ -933,6 +935,23 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         })
 
         await refreshWorkspaceData()
+      },
+
+      syncCalendarEvent: async (eventId) => {
+        if (!currentWorkspace) throw new Error('準備ができていません')
+        if (!currentMember || !hasPermission(currentMember.role, 'manage_calendar')) {
+          throw new Error('あなたの役割ではカレンダーを同期できません。')
+        }
+
+        const response = await fetch('/api/calendar/sync', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ workspaceId: currentWorkspace.id, eventId }),
+        })
+        const payload = await response.json()
+        if (!response.ok) throw new Error(payload.error ?? '外部カレンダーへの同期に失敗しました。')
+
+        return (payload.outcomes ?? []) as ProviderSyncOutcome[]
       },
 
       extractSchedule: async (inboxItemId) => {
