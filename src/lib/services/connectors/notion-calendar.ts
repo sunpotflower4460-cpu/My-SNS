@@ -31,11 +31,14 @@ export class NotionCalendarConnector implements CalendarSyncConnector {
     }
 
     // For an all-day event Notion wants a date-only value; for a timed event a
-    // full ISO datetime. We already store absolute UTC ISO, so slice for all-day.
+    // full ISO datetime. We store absolute UTC ISO, so the all-day date must be
+    // the JST *calendar* date, not a slice of the UTC string — a JST-midnight
+    // all-day event is the previous UTC day, which would land it a day early.
+    const jstDate = (iso: string) => new Date(iso).toLocaleDateString('en-CA', { timeZone: 'Asia/Tokyo' }) // YYYY-MM-DD
     const date: { start: string; end?: string } = {
-      start: event.allDay ? event.startsAt.slice(0, 10) : event.startsAt,
+      start: event.allDay ? jstDate(event.startsAt) : event.startsAt,
     }
-    if (event.endsAt) date.end = event.allDay ? event.endsAt.slice(0, 10) : event.endsAt
+    if (event.endsAt) date.end = event.allDay ? jstDate(event.endsAt) : event.endsAt
 
     const properties: Record<string, unknown> = {
       Name: { title: [{ text: { content: event.title } }] },

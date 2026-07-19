@@ -149,10 +149,11 @@ export default function CalendarPage() {
       const available = outcomes.some((o) => o.status !== 'unavailable')
       if (!available) {
         setError('外部カレンダー連携（Notion / TimeTree）が未設定です。設定でトークンを設定すると同期できます。')
-      } else if (failed.length > 0) {
-        setError(`同期に失敗しました: ${failed.join('、')}。`)
       } else {
-        setFeedback(`${synced.join('、')}に同期しました。`)
+        // Always report what DID sync, even alongside a failure, so a retry
+        // doesn't re-push an already-synced provider.
+        if (synced.length > 0) setFeedback(`${synced.join('、')}に同期しました。`)
+        if (failed.length > 0) setError(`同期に失敗しました: ${failed.join('、')}。`)
       }
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : '同期できませんでした。')

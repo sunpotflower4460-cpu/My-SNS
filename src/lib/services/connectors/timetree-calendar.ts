@@ -44,10 +44,21 @@ export class TimeTreeCalendarConnector implements CalendarSyncConnector {
             title: event.title,
             all_day: event.allDay,
             start_at: startAt,
+            // TimeTree resolves the calendar day from the timezone; the sole user
+            // is JST, so anchor both ends there (otherwise a UTC timestamp could
+            // shift an all-day event's day, as it would in Notion).
+            start_timezone: 'Asia/Tokyo',
             end_at: endAt,
+            end_timezone: 'Asia/Tokyo',
             description: event.description ?? undefined,
             location: event.location ?? undefined,
           },
+          // NOTE: TimeTree requires at least one label on an event. Label ids are
+          // per-calendar and only known once the human connects a real calendar,
+          // so we don't fabricate one here — if the API rejects the create for a
+          // missing label, the connector fails closed (honest error), and the
+          // label relationship can be added when the real TIMETREE_CALENDAR_ID is
+          // wired up.
         },
       }),
     })
