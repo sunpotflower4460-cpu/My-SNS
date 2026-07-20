@@ -43,7 +43,7 @@ export default function QueuePage() {
     setBusyJobId(jobId)
     try {
       await retryQueueJob(jobId)
-      setFeedback('公開キューの項目を予約済みに戻しました。')
+      setFeedback('この予定を予約済みに戻しました。')
       setError('')
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : '再試行できませんでした。')
@@ -57,7 +57,7 @@ export default function QueuePage() {
     setBusyJobId(jobId)
     try {
       await cancelQueueJob(jobId)
-      setFeedback('公開キューの項目をキャンセルしました。')
+      setFeedback('この予定をキャンセルしました。')
       setError('')
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'キャンセルできませんでした。')
@@ -163,7 +163,10 @@ export default function QueuePage() {
                       </Button>
                     )}
                     {actions.publishNow && (
-                      <Button size="sm" variant="primary" onClick={() => handleTrigger(job.id)} loading={busy}>
+                      // disabled (not loading): `busy` is per-job, so a spinner
+                      // here would appear when a different action on the same row
+                      // is the one in flight. All row actions dim uniformly.
+                      <Button size="sm" variant="primary" onClick={() => handleTrigger(job.id)} disabled={busy}>
                         今すぐ公開
                       </Button>
                     )}
