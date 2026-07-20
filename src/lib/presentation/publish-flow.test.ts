@@ -76,6 +76,16 @@ describe('computePublishFlow', () => {
     expect(flow.complete).toBe(true)
   })
 
+  it("counts a note channel's manual 'draft' job as queued (it never becomes 'scheduled')", () => {
+    // note is manual-copy: createPublishJob starts its job in status 'draft'.
+    // The schedule step must still complete once the human has queued it.
+    const flow = computePublishFlow(
+      base({ targetChannels: ['note'], drafts: [draft('note', 'approved')], jobs: [job('note', 'draft')] }),
+    )
+    expect(flow.complete).toBe(true)
+    expect(flow.primary).toBeNull()
+  })
+
   it('does not count a failed or cancelled job as scheduled', () => {
     const flow = computePublishFlow(
       base({ targetChannels: ['x'], drafts: [draft('x', 'approved')], jobs: [job('x', 'failed')] }),

@@ -63,11 +63,17 @@ export function computePublishFlow(input: PublishFlowInput): PublishFlow {
   const channels = targetChannels
 
   // A channel is "proposed" once it has at least one draft, "approved" once it has
-  // an approved draft, and "queued" once it has a scheduled or published job.
+  // an approved draft, and "queued" once it has a committed job. A job counts as
+  // committed when it's 'scheduled' or 'published', OR 'draft' — a manual channel
+  // (note) creates its job in status 'draft' (see queue.ts createPublishJob: it
+  // has nothing for the Worker to do and awaits manual completion), so a note
+  // that's been queued must satisfy the schedule step. 'failed'/'cancelled' never
+  // count.
+  const COMMITTED_JOB_STATUSES = new Set(['scheduled', 'published', 'draft'])
   const proposedChannels = new Set(drafts.map((draft) => draft.channel))
   const approvedChannelSet = new Set(drafts.filter((draft) => draft.status === 'approved').map((draft) => draft.channel))
   const queuedChannelSet = new Set(
-    jobs.filter((job) => job.status === 'scheduled' || job.status === 'published').map((job) => job.channel),
+    jobs.filter((job) => COMMITTED_JOB_STATUSES.has(job.status)).map((job) => job.channel),
   )
 
   const hasChannels = channels.length > 0
