@@ -1,3 +1,77 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+/*
+ * Design tokens (UI-PR0). Semantic names over the existing "calm stone + violet"
+ * palette, so components reference intent (surface / border / focus) rather than
+ * hard-coded shades, and both the current screens and new components can migrate
+ * gradually. Values mirror what the app already uses — this introduces no visual
+ * change on its own.
+ */
+:root {
+  /* Surfaces */
+  --surface-page: #fafaf9; /* stone-50 */
+  --surface-primary: #ffffff;
+  --surface-secondary: #f5f5f4; /* stone-100 */
+  --surface-selected: #f5f3ff; /* violet-50 */
+
+  /* Text */
+  --text-strong: #111827; /* gray-900 */
+  --text-default: #374151; /* gray-700 */
+  --text-muted: #6b7280; /* gray-500 */
+  --text-subtle: #9ca3af; /* gray-400 */
+
+  /* Border */
+  --border-default: #e7e5e4; /* stone-200 */
+  --border-strong: #d6d3d1; /* stone-300 */
+
+  /* Accent / status (bases used by Badge/InlineAlert) */
+  --accent: #7c3aed; /* violet-600 */
+  --accent-hover: #6d28d9; /* violet-700 */
+
+  /* Focus ring — shared by every interactive element */
+  --focus-ring: #c4b5fd; /* violet-300 */
+
+  /* Radius scale (§17.2 of the redesign brief) */
+  --radius-control: 0.75rem; /* 12px — inputs / buttons */
+  --radius-card: 1rem; /* 16px — normal cards */
+  --radius-container: 1.5rem; /* 24px — large work containers */
+
+  /* Minimum interactive sizes */
+  --control-height: 2.5rem; /* 40px desktop */
+  --control-height-touch: 2.75rem; /* 44px touch target */
+}
+
+@layer base {
+  /*
+   * A single visible focus style for keyboard users across every interactive
+   * element — never removed (accessibility foundation). Mouse clicks don't show
+   * it (:focus-visible), so it doesn't add visual noise to pointer users.
+   */
+  :where(a, button, input, select, textarea, [role='button'], [tabindex]):focus-visible {
+    outline: 2px solid var(--focus-ring);
+    outline-offset: 2px;
+    border-radius: 2px;
+  }
+}
+
+/* Respect the OS "reduce motion" setting — transitions/animations become near-instant. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* Safe-area helpers for mobile bottom bars / sticky actions (iPhone notch/home bar). */
+.pb-safe {
+  padding-bottom: env(safe-area-inset-bottom);
+}
+.min-h-touch {
+  min-height: var(--control-height-touch);
+}
