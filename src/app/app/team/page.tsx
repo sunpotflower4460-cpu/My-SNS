@@ -24,6 +24,8 @@ export default function TeamPage() {
     const validation = validateInvite({ email: inviteEmail, members, pendingInvitations })
     if (!validation.ok) {
       setError(validation.error)
+      // Clear any stale success message so the two alerts never contradict.
+      setFeedback('')
       return
     }
 
