@@ -15,12 +15,12 @@ interface AppShellProps {
   pageTitle?: string
 }
 
-export default function AppShell({ children, user, workspace, member, pageTitle }: AppShellProps) {
+export default function AppShell({ children, user, workspace, pageTitle }: AppShellProps) {
   const [isMobileNavOpen, setIsMobileNavOpen] = useState(false)
 
   return (
     <div className="flex min-h-screen overflow-hidden bg-stone-50">
-      <Sidebar workspace={workspace} user={user} member={member} />
+      <Sidebar workspace={workspace} user={user} />
       {/* Drawer for the sections not in the mobile bottom bar (opened by その他). */}
       <MobileNav workspace={workspace} user={user} isOpen={isMobileNavOpen} onClose={() => setIsMobileNavOpen(false)} />
       <div className="flex flex-1 flex-col overflow-hidden">

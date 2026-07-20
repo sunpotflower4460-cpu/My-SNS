@@ -3,13 +3,12 @@
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { Plus } from 'lucide-react'
-import type { User, Workspace, WorkspaceMember } from '@/lib/domain/types'
+import type { User, Workspace } from '@/lib/domain/types'
 import { CREATE_ACTION, NAV_GROUPS, isNavActive } from './nav-items'
 
 interface SidebarProps {
   workspace: Workspace
   user: User
-  member: WorkspaceMember
 }
 
 export default function Sidebar({ workspace, user }: SidebarProps) {

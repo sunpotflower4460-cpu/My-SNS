@@ -56,9 +56,6 @@ export const NAV_GROUPS: NavGroup[] = [
   },
 ]
 
-/** Flat list of every nav destination (used by the mobile "その他" drawer). */
-export const NAV_ITEMS: NavItem[] = NAV_GROUPS.flatMap((group) => group.items)
-
 /** Whether a nav href is the active section for the current path. */
 export function isNavActive(pathname: string, href: string): boolean {
   return pathname === href || pathname.startsWith(`${href}/`)
