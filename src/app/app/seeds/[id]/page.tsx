@@ -8,6 +8,7 @@ import EmptyState from '@/components/ui/EmptyState'
 import PageHeader from '@/components/ui/PageHeader'
 import PlatformBadge from '@/components/ui/PlatformBadge'
 import StatusBadge from '@/components/ui/StatusBadge'
+import PublishFlowSteps from '@/components/publish/PublishFlowSteps'
 import { describeAuditLog, getAuditLogMeta } from '@/lib/audit/presenter'
 import { PUBLISHING_CHANNEL_CONFIG } from '@/lib/channels/config'
 import { formatBytes, normalizeTags } from '@/lib/seeds/input'
@@ -19,6 +20,7 @@ import {
   type SeedStatus,
 } from '@/lib/domain/types'
 import { evaluateSeedReadiness } from '@/lib/seeds/readiness'
+import { computePublishFlow } from '@/lib/presentation/publish-flow'
 
 function normalizeLines(value: string): string[] {
   return Array.from(new Set(value.split(/\r?\n/).map((entry) => entry.trim()).filter(Boolean)))
@@ -89,6 +91,29 @@ export default function SeedDetailPage() {
 
   const { seed, assets, drafts, jobs, inboxItems, auditLogs } = detail
 
+  // The 発信 stepper reflects the SAVED seed (persisted channels/context, drafts,
+  // jobs) — not the live form above — so it doesn't flicker while the creator
+  // edits. Readiness is re-evaluated against the saved values.
+  const savedBrandProfile = brandProfiles.find((profile) => profile.id === seed.brandProfileId) ?? null
+  const savedReadiness = evaluateSeedReadiness(
+    {
+      title: seed.title,
+      sourceText: seed.sourceText,
+      goal: seed.goal,
+      audience: seed.audience,
+      brandProfileId: seed.brandProfileId,
+      targetChannels: seed.targetChannels,
+    },
+    { hasAssets: assets.length > 0, brandProfile: savedBrandProfile },
+  )
+  const publishFlow = computePublishFlow({
+    seedId: seed.id,
+    targetChannels: seed.targetChannels,
+    isReady: savedReadiness.isReady,
+    drafts: drafts.map((draft) => ({ channel: draft.channel, status: draft.status })),
+    jobs: jobs.map((job) => ({ channel: job.channel, status: job.status })),
+  })
+
   const toggleChannel = (channel: PublishingChannel) => {
     setTargetChannels((current) => current.includes(channel)
       ? current.filter((entry) => entry !== channel)
@@ -139,6 +164,10 @@ export default function SeedDetailPage() {
       />
 
       {(feedback || error) && <div className={`mb-5 rounded-2xl px-4 py-3 text-sm ${error ? 'border border-red-200 bg-red-50 text-red-700' : 'border border-green-200 bg-green-50 text-green-700'}`}>{error || feedback}</div>}
+
+      <div className="mb-6">
+        <PublishFlowSteps flow={publishFlow} />
+      </div>
 
       <div className="grid gap-6 xl:grid-cols-[minmax(0,1.7fr)_minmax(320px,0.9fr)]">
         <section className="space-y-6">
