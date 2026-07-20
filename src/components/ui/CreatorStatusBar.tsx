@@ -2,6 +2,7 @@
 
 import { useState } from 'react'
 import { useApp } from '@/lib/app/app-provider'
+import { Button, Card, useToast } from '@/components/ui/kit'
 
 // Phase 5: the creator picks their current mood/availability. When sharing is on,
 // the concierge weaves it into replies only where it genuinely helps (e.g. to set
@@ -11,6 +12,7 @@ const MOODS = ['通常', '忙しい', '落ち着いている', '旅行中', '体
 
 export default function CreatorStatusBar() {
   const { myCreatorStatus, setMyCreatorStatus } = useApp()
+  const { toast } = useToast()
 
   const [open, setOpen] = useState(false)
   const [mood, setMood] = useState(myCreatorStatus?.mood ?? '通常')
@@ -33,6 +35,7 @@ export default function CreatorStatusBar() {
     try {
       await setMyCreatorStatus({ mood, note: note.trim() || undefined, shareWithContacts: share })
       setOpen(false)
+      toast('ステータスを更新しました')
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'ステータスを保存できませんでした。')
     } finally {
@@ -41,7 +44,7 @@ export default function CreatorStatusBar() {
   }
 
   return (
-    <div className="mb-5 rounded-2xl border border-stone-200 bg-white px-4 py-3">
+    <Card className="mb-5">
       <div className="flex items-center justify-between gap-3">
         <div className="flex items-center gap-2 text-sm">
           <span className="text-gray-500">現在のステータス:</span>
@@ -53,9 +56,9 @@ export default function CreatorStatusBar() {
           )}
         </div>
         {!open && (
-          <button onClick={startEdit} className="rounded-full border border-stone-200 px-3 py-1 text-xs text-gray-600 hover:bg-stone-50">
+          <Button size="sm" onClick={startEdit}>
             {myCreatorStatus ? '変更' : '設定する'}
-          </button>
+          </Button>
         )}
       </div>
 
@@ -88,17 +91,17 @@ export default function CreatorStatusBar() {
           </label>
 
           <div className="mt-3 flex items-center gap-2">
-            <button onClick={handleSave} disabled={busy} className="rounded-full bg-gray-900 px-4 py-2 text-sm font-medium text-white hover:bg-gray-700 disabled:opacity-50">
+            <Button variant="primary" onClick={handleSave} loading={busy}>
               {busy ? '保存中…' : '保存'}
-            </button>
-            <button onClick={() => setOpen(false)} disabled={busy} className="rounded-full border border-stone-200 px-4 py-2 text-sm text-gray-600 hover:bg-stone-50 disabled:opacity-50">
+            </Button>
+            <Button variant="secondary" onClick={() => setOpen(false)} disabled={busy}>
               キャンセル
-            </button>
+            </Button>
           </div>
 
           {error && <p className="mt-2 text-xs text-rose-600">{error}</p>}
         </div>
       )}
-    </div>
+    </Card>
   )
 }
