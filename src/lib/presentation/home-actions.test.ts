@@ -209,6 +209,23 @@ describe('buildTodayTimeline', () => {
     const timeline = buildTodayTimeline({ publishJobs: [], replyJobs: [], calendarEvents: [event] }, now)
     expect(timeline.map((t) => t.kind)).toEqual(['event'])
     expect(timeline[0].title).toBe('打ち合わせ')
+    expect(timeline[0].allDay).toBe(false)
+  })
+
+  it('carries the all-day flag so the timeline can hide a spurious clock time', () => {
+    const event: CalendarEvent = {
+      id: 'e2',
+      workspaceId: 'w',
+      title: '終日イベント',
+      startsAt: '2026-07-20T00:00:00Z', // 09:00 JST today
+      allDay: true,
+      source: 'manual',
+      createdBy: 'u',
+      createdAt: '2026-07-20T00:00:00Z',
+      updatedAt: '2026-07-20T00:00:00Z',
+    }
+    const timeline = buildTodayTimeline({ publishJobs: [], replyJobs: [], calendarEvents: [event] }, now)
+    expect(timeline[0].allDay).toBe(true)
   })
 })
 
@@ -218,6 +235,10 @@ describe('getUpcomingPublishJobs', () => {
   it('excludes today and past, keeps future scheduled, soonest first', () => {
     const jobs = [
       publishJob({ id: 'today', status: 'scheduled', scheduledAt: '2026-07-20T09:00:00Z' }),
+      // A past-due scheduled job — e.g. a YouTube (assisted) / TikTok (draft)
+      // job the Worker never auto-runs, left in 'scheduled' with a past time.
+      // Must NOT lead the "upcoming" runway.
+      publishJob({ id: 'overdue', status: 'scheduled', scheduledAt: '2026-07-18T09:00:00Z' }),
       publishJob({ id: 'far', status: 'scheduled', scheduledAt: '2026-07-25T09:00:00Z' }),
       publishJob({ id: 'soon', status: 'scheduled', scheduledAt: '2026-07-21T09:00:00Z' }),
       publishJob({ id: 'done', status: 'published', scheduledAt: '2026-07-22T09:00:00Z' }),

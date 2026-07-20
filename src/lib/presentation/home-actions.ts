@@ -179,6 +179,8 @@ export interface TimelineItem {
   kind: TimelineKind
   /** Absolute ISO timestamp; the component formats it in JST. */
   at: string
+  /** An all-day calendar event: show "終日" instead of a clock time. */
+  allDay?: boolean
   title: string
   detail?: string
   href: string
@@ -235,6 +237,7 @@ export function buildTodayTimeline(snapshot: TimelineSnapshot, now: number): Tim
       id: `event-${event.id}`,
       kind: 'event',
       at: event.startsAt,
+      allDay: event.allDay,
       title: event.title,
       detail: event.location || undefined,
       href: '/app/calendar',
@@ -245,13 +248,18 @@ export function buildTodayTimeline(snapshot: TimelineSnapshot, now: number): Tim
 }
 
 /**
- * Scheduled publish jobs beyond today (the runway) — sorted soonest-first and
- * capped. Distinct from the timeline, which is today only, so nothing overlaps.
+ * Scheduled publish jobs on a FUTURE (JST) day — the runway. Sorted soonest-
+ * first and capped. Distinct from the timeline, which is today only, so nothing
+ * overlaps. Strictly-future comparison also drops past-due jobs: an `assisted`
+ * (YouTube) or `draft` (TikTok) job the Worker never auto-runs can sit in
+ * `scheduled` with a past `scheduledAt` indefinitely, and must not surface at
+ * the top of an "upcoming" list. JST date keys are ISO YYYY-MM-DD, so a string
+ * `>` compares chronologically.
  */
 export function getUpcomingPublishJobs(publishJobs: PublishJob[], now: number, limit = 5): PublishJob[] {
   const todayKey = new Date(now).toLocaleDateString('en-CA', { timeZone: JST })
   return publishJobs
-    .filter((job) => job.status === 'scheduled' && Boolean(job.scheduledAt) && jstDateKey(job.scheduledAt as string) !== todayKey)
+    .filter((job) => job.status === 'scheduled' && Boolean(job.scheduledAt) && jstDateKey(job.scheduledAt as string) > todayKey)
     .sort((left, right) => new Date(left.scheduledAt as string).getTime() - new Date(right.scheduledAt as string).getTime())
     .slice(0, limit)
 }

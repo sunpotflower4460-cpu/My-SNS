@@ -12,8 +12,9 @@ const KIND: Record<TimelineKind, { icon: LucideIcon; label: string; tint: string
   event: { icon: CalendarDays, label: '予定', tint: 'text-emerald-600' },
 }
 
-function formatTime(iso: string): string {
-  return new Date(iso).toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Tokyo' })
+function formatTime(item: TimelineItem): string {
+  if (item.allDay) return '終日'
+  return new Date(item.at).toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Tokyo' })
 }
 
 export default function TodayTimeline({ items }: { items: TimelineItem[] }) {
@@ -42,7 +43,7 @@ export default function TodayTimeline({ items }: { items: TimelineItem[] }) {
                   className="flex items-center gap-3 rounded-card px-2 py-2 transition hover:bg-stone-50"
                 >
                   <span className="w-12 shrink-0 text-right text-xs font-medium tabular-nums text-gray-500">
-                    {formatTime(item.at)}
+                    {formatTime(item)}
                   </span>
                   <Icon aria-hidden className={`h-4 w-4 shrink-0 ${kind.tint}`} />
                   <div className="min-w-0 flex-1">
