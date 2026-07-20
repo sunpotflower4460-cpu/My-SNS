@@ -1,10 +1,13 @@
 'use client'
 
 import { useMemo, useState } from 'react'
+import { Sparkles, RefreshCw } from 'lucide-react'
 import PageHeader from '@/components/ui/PageHeader'
 import EmptyState from '@/components/ui/EmptyState'
+import { Badge, Button } from '@/components/ui/kit'
 import { useApp } from '@/lib/app/app-provider'
 import { hasPermission } from '@/lib/permissions'
+import { buildUpcomingAgenda, summarizeSyncOutcomes } from '@/lib/presentation/calendar-presenter'
 import type { CalendarEvent, CalendarEventInput } from '@/lib/domain/types'
 
 // The in-app calendar (Phase 3). Events are the workspace's own source of truth;
@@ -38,11 +41,6 @@ function formatTime(iso: string): string {
   return new Date(iso).toLocaleTimeString('ja-JP', { timeZone: 'Asia/Tokyo', hour: '2-digit', minute: '2-digit' })
 }
 
-/** The JST calendar day an event belongs to, as a stable grouping key. */
-function jstDayKey(iso: string): string {
-  return new Date(iso).toLocaleDateString('en-CA', { timeZone: 'Asia/Tokyo' }) // YYYY-MM-DD
-}
-
 export default function CalendarPage() {
   const { calendarEvents, currentMember, createCalendarEvent, updateCalendarEvent, deleteCalendarEvent, syncCalendarEvent } = useApp()
 
@@ -55,21 +53,10 @@ export default function CalendarPage() {
   const [error, setError] = useState('')
   const [feedback, setFeedback] = useState('')
 
-  const grouped = useMemo(() => {
-    const groups = new Map<string, CalendarEvent[]>()
-    for (const event of calendarEvents) {
-      const key = jstDayKey(event.startsAt)
-      const list = groups.get(key) ?? []
-      list.push(event)
-      groups.set(key, list)
-    }
-    return Array.from(groups.entries()).sort(([a], [b]) => a.localeCompare(b))
-  }, [calendarEvents])
-
-  // Show today and future days (JST). Past days are kept out of the main view to
-  // keep the upcoming schedule uncluttered.
-  const todayKey = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Tokyo' })
-  const upcoming = grouped.filter(([day]) => day >= todayKey)
+  // Today-and-future events (JST), grouped by day with 今日 / 明日 labels. Past days
+  // are dropped to keep the upcoming schedule calm. Date.now() is fine in the
+  // browser; the presenter resolves "today" in Asia/Tokyo.
+  const upcoming = useMemo(() => buildUpcomingAgenda(calendarEvents, Date.now()), [calendarEvents])
 
   const resetForm = () => {
     setForm(EMPTY_FORM)
@@ -136,25 +123,15 @@ export default function CalendarPage() {
     }
   }
 
-  const PROVIDER_LABELS: Record<string, string> = { notion: 'Notion', timetree: 'TimeTree' }
-
   const handleSync = async (event: CalendarEvent) => {
     setError('')
     setFeedback('')
     setBusy(true)
     try {
       const outcomes = await syncCalendarEvent(event.id)
-      const synced = outcomes.filter((o) => o.status === 'synced').map((o) => PROVIDER_LABELS[o.provider] ?? o.provider)
-      const failed = outcomes.filter((o) => o.status === 'failed').map((o) => PROVIDER_LABELS[o.provider] ?? o.provider)
-      const available = outcomes.some((o) => o.status !== 'unavailable')
-      if (!available) {
-        setError('外部カレンダー連携（Notion / TimeTree）が未設定です。設定でトークンを設定すると同期できます。')
-      } else {
-        // Always report what DID sync, even alongside a failure, so a retry
-        // doesn't re-push an already-synced provider.
-        if (synced.length > 0) setFeedback(`${synced.join('、')}に同期しました。`)
-        if (failed.length > 0) setError(`同期に失敗しました: ${failed.join('、')}。`)
-      }
+      const message = summarizeSyncOutcomes(outcomes)
+      if (message.feedback) setFeedback(message.feedback)
+      if (message.error) setError(message.error)
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : '同期できませんでした。')
     } finally {
@@ -187,9 +164,9 @@ export default function CalendarPage() {
       {canManage && (
         <div className="mb-6">
           {!showForm ? (
-            <button onClick={() => { setShowForm(true); setEditingId(null); setForm(EMPTY_FORM) }} className="rounded-full bg-violet-600 px-4 py-2 text-sm font-medium text-white hover:bg-violet-700">
+            <Button variant="primary" onClick={() => { setShowForm(true); setEditingId(null); setForm(EMPTY_FORM) }}>
               ＋ 予定を追加
-            </button>
+            </Button>
           ) : (
             <div className="rounded-[2rem] border border-stone-200 bg-white p-5 shadow-sm shadow-stone-100/70">
               <p className="mb-4 text-sm font-semibold text-gray-800">{editingId ? '予定を編集' : '新しい予定'}</p>
@@ -220,12 +197,12 @@ export default function CalendarPage() {
                 </label>
               </div>
               <div className="mt-4 flex items-center gap-2">
-                <button onClick={handleSubmit} disabled={busy} className="rounded-full bg-gray-900 px-4 py-2 text-sm font-medium text-white hover:bg-gray-700 disabled:opacity-50">
-                  {busy ? '保存中…' : editingId ? '更新する' : '追加する'}
-                </button>
-                <button onClick={resetForm} disabled={busy} className="rounded-full border border-stone-200 px-4 py-2 text-sm text-gray-600 hover:bg-stone-50 disabled:opacity-50">
+                <Button variant="primary" onClick={handleSubmit} loading={busy}>
+                  {editingId ? '更新する' : '追加する'}
+                </Button>
+                <Button variant="secondary" onClick={resetForm} disabled={busy}>
                   キャンセル
-                </button>
+                </Button>
               </div>
             </div>
           )}
@@ -236,9 +213,14 @@ export default function CalendarPage() {
         <EmptyState title="予定はまだありません" description={canManage ? '「予定を追加」から最初の予定を登録できます。' : 'このワークスペースに登録された予定はまだありません。'} />
       ) : (
         <div className="space-y-6">
-          {upcoming.map(([day, events]) => (
+          {upcoming.map(({ day, relativeLabel, events }) => (
             <div key={day}>
-              <p className="mb-2 text-sm font-semibold text-gray-500">{formatDateHeading(events[0].startsAt)}</p>
+              <p className="mb-2 flex items-center gap-2 text-sm font-semibold text-gray-500">
+                {relativeLabel && (
+                  <span className="rounded-full bg-violet-600 px-2 py-0.5 text-[11px] font-medium text-white">{relativeLabel}</span>
+                )}
+                {formatDateHeading(events[0].startsAt)}
+              </p>
               <div className="space-y-3">
                 {events.map((event) => (
                   <div key={event.id} className="rounded-[1.5rem] border border-stone-200 bg-white p-4 shadow-sm shadow-stone-100/70">
@@ -246,7 +228,9 @@ export default function CalendarPage() {
                       <div className="min-w-0">
                         <div className="flex flex-wrap items-center gap-2">
                           <p className="font-medium text-gray-900">{event.title}</p>
-                          {event.source === 'extracted' && <span className="rounded-full border border-violet-200 bg-violet-50 px-2 py-0.5 text-[11px] text-violet-700">会話から</span>}
+                          {event.source === 'extracted' && (
+                            <Badge tone="accent" icon={Sparkles}>会話から</Badge>
+                          )}
                         </div>
                         <p className="mt-1 text-sm text-gray-600">
                           {event.allDay ? '終日' : `${formatTime(event.startsAt)}${event.endsAt ? ` 〜 ${formatTime(event.endsAt)}` : ''}`}
@@ -255,10 +239,13 @@ export default function CalendarPage() {
                         {event.description && <p className="mt-1 whitespace-pre-wrap text-sm text-gray-500">{event.description}</p>}
                       </div>
                       {canManage && (
-                        <div className="flex shrink-0 items-center gap-2">
-                          <button onClick={() => handleSync(event)} disabled={busy} className="rounded-full border border-stone-200 px-3 py-1 text-xs text-gray-600 hover:bg-violet-50 hover:text-violet-700 disabled:opacity-50">同期</button>
-                          <button onClick={() => startEdit(event)} className="rounded-full border border-stone-200 px-3 py-1 text-xs text-gray-600 hover:bg-stone-50">編集</button>
-                          <button onClick={() => handleDelete(event)} disabled={busy} className="rounded-full border border-stone-200 px-3 py-1 text-xs text-gray-600 hover:bg-rose-50 hover:text-rose-600 disabled:opacity-50">削除</button>
+                        <div className="flex shrink-0 items-center gap-1.5">
+                          <Button size="sm" variant="ghost" onClick={() => handleSync(event)} disabled={busy}>
+                            <RefreshCw aria-hidden className="h-3.5 w-3.5" />
+                            同期
+                          </Button>
+                          <Button size="sm" variant="ghost" onClick={() => startEdit(event)}>編集</Button>
+                          <Button size="sm" variant="destructive" onClick={() => handleDelete(event)} disabled={busy}>削除</Button>
                         </div>
                       )}
                     </div>
