@@ -41,9 +41,7 @@ export default function InboxPage() {
       ? `急ぎの返信が${counts.urgent}件、未読が${counts.unread}件あります。`
       : `未読の会話が${counts.unread}件あります。`
 
-  const renderItem = (itemId: string) => {
-    const item = inboxItems.find((entry) => entry.id === itemId)
-    if (!item) return null
+  const renderItem = (item: (typeof inboxItems)[number]) => {
     const notes = getInboxNotes(item.id)
     return (
       <div key={item.id}>
@@ -101,7 +99,7 @@ export default function InboxPage() {
             type="button"
             onClick={() => setActiveTab(tab.value)}
             aria-pressed={activeTab === tab.value}
-            className={`min-h-touch rounded-full px-3.5 text-sm font-medium transition sm:min-h-control ${
+            className={`inline-flex min-h-touch items-center justify-center rounded-full px-3.5 text-sm font-medium transition sm:min-h-control ${
               activeTab === tab.value
                 ? 'bg-violet-600 text-white shadow-sm'
                 : 'border border-stone-200 bg-white text-gray-600 hover:bg-stone-50'
@@ -123,7 +121,7 @@ export default function InboxPage() {
                 <span className="text-xs text-gray-400">{group.items.length}件</span>
                 {group.description && <p className="w-full text-xs text-gray-400 sm:w-auto">{group.description}</p>}
               </div>
-              <div className="space-y-4">{group.items.map((item) => renderItem(item.id))}</div>
+              <div className="space-y-4">{group.items.map((item) => renderItem(item))}</div>
             </section>
           ))}
         </div>
