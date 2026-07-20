@@ -1,70 +1,34 @@
 'use client'
 
 import type { Workspace } from '@/lib/domain/types'
-import { useRouter } from 'next/navigation'
-import { useCurrentUser } from '@/hooks/useCurrentUser'
-import { useCurrentWorkspace } from '@/hooks/useCurrentWorkspace'
-import RoleBadge from '@/components/ui/RoleBadge'
+import { useApp } from '@/lib/app/app-provider'
 import WorkspaceSwitcher from './WorkspaceSwitcher'
 import NotificationBell from './NotificationBell'
+import UserMenu from './UserMenu'
+
+// Slimmed per §5.1: left carries page context; right holds only notifications,
+// the workspace switcher (shown only when there is more than one workspace), and
+// the avatar UserMenu. Name/email/role/logout moved into the UserMenu so the bar
+// stays quiet. Mobile navigation lives in the bottom nav, not a TopBar hamburger.
 
 interface TopBarProps {
   workspace: Workspace
   pageTitle?: string
-  onMenuClick?: () => void
 }
 
-export default function TopBar({ workspace, pageTitle, onMenuClick }: TopBarProps) {
-  const router = useRouter()
-  const { currentUser, signOut } = useCurrentUser()
-  const { currentMember } = useCurrentWorkspace()
-
-  const handleSignOut = () => {
-    signOut()
-    router.replace('/login')
-  }
+export default function TopBar({ workspace, pageTitle }: TopBarProps) {
+  const { workspaces } = useApp()
+  const hasMultipleWorkspaces = workspaces.length > 1
 
   return (
-    <header className="sticky top-0 z-20 flex min-h-16 shrink-0 flex-wrap items-center justify-between gap-3 border-b border-stone-200 bg-white/90 px-4 py-3 backdrop-blur sm:px-6 lg:px-8">
-      <div className="flex items-center gap-2 text-sm text-gray-500">
-        {onMenuClick && (
-          <button
-            onClick={onMenuClick}
-            aria-label="メニューを開く"
-            className="mr-1 rounded-xl border border-stone-200 p-2 text-gray-600 transition hover:bg-stone-50 xl:hidden"
-          >
-            ☰
-          </button>
-        )}
-        <span className="truncate text-gray-400">{workspace.name}</span>
-        {pageTitle && (
-          <>
-            <span className="text-gray-300">/</span>
-            <span className="font-medium text-gray-700">{pageTitle}</span>
-          </>
-        )}
+    <header className="sticky top-0 z-20 flex min-h-16 shrink-0 items-center justify-between gap-3 border-b border-stone-200 bg-white/90 px-4 py-3 backdrop-blur sm:px-6 lg:px-8">
+      <div className="flex min-w-0 items-center gap-2 text-sm">
+        <span className="truncate font-medium text-gray-800">{pageTitle ?? workspace.name}</span>
       </div>
-      <div className="flex flex-wrap items-center justify-end gap-3">
+      <div className="flex items-center justify-end gap-2">
         <NotificationBell />
-        <WorkspaceSwitcher workspace={workspace} />
-        <div className="flex items-center gap-3 rounded-2xl border border-stone-200 bg-stone-50 px-3 py-2">
-          <div className="flex h-9 w-9 items-center justify-center rounded-full bg-violet-100 text-sm font-semibold text-violet-700">
-            {currentUser?.name.charAt(0) ?? 'U'}
-          </div>
-          <div className="min-w-0">
-            <p className="truncate text-sm font-medium text-gray-900">{currentUser?.name}</p>
-            <p className="truncate text-xs text-gray-500">{currentUser?.email ?? 'メールアドレス未登録'}</p>
-          </div>
-          <div className="hidden sm:block">
-            <RoleBadge role={currentMember?.role ?? 'viewer'} />
-          </div>
-          <button
-            onClick={handleSignOut}
-            className="rounded-xl border border-stone-200 bg-white px-3 py-1.5 text-xs font-medium text-gray-600 transition hover:border-stone-300 hover:text-gray-900"
-          >
-            ログアウト
-          </button>
-        </div>
+        {hasMultipleWorkspaces && <WorkspaceSwitcher workspace={workspace} />}
+        <UserMenu />
       </div>
     </header>
   )
