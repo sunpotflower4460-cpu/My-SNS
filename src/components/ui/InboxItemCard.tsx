@@ -1,5 +1,8 @@
 import Link from 'next/link'
+import { AlertTriangle, Flag, Star } from 'lucide-react'
 import type { InboxItem, InboxNote } from '@/lib/domain/types'
+import { Badge } from '@/components/ui/kit'
+import { priorityBadge } from '@/lib/presentation/inbox-presenter'
 import PlatformBadge from './PlatformBadge'
 
 interface InboxItemCardProps {
@@ -34,6 +37,7 @@ export default function InboxItemCard({
   onToggleStar,
   onToggleNeedsAction,
 }: InboxItemCardProps) {
+  const priority = priorityBadge(item)
   return (
     <div className={`rounded-[2rem] border p-5 shadow-sm shadow-stone-100/70 ${item.isRead ? 'border-stone-200 bg-white' : 'border-violet-200 bg-violet-50/40'}`}>
       <div className="flex items-start gap-3">
@@ -45,8 +49,17 @@ export default function InboxItemCard({
           <div className="mb-2 flex flex-wrap items-center gap-2">
             <PlatformBadge platform={item.platform} />
             <span className="text-xs text-gray-500">{KIND_LABELS[item.kind]}</span>
-            {item.needsAction && <span className="rounded-full border border-amber-200 bg-amber-100 px-2 py-0.5 text-xs text-amber-700">要対応</span>}
-            {item.isStarred && <span className="text-sm text-yellow-500">★</span>}
+            {priority && (
+              <Badge tone={priority.tone} icon={priority.tone === 'error' ? AlertTriangle : Flag}>
+                {priority.label}
+              </Badge>
+            )}
+            {item.isStarred && (
+              <span className="inline-flex items-center gap-1 text-xs text-yellow-600">
+                <Star aria-hidden className="h-3.5 w-3.5 fill-current" />
+                スター
+              </span>
+            )}
           </div>
 
           <p className="text-sm font-medium text-gray-800">{item.authorHandle}</p>
