@@ -70,7 +70,9 @@ export function computePublishFlow(input: PublishFlowInput): PublishFlow {
   // that's been queued must satisfy the schedule step. 'failed'/'cancelled' never
   // count.
   const COMMITTED_JOB_STATUSES = new Set(['scheduled', 'published', 'draft'])
-  const proposedChannels = new Set(drafts.map((draft) => draft.channel))
+  // A rejected draft is not a usable proposal — a channel whose only draft was
+  // rejected still needs a fresh proposal, so it must not mark 'propose' as done.
+  const proposedChannels = new Set(drafts.filter((draft) => draft.status !== 'rejected').map((draft) => draft.channel))
   const approvedChannelSet = new Set(drafts.filter((draft) => draft.status === 'approved').map((draft) => draft.channel))
   const queuedChannelSet = new Set(
     jobs.filter((job) => COMMITTED_JOB_STATUSES.has(job.status)).map((job) => job.channel),

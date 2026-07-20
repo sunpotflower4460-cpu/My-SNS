@@ -1,16 +1,17 @@
 import Link from 'next/link'
-import { Check, ArrowRight, CircleDot, Circle } from 'lucide-react'
+import { Check, ArrowRight } from 'lucide-react'
 import { Card } from '@/components/ui/kit'
 import type { PublishFlow, StepState } from '@/lib/presentation/publish-flow'
 
-// The 発信 stepper shown at the top of the seed page. State is carried by an icon
-// AND a worded label ("完了" / "いまここ" / "これから"), never colour alone (§17.7).
-// One primary action ("次のステップ") — the single thing to do next.
+// The 発信 stepper shown at the top of the seed page. State is carried by a
+// marker (a ✓ for done, the step number otherwise) AND a worded label ("完了" /
+// "いまここ" / "これから"), never colour alone (§17.7). One primary action
+// ("次のステップ") — the single thing to do next.
 
-const STATE_META: Record<StepState, { label: string; icon: typeof Check; iconClass: string; textClass: string }> = {
-  done: { label: '完了', icon: Check, iconClass: 'bg-emerald-100 text-emerald-700', textClass: 'text-gray-500' },
-  current: { label: 'いまここ', icon: CircleDot, iconClass: 'bg-violet-600 text-white', textClass: 'text-gray-900 font-semibold' },
-  todo: { label: 'これから', icon: Circle, iconClass: 'bg-stone-100 text-stone-400', textClass: 'text-gray-400' },
+const STATE_META: Record<StepState, { label: string; markerClass: string; textClass: string }> = {
+  done: { label: '完了', markerClass: 'bg-emerald-100 text-emerald-700', textClass: 'text-gray-500' },
+  current: { label: 'いまここ', markerClass: 'bg-violet-600 text-white', textClass: 'text-gray-900 font-semibold' },
+  todo: { label: 'これから', markerClass: 'bg-stone-100 text-stone-400', textClass: 'text-gray-400' },
 }
 
 export default function PublishFlowSteps({ flow }: { flow: PublishFlow }) {
@@ -30,12 +31,11 @@ export default function PublishFlowSteps({ flow }: { flow: PublishFlow }) {
       <ol className="grid gap-3 sm:grid-cols-4">
         {flow.steps.map((step, index) => {
           const meta = STATE_META[step.state]
-          const Icon = meta.icon
           return (
             <li key={step.id} className="flex gap-3 sm:flex-col sm:gap-2">
               <div className="flex items-center gap-2">
-                <span className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-sm font-medium ${meta.iconClass}`}>
-                  {step.state === 'done' ? <Icon aria-hidden className="h-4 w-4" /> : index + 1}
+                <span className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-sm font-medium ${meta.markerClass}`}>
+                  {step.state === 'done' ? <Check aria-hidden className="h-4 w-4" /> : index + 1}
                 </span>
                 <span className="text-[11px] text-gray-400 sm:hidden">{meta.label}</span>
               </div>

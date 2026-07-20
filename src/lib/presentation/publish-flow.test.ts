@@ -45,6 +45,15 @@ describe('computePublishFlow', () => {
     expect(stateOf(flow, 'propose')).toBe('current') // note still missing a draft
   })
 
+  it('does not mark propose done when a channel has only a rejected draft', () => {
+    const flow = computePublishFlow(base({ targetChannels: ['x'], drafts: [draft('x', 'rejected')] }))
+    expect(stateOf(flow, 'propose')).toBe('current')
+
+    // A later, non-rejected draft on the same channel does count.
+    const revived = computePublishFlow(base({ targetChannels: ['x'], drafts: [draft('x', 'rejected'), draft('x', 'draft')] }))
+    expect(stateOf(revived, 'propose')).toBe('done')
+  })
+
   it('advances to approve when all channels have a draft', () => {
     const flow = computePublishFlow(base({ targetChannels: ['x', 'note'], drafts: [draft('x', 'draft'), draft('note', 'draft')] }))
     expect(stateOf(flow, 'propose')).toBe('done')
