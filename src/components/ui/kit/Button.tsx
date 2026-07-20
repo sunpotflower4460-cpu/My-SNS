@@ -29,12 +29,15 @@ export interface ButtonProps extends React.ButtonHTMLAttributes<HTMLButtonElemen
 }
 
 const Button = forwardRef<HTMLButtonElement, ButtonProps>(function Button(
-  { variant = 'secondary', size = 'md', loading = false, fullWidth = false, className, children, disabled, ...props },
+  { variant = 'secondary', size = 'md', loading = false, fullWidth = false, type, className, children, disabled, ...props },
   ref,
 ) {
   return (
     <button
       ref={ref}
+      // Default to 'button' so migrating an in-<form> control never triggers a
+      // submit by accident; callers can still opt into type="submit".
+      type={type ?? 'button'}
       disabled={disabled || loading}
       className={cn(
         'inline-flex items-center justify-center rounded-full font-medium transition disabled:opacity-50 disabled:pointer-events-none',

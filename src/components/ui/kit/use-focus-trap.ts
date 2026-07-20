@@ -1,4 +1,4 @@
-import { useEffect, type RefObject } from 'react'
+import { useEffect, useRef, type RefObject } from 'react'
 
 // Shared overlay behaviour for Dialog / Sheet: when open, trap Tab focus inside
 // the container, close on Escape, and restore focus to the element that opened
@@ -7,6 +7,13 @@ import { useEffect, type RefObject } from 'react'
 const FOCUSABLE = 'a[href], button:not([disabled]), textarea:not([disabled]), input:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])'
 
 export function useFocusTrap(ref: RefObject<HTMLElement | null>, open: boolean, onClose: () => void) {
+  // Hold onClose in a ref so the effect depends only on `open` — otherwise a
+  // caller passing an inline arrow would give onClose a new identity every
+  // render, re-running the effect and yanking focus back to the first element
+  // mid-interaction (e.g. on every keystroke in a controlled dialog input).
+  const onCloseRef = useRef(onClose)
+  onCloseRef.current = onClose
+
   useEffect(() => {
     if (!open) return
     const container = ref.current
@@ -22,7 +29,7 @@ export function useFocusTrap(ref: RefObject<HTMLElement | null>, open: boolean, 
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === 'Escape') {
         event.preventDefault()
-        onClose()
+        onCloseRef.current()
         return
       }
       if (event.key !== 'Tab') return
@@ -47,5 +54,5 @@ export function useFocusTrap(ref: RefObject<HTMLElement | null>, open: boolean, 
       document.removeEventListener('keydown', onKeyDown)
       previouslyFocused?.focus?.()
     }
-  }, [ref, open, onClose])
+  }, [ref, open])
 }

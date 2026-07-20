@@ -19,12 +19,13 @@ export interface IconButtonProps extends Omit<React.ButtonHTMLAttributes<HTMLBut
 }
 
 const IconButton = forwardRef<HTMLButtonElement, IconButtonProps>(function IconButton(
-  { icon: Icon, label, variant = 'ghost', className, ...props },
+  { icon: Icon, label, variant = 'ghost', type, className, ...props },
   ref,
 ) {
   return (
     <button
       ref={ref}
+      type={type ?? 'button'}
       aria-label={label}
       title={label}
       className={cn(

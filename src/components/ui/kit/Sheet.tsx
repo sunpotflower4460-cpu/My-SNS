@@ -43,8 +43,8 @@ export default function Sheet({ open, onClose, title, children, footer }: SheetP
           <h2 className="text-base font-semibold text-gray-900">{title}</h2>
           <IconButton icon={X} label="閉じる" onClick={onClose} />
         </div>
-        <div className="flex-1 overflow-y-auto px-5 py-4 pb-safe">{children}</div>
-        {footer && <div className="border-t border-stone-100 px-5 py-4 pb-safe">{footer}</div>}
+        <div className="flex-1 overflow-y-auto px-5 pt-4 pb-[calc(1rem+env(safe-area-inset-bottom))]">{children}</div>
+        {footer && <div className="border-t border-stone-100 px-5 pt-4 pb-[calc(1rem+env(safe-area-inset-bottom))]">{footer}</div>}
       </div>
     </div>
   )

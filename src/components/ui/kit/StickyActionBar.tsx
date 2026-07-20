@@ -11,7 +11,7 @@ export interface StickyActionBarProps {
 
 export default function StickyActionBar({ children, className }: StickyActionBarProps) {
   return (
-    <div className={cn('sticky bottom-0 z-10 border-t border-stone-200 bg-white/95 px-4 py-3 pb-safe backdrop-blur', className)}>
+    <div className={cn('sticky bottom-0 z-10 border-t border-stone-200 bg-white/95 px-4 pt-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))] backdrop-blur', className)}>
       <div className="flex items-center justify-between gap-3">{children}</div>
     </div>
   )

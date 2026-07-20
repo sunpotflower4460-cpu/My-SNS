@@ -68,10 +68,9 @@
   }
 }
 
-/* Safe-area helpers for mobile bottom bars / sticky actions (iPhone notch/home bar). */
+/* Safe-area helper for a fixed bottom region with no own vertical padding (the
+   toast stack). Components that DO have vertical padding add the inset via calc
+   instead, so their padding never collapses to 0 on non-notch/desktop. */
 .pb-safe {
   padding-bottom: env(safe-area-inset-bottom);
-}
-.min-h-touch {
-  min-height: var(--control-height-touch);
 }
