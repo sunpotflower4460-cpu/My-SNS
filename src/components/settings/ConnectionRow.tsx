@@ -52,7 +52,9 @@ export default function ConnectionRow({
         <div className="flex flex-wrap items-center gap-2">
           <Badge tone="success" icon={CheckCircle2}>接続済み</Badge>
           {canManage && onSync && (
-            <Button size="sm" variant="secondary" onClick={onSync} loading={busy}>
+            // Dim (not spin) while busy: `busy` is per-platform, so a spinner
+            // here would also spin during a disconnect on the same row.
+            <Button size="sm" variant="secondary" onClick={onSync} disabled={busy}>
               受信箱を同期
             </Button>
           )}
@@ -65,7 +67,7 @@ export default function ConnectionRow({
       ) : connectHref && canManage ? (
         <a
           href={connectHref}
-          className="inline-flex min-h-control shrink-0 items-center justify-center rounded-full bg-gray-900 px-4 text-sm font-medium text-white transition hover:bg-gray-700"
+          className="inline-flex min-h-touch shrink-0 items-center justify-center rounded-full bg-gray-900 px-4 text-sm font-medium text-white transition hover:bg-gray-700 sm:min-h-control"
         >
           {connectLabel}
         </a>
