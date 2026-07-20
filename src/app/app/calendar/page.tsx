@@ -245,7 +245,7 @@ export default function CalendarPage() {
                             同期
                           </Button>
                           <Button size="sm" variant="ghost" onClick={() => startEdit(event)}>編集</Button>
-                          <Button size="sm" variant="ghost" onClick={() => handleDelete(event)} disabled={busy}>削除</Button>
+                          <Button size="sm" variant="destructive" onClick={() => handleDelete(event)} disabled={busy}>削除</Button>
                         </div>
                       )}
                     </div>
