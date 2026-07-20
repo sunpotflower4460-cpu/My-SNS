@@ -2,12 +2,13 @@
 
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
+import { X } from 'lucide-react'
 import type { User, Workspace } from '@/lib/domain/types'
-import { NAV_ITEMS } from './nav-items'
+import { NAV_GROUPS, isNavActive } from './nav-items'
 
-// Below xl, Sidebar.tsx renders nothing at all — this is the only way a
-// signed-in user can navigate between /app/* sections on a phone or tablet.
-// Uses the same NAV_ITEMS as Sidebar so the two surfaces can't drift apart.
+// The "その他" drawer on mobile — opened from the bottom nav's その他 tab. Lists
+// every section (grouped, same source as the desktop sidebar) so the sections
+// not in the 5-tab bar (分析 / 発信スタイル / チーム / 接続と設定) are still reachable.
 
 interface MobileNavProps {
   workspace: Workspace
@@ -22,56 +23,52 @@ export default function MobileNav({ workspace, user, isOpen, onClose }: MobileNa
   if (!isOpen) return null
 
   return (
-    <div className="fixed inset-0 z-40 xl:hidden">
-      <button
-        aria-label="メニューを閉じる"
-        onClick={onClose}
-        className="absolute inset-0 bg-gray-900/40 backdrop-blur-sm"
-      />
+    <div className="fixed inset-0 z-50 xl:hidden">
+      <button aria-label="メニューを閉じる" onClick={onClose} className="absolute inset-0 bg-gray-900/40 backdrop-blur-sm" />
       <aside className="absolute inset-y-0 left-0 flex w-72 max-w-[85vw] flex-col bg-white shadow-xl">
-        <div className="flex items-center justify-between border-b border-stone-200 px-6 py-6">
+        <div className="flex items-center justify-between border-b border-stone-200 px-5 py-5">
           <div className="flex min-w-0 items-center gap-3">
-            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-violet-600 text-sm font-bold text-white shadow-sm shadow-violet-200">
+            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-card bg-violet-600 text-sm font-bold text-white">
               {workspace.name.charAt(0)}
             </div>
-            <div className="min-w-0">
-              <p className="truncate text-sm font-semibold text-gray-900">{workspace.name}</p>
-              <p className="text-xs text-gray-500">落ち着いて発信できるワークスペース</p>
-            </div>
+            <p className="min-w-0 truncate text-sm font-semibold text-gray-900">{workspace.name}</p>
           </div>
-          <button
-            onClick={onClose}
-            aria-label="メニューを閉じる"
-            className="rounded-xl border border-stone-200 p-2 text-gray-500 transition hover:bg-stone-50"
-          >
-            ✕
+          <button onClick={onClose} aria-label="メニューを閉じる" className="rounded-control p-2 text-gray-500 transition hover:bg-stone-50">
+            <X aria-hidden className="h-5 w-5" />
           </button>
         </div>
 
-        <nav className="flex-1 space-y-1 overflow-y-auto px-4 py-5">
-          {NAV_ITEMS.map((item) => {
-            const isActive = pathname.startsWith(item.href)
-            return (
-              <Link
-                key={item.href}
-                href={item.href}
-                onClick={onClose}
-                className={`flex items-center gap-3 rounded-2xl px-4 py-3 text-sm font-medium transition-all ${
-                  isActive
-                    ? 'border border-violet-200 bg-violet-50 text-violet-700 shadow-sm shadow-violet-100/40'
-                    : 'border border-transparent text-gray-600 hover:border-stone-200 hover:bg-stone-50 hover:text-gray-900'
-                }`}
-              >
-                <span className="text-base leading-none">{item.icon}</span>
-                <span className="flex-1">{item.label}</span>
-              </Link>
-            )
-          })}
+        <nav className="flex-1 overflow-y-auto px-3 py-4">
+          {NAV_GROUPS.map((group) => (
+            <div key={group.heading} className="mb-4 last:mb-0">
+              <p className="px-3 pb-1 text-[11px] font-semibold text-gray-400">{group.heading}</p>
+              <div className="space-y-0.5">
+                {group.items.map((item) => {
+                  const active = isNavActive(pathname, item.href)
+                  const Icon = item.icon
+                  return (
+                    <Link
+                      key={item.href}
+                      href={item.href}
+                      onClick={onClose}
+                      aria-current={active ? 'page' : undefined}
+                      className={`flex min-h-touch items-center gap-3 rounded-control px-3 text-sm transition ${
+                        active ? 'bg-violet-50 font-medium text-violet-700' : 'text-gray-600 hover:bg-stone-50 hover:text-gray-900'
+                      }`}
+                    >
+                      <Icon aria-hidden className={`h-4 w-4 shrink-0 ${active ? 'text-violet-600' : 'text-gray-400'}`} />
+                      <span className="flex-1">{item.label}</span>
+                    </Link>
+                  )
+                })}
+              </div>
+            </div>
+          ))}
         </nav>
 
-        <div className="border-t border-stone-200 px-5 py-5">
-          <div className="flex items-center gap-3 rounded-2xl border border-stone-200 bg-stone-50 px-3 py-3">
-            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-stone-200 text-xs font-medium text-gray-700">
+        <div className="border-t border-stone-200 px-4 py-4">
+          <div className="flex items-center gap-3">
+            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-stone-200 text-xs font-medium text-gray-700">
               {user.name.charAt(0)}
             </div>
             <div className="min-w-0 flex-1">
