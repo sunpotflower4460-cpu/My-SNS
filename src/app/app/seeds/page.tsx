@@ -41,7 +41,7 @@ export default function SeedsPage() {
         actions={
           <Link
             href="/app/seeds/new"
-            className="inline-flex min-h-control items-center gap-2 rounded-full bg-gray-900 px-4 text-sm font-medium text-white transition hover:bg-gray-700"
+            className="inline-flex min-h-touch items-center gap-2 rounded-full bg-gray-900 px-4 text-sm font-medium text-white transition hover:bg-gray-700 sm:min-h-control"
           >
             <Plus aria-hidden className="h-4 w-4" />
             新しいシード
@@ -72,7 +72,7 @@ export default function SeedsPage() {
         <EmptyState
           title="シードが見つかりません"
           description={seeds.length === 0 ? 'ざっくりとしたアイデア、ファイル、告知などを1つ取り込んでみましょう。公開できる完成度である必要はありません。' : '別のフィルターや検索語をお試しください。'}
-          action={<Link href="/app/seeds/new" className="rounded-2xl bg-violet-600 px-4 py-2 text-sm font-medium text-white hover:bg-violet-700">シードを取り込む</Link>}
+          action={<Link href="/app/seeds/new" className="inline-flex min-h-touch items-center rounded-full bg-gray-900 px-4 text-sm font-medium text-white transition hover:bg-gray-700 sm:min-h-control">シードを取り込む</Link>}
         />
       ) : (
         <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
