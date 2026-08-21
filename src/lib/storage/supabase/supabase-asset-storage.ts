@@ -9,45 +9,24 @@ export class SupabaseAssetStorage implements AssetStorageAdapter {
   private bucketName = 'assets'
 
   async prepareFiles(inputs: AssetUploadInput[], context: AssetUploadContext): Promise<PreparedAssetUpload[]> {
-    const prepared: PreparedAssetUpload[] = []
-
-    for (const input of inputs) {
+    return inputs.map((input) => {
       const file = input.file
       const assetType = inferAssetType(file.name, file.type)
-      const filePath = buildAssetStoragePath({
+      const storagePath = buildAssetStoragePath({
         workspaceId: context.workspaceId,
         seedId: context.seedId,
         assetId: crypto.randomUUID(),
         fileName: file.name,
       })
 
-      const { data, error } = await this.supabase.storage
-        .from(this.bucketName)
-        .upload(filePath, file, {
-          cacheControl: '3600',
-          contentType: file.type || undefined,
-          upsert: false,
-        })
-
-      if (error) {
-        throw new Error(`Unable to upload ${file.name}: ${error.message}`)
-      }
-
-      const { data: signedUrlData } = await this.supabase.storage
-        .from(this.bucketName)
-        .createSignedUrl(data.path, 60 * 60)
-
-      prepared.push({
+      return {
+        file,
         name: file.name,
         size: file.size,
         type: assetType,
-        storagePath: data.path,
-        url: signedUrlData?.signedUrl,
-        previewUrl: assetType === 'image' ? signedUrlData?.signedUrl : undefined,
-      })
-    }
-
-    return prepared
+        storagePath,
+      }
+    })
   }
 
   async saveAssetMetadata(params: {
@@ -56,37 +35,63 @@ export class SupabaseAssetStorage implements AssetStorageAdapter {
     uploadedBy: string
     preparedAsset: PreparedAssetUpload
   }): Promise<Asset> {
-    const { data, error } = await this.supabase
-      .from('assets')
-      .insert({
-        workspace_id: params.workspaceId,
-        seed_id: params.seedId,
-        name: params.preparedAsset.name,
-        url: '',
-        storage_path: params.preparedAsset.storagePath,
-        type: params.preparedAsset.type,
-        size: params.preparedAsset.size,
-        uploaded_by: params.uploadedBy,
+    const preparedAsset = params.preparedAsset
+    const { data: uploaded, error: uploadError } = await this.supabase.storage
+      .from(this.bucketName)
+      .upload(preparedAsset.storagePath, preparedAsset.file, {
+        cacheControl: '3600',
+        contentType: preparedAsset.file.type || undefined,
+        upsert: false,
       })
-      .select()
-      .single()
 
-    if (error) {
-      await this.supabase.storage.from(this.bucketName).remove([params.preparedAsset.storagePath])
-      throw new Error(error.message)
+    if (uploadError) {
+      throw new Error(`Unable to upload ${preparedAsset.name}: ${uploadError.message}`)
     }
 
-    return {
-      id: data.id,
-      workspaceId: data.workspace_id,
-      seedId: data.seed_id,
-      name: data.name,
-      url: params.preparedAsset.url || data.url,
-      storagePath: data.storage_path,
-      type: data.type,
-      size: data.size,
-      uploadedBy: data.uploaded_by,
-      createdAt: data.created_at,
+    try {
+      const { data: signedUrlData } = await this.supabase.storage
+        .from(this.bucketName)
+        .createSignedUrl(uploaded.path, 60 * 60)
+
+      const { data, error } = await this.supabase
+        .from('assets')
+        .insert({
+          workspace_id: params.workspaceId,
+          seed_id: params.seedId,
+          name: preparedAsset.name,
+          url: '',
+          storage_path: uploaded.path,
+          type: preparedAsset.type,
+          size: preparedAsset.size,
+          uploaded_by: params.uploadedBy,
+        })
+        .select()
+        .single()
+
+      if (error) throw new Error(error.message)
+
+      return {
+        id: data.id,
+        workspaceId: data.workspace_id,
+        seedId: data.seed_id,
+        name: data.name,
+        url: signedUrlData?.signedUrl || data.url,
+        storagePath: data.storage_path,
+        type: data.type,
+        size: data.size,
+        uploadedBy: data.uploaded_by,
+        createdAt: data.created_at,
+      }
+    } catch (cause) {
+      const { error: cleanupError } = await this.supabase.storage
+        .from(this.bucketName)
+        .remove([uploaded.path])
+
+      if (cleanupError) {
+        console.error('Unable to clean up uploaded asset after metadata failure:', cleanupError)
+      }
+
+      throw cause instanceof Error ? cause : new Error('Unable to save asset metadata.')
     }
   }
 }

@@ -8,6 +8,7 @@ export interface AssetUploadContext {
 }
 
 export interface PreparedAssetUpload {
+  file: File
   name: string
   size: number
   type: 'image' | 'video' | 'audio' | 'document'
