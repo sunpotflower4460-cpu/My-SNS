@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { PublishPack } from './publish-pack'
+import type { Seed } from '@/lib/domain/types'
 import { buildTodayPublishingOverview } from './today-publishing'
 
 function pack(overrides: Partial<PublishPack> & Pick<PublishPack, 'seed' | 'channels'>): PublishPack {
@@ -15,13 +16,13 @@ function pack(overrides: Partial<PublishPack> & Pick<PublishPack, 'seed' | 'chan
   }
 }
 
-const seedBase = {
+const seedBase: Omit<Seed, 'id'> = {
   workspaceId: 'w',
   title: 'post',
-  kind: 'text' as const,
-  status: 'ready' as const,
+  kind: 'text',
+  status: 'ready',
   keyPoints: [],
-  targetChannels: ['x'] as const,
+  targetChannels: ['x'],
   tags: [],
   createdBy: 'u',
   createdAt: '2026-08-20T00:00:00Z',
