@@ -55,23 +55,26 @@ export interface JobActions {
 
 /**
  * Which actions a job offers to a viewer who can (or can't) manage the queue.
- * Every action requires manage permission; beyond that:
- *  - openHandoff: active zero-cost/manual job (copy + platform-owned composer).
- *  - publishNow: active assisted/draft job in the opt-in API-first strategy.
- *  - completeManually: any active non-auto job (record a human publish).
- *  - retry: a failed auto job (re-enqueue for the Worker).
- *  - cancel: any active job.
+ * apiPublishingEnabled=false is the migration-safe zero-cost view: even old
+ * auto/assisted jobs are handed to the platform UI instead of invoking an API.
  */
-export function getJobActions(job: PublishJob, canManageQueue: boolean): JobActions {
+export function getJobActions(
+  job: PublishJob,
+  canManageQueue: boolean,
+  apiPublishingEnabled = true,
+): JobActions {
   if (!canManageQueue) {
     return { openHandoff: false, publishNow: false, completeManually: false, retry: false, cancel: false }
   }
+
   const active = isActiveJob(job.status)
+  const isThirdPartyChannel = job.channel !== 'website'
+
   return {
-    openHandoff: active && job.publishMode === 'manual',
-    publishNow: active && (job.publishMode === 'assisted' || job.publishMode === 'draft'),
-    completeManually: active && job.publishMode !== 'auto',
-    retry: job.status === 'failed' && job.publishMode === 'auto',
+    openHandoff: active && isThirdPartyChannel && (!apiPublishingEnabled || job.publishMode === 'manual'),
+    publishNow: active && apiPublishingEnabled && (job.publishMode === 'assisted' || job.publishMode === 'draft'),
+    completeManually: active && (job.publishMode !== 'auto' || !apiPublishingEnabled),
+    retry: job.status === 'failed' && job.publishMode === 'auto' && apiPublishingEnabled,
     cancel: active,
   }
 }
