@@ -6,6 +6,7 @@ describe('web share diagnostics', () => {
     expect(chooseWebShareRecommendation({
       secureContext: true,
       shareSupported: true,
+      policyState: 'supported',
       textShareState: 'supported',
       fileShareState: 'supported',
     })).toBe('file-share')
@@ -15,6 +16,7 @@ describe('web share diagnostics', () => {
     expect(chooseWebShareRecommendation({
       secureContext: true,
       shareSupported: true,
+      policyState: 'unknown',
       textShareState: 'supported',
       fileShareState: 'unsupported',
     })).toBe('text-share')
@@ -24,8 +26,19 @@ describe('web share diagnostics', () => {
     expect(chooseWebShareRecommendation({
       secureContext: false,
       shareSupported: true,
+      policyState: 'supported',
       textShareState: 'supported',
       fileShareState: 'supported',
+    })).toBe('fallback')
+  })
+
+  it('requires the fallback when Permissions Policy blocks web-share', () => {
+    expect(chooseWebShareRecommendation({
+      secureContext: true,
+      shareSupported: true,
+      policyState: 'unsupported',
+      textShareState: 'unknown',
+      fileShareState: 'unknown',
     })).toBe('fallback')
   })
 
