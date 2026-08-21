@@ -8,8 +8,8 @@ import EmptyState from '@/components/ui/EmptyState'
 import { Badge, Button, Card, InlineAlert } from '@/components/ui/kit'
 import { useApp } from '@/lib/app/app-provider'
 import { hasPermission } from '@/lib/permissions'
-import { getDraftRevisionById } from '@/lib/repositories/supabase/draft-revisions'
-import { formatRevisionForNote } from '@/lib/services/note-handoff'
+import { getPublishingStrategy, PUBLISHING_CHANNEL_CONFIG } from '@/lib/channels/config'
+import { buildPublishHandoff, formatRevisionForHandoff } from '@/lib/services/publish-handoff'
 import {
   describeJobStatus,
   filterAndSortJobs,
@@ -27,9 +27,37 @@ const STATUS_FILTERS: Array<{ label: string; value: PublishJobStatus | 'all' }> 
   { label: 'キャンセル済み', value: 'cancelled' },
 ]
 
+async function copyText(text: string): Promise<void> {
+  if (navigator.clipboard?.writeText) {
+    await navigator.clipboard.writeText(text)
+    return
+  }
+
+  const textarea = document.createElement('textarea')
+  textarea.value = text
+  textarea.setAttribute('readonly', '')
+  textarea.style.position = 'fixed'
+  textarea.style.opacity = '0'
+  document.body.appendChild(textarea)
+  textarea.select()
+  const copied = document.execCommand('copy')
+  document.body.removeChild(textarea)
+  if (!copied) throw new Error('クリップボードへコピーできませんでした。')
+}
+
 export default function QueuePage() {
-  const { cancelQueueJob, completeManualPublish, currentMember, currentWorkspace, publishJobs, retryQueueJob, seeds, triggerPublishJob } = useApp()
+  const {
+    cancelQueueJob,
+    completeManualPublish,
+    currentMember,
+    draftRevisions,
+    publishJobs,
+    retryQueueJob,
+    seeds,
+    triggerPublishJob,
+  } = useApp()
   const canManageQueue = Boolean(currentMember && hasPermission(currentMember.role, 'manage_queue'))
+  const publishingStrategy = getPublishingStrategy()
   const [activeStatus, setActiveStatus] = useState<PublishJobStatus | 'all'>('all')
   const [feedback, setFeedback] = useState('')
   const [error, setError] = useState('')
@@ -96,18 +124,42 @@ export default function QueuePage() {
     }
   }
 
-  const handleCopyForNote = async (job: PublishJob) => {
-    if (!currentWorkspace) return
+  const handleOpenHandoff = async (job: PublishJob) => {
+    const revision = draftRevisions.find((entry) => entry.id === job.revisionId)
+    if (!revision) {
+      setError('この項目の承認済みコンテンツが見つかりませんでした。')
+      setFeedback('')
+      return
+    }
+
+    const text = formatRevisionForHandoff(revision, job.channel)
+    const target = buildPublishHandoff(job.channel, text)
+    if (!target) {
+      setError('この媒体には外部SNSの投稿画面がありません。')
+      setFeedback('')
+      return
+    }
+
+    // Open synchronously from the click event so browsers do not treat this as
+    // an async popup. Clipboard work can safely finish after the new tab opens.
+    const opened = window.open(target.url, '_blank', 'noopener,noreferrer')
     setBusyJobId(job.id)
+
     try {
-      const revision = await getDraftRevisionById(currentWorkspace.id, job.revisionId)
-      if (!revision) throw new Error('この項目の承認済みコンテンツが見つかりませんでした。')
-      await navigator.clipboard.writeText(formatRevisionForNote(revision))
-      setFeedback('コピーしました。note.comに貼り付けて公開したら、「投稿済みにする」を押してください。')
+      await copyText(text)
+      const popupNote = opened ? '' : ' 投稿画面の自動オープンはブラウザに止められましたが、文章はコピー済みです。'
+      setFeedback(`${target.instruction} 投稿文はクリップボードにもコピー済みです。${popupNote}`.trim())
       setError('')
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : 'この下書きをコピーできませんでした。')
-      setFeedback('')
+      if (target.prefilledText && opened) {
+        // X Web Intent already owns the text, so a denied clipboard permission
+        // should not turn a successful no-cost handoff into a fake failure.
+        setFeedback(target.instruction)
+        setError('')
+      } else {
+        setError(cause instanceof Error ? cause.message : '投稿文をコピーできませんでした。投稿画面は開いています。')
+        setFeedback('')
+      }
     } finally {
       setBusyJobId(null)
     }
@@ -115,7 +167,15 @@ export default function QueuePage() {
 
   return (
     <div>
-      <PageHeader title="公開予定" description="このワークスペースの予約・失敗・下書き状態の投稿ジョブを確認できます。" />
+      <PageHeader title="公開予定" description="承認済みの投稿を、一箇所から各SNSへ安全に渡して公開できます。" />
+
+      {publishingStrategy === 'zero-cost' && (
+        <div className="mb-5">
+          <InlineAlert tone="info" title="無料投稿モード">
+            外部の有料投稿APIは使いません。「○○へ投稿」を押すと承認済み文章をコピーして、そのSNS自身の投稿画面を開きます。画像・動画は投稿画面側で選び、最後の公開ボタンだけご自身で押してください。
+          </InlineAlert>
+        </div>
+      )}
 
       {feedback && <div className="mb-5"><InlineAlert tone="success">{feedback}</InlineAlert></div>}
       {error && <div className="mb-5"><InlineAlert tone="error">{error}</InlineAlert></div>}
@@ -137,13 +197,14 @@ export default function QueuePage() {
       </div>
 
       {filtered.length === 0 ? (
-        <EmptyState title="該当するジョブがありません" description="フィルターを変えるか、媒体の下書きを承認して後で予約してください。" />
+        <EmptyState title="該当するジョブがありません" description="フィルターを変えるか、媒体の下書きを承認して公開予定へ追加してください。" />
       ) : (
         <Card size="container" padded={false} className="overflow-hidden">
           <div className="divide-y divide-stone-100">
             {filtered.map((job) => {
               const actions = getJobActions(job, canManageQueue)
               const busy = busyJobId === job.id
+              const channelLabel = PUBLISHING_CHANNEL_CONFIG[job.channel].shortLabel
               return (
                 <div key={job.id} className="flex flex-col gap-4 px-6 py-5 lg:flex-row lg:items-center">
                   <div className="flex flex-wrap items-center gap-2">
@@ -157,15 +218,12 @@ export default function QueuePage() {
                     {job.errorMessage && <p className="mt-2 text-xs text-rose-600">{job.errorMessage}</p>}
                   </div>
                   <div className="flex flex-wrap items-center gap-2 lg:justify-end">
-                    {actions.copyForNote && (
-                      <Button size="sm" variant="secondary" onClick={() => void handleCopyForNote(job)} disabled={busy}>
-                        note.com用にコピー
+                    {actions.openHandoff && (
+                      <Button size="sm" variant="primary" onClick={() => void handleOpenHandoff(job)} disabled={busy}>
+                        {channelLabel}へ投稿
                       </Button>
                     )}
                     {actions.publishNow && (
-                      // disabled (not loading): `busy` is per-job, so a spinner
-                      // here would appear when a different action on the same row
-                      // is the one in flight. All row actions dim uniformly.
                       <Button size="sm" variant="primary" onClick={() => handleTrigger(job.id)} disabled={busy}>
                         今すぐ公開
                       </Button>
