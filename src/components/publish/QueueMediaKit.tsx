@@ -1,12 +1,14 @@
 'use client'
 
 import { useState } from 'react'
+import Link from 'next/link'
 import { Download, ExternalLink, FileText, Image as ImageIcon, Music2, Video } from 'lucide-react'
 import type { Asset } from '@/lib/domain/types'
 import { assetTypeLabel, formatAssetSize, hasUsableAssetUrl } from '@/lib/presentation/asset-presenter'
 import { Button } from '@/components/ui/kit'
 
 interface QueueMediaKitProps {
+  seedId: string
   assets: Asset[]
 }
 
@@ -32,19 +34,31 @@ async function downloadAsset(asset: Asset): Promise<void> {
   URL.revokeObjectURL(objectUrl)
 }
 
-export default function QueueMediaKit({ assets }: QueueMediaKitProps) {
+export default function QueueMediaKit({ seedId, assets }: QueueMediaKitProps) {
   const [busyAssetId, setBusyAssetId] = useState<string | null>(null)
   const [errorAssetId, setErrorAssetId] = useState<string | null>(null)
 
   if (assets.length === 0) {
-    return <p className="mt-2 text-xs text-gray-400">添付素材なし — 必要ならSNS側で画像・動画を追加できます。</p>
+    return (
+      <div className="mt-2 flex flex-wrap items-center gap-2 text-xs">
+        <span className="text-gray-400">添付素材なし</span>
+        <Link href={`/app/seeds/${seedId}/media`} className="font-medium text-violet-700 hover:text-violet-800">
+          素材を追加
+        </Link>
+      </div>
+    )
   }
 
   return (
     <div className="mt-3 rounded-xl border border-stone-200 bg-stone-50/70 p-3">
       <div className="mb-2 flex items-center justify-between gap-3">
         <p className="text-xs font-semibold text-gray-700">この投稿で使う素材</p>
-        <span className="text-[11px] text-gray-400">{assets.length}件</span>
+        <div className="flex items-center gap-2">
+          <span className="text-[11px] text-gray-400">{assets.length}件</span>
+          <Link href={`/app/seeds/${seedId}/media`} className="text-[11px] font-medium text-violet-700 hover:text-violet-800">
+            追加・管理
+          </Link>
+        </div>
       </div>
 
       <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
