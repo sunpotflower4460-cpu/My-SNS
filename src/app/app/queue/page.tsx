@@ -100,7 +100,10 @@ export default function QueuePage() {
   }
 
   const handleCompleteManually = async (jobId: string) => {
-    const externalUrl = window.prompt('任意：記録用に、公開されたURLを貼り付けてください。')?.trim() || undefined
+    const externalUrlInput = window.prompt('任意：記録用に、公開されたURLを貼り付けてください。空欄のままOKでも完了できます。')
+    if (externalUrlInput === null) return
+    const externalUrl = externalUrlInput.trim() || undefined
+
     setBusyJobId(jobId)
     try {
       await completeManualPublish(jobId, externalUrl)
