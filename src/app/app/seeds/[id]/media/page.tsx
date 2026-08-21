@@ -26,6 +26,8 @@ const TYPE_ICON = {
   document: FileText,
 } as const
 
+type AssignmentLoadState = 'idle' | 'loading' | 'ready' | 'error'
+
 export default function SeedMediaPage() {
   const params = useParams<{ id: string }>()
   const { currentMember, currentWorkspace, getSeedDetail, refreshWorkspaceData } = useApp()
@@ -36,6 +38,8 @@ export default function SeedMediaPage() {
   const [deletingAssetId, setDeletingAssetId] = useState<string | null>(null)
   const [savingAssignmentAssetId, setSavingAssignmentAssetId] = useState<string | null>(null)
   const [publishingAssignments, setPublishingAssignments] = useState<AssetPublishingAssignments>({})
+  const [assignmentLoadState, setAssignmentLoadState] = useState<AssignmentLoadState>('idle')
+  const [assignmentLoadError, setAssignmentLoadError] = useState('')
   const [feedback, setFeedback] = useState('')
   const [error, setError] = useState('')
   const seedId = detail.seed?.id
@@ -46,14 +50,29 @@ export default function SeedMediaPage() {
 
     if (!currentWorkspace || !seedId) {
       setPublishingAssignments({})
+      setAssignmentLoadState('idle')
+      setAssignmentLoadError('')
       return () => { active = false }
     }
+
+    const assetIds = assetIdsKey ? assetIdsKey.split('|') : []
+    setPublishingAssignments({})
+    setAssignmentLoadState('loading')
+    setAssignmentLoadError('')
 
     void listSeedAssetPublishingAssignments({
       workspaceId: currentWorkspace.id,
       seedId,
+      assetIds,
     }).then((assignments) => {
-      if (active) setPublishingAssignments(assignments)
+      if (!active) return
+      setPublishingAssignments(assignments)
+      setAssignmentLoadState('ready')
+    }).catch((cause) => {
+      if (!active) return
+      setPublishingAssignments({})
+      setAssignmentLoadState('error')
+      setAssignmentLoadError(cause instanceof Error ? cause.message : '素材の投稿先設定を読み込めませんでした。')
     })
 
     return () => { active = false }
@@ -76,7 +95,7 @@ export default function SeedMediaPage() {
   const selectedBytes = selectedFiles.reduce((sum, file) => sum + file.size, 0)
   const canUploadAssets = Boolean(currentMember && hasPermission(currentMember.role, 'upload_assets'))
   const canDeleteAssets = Boolean(currentMember && hasPermission(currentMember.role, 'delete_assets'))
-  const canAssignAssets = canUploadAssets
+  const canAssignAssets = canUploadAssets && assignmentLoadState === 'ready'
 
   const handleUpload = async () => {
     if (!canUploadAssets) {
@@ -269,6 +288,18 @@ export default function SeedMediaPage() {
             <p className="mt-3 text-xs leading-5 text-gray-400">この役割では素材の削除はできません。</p>
           )}
 
+          {assets.length > 0 && assignmentLoadState === 'loading' && (
+            <p className="mt-3 text-xs leading-5 text-gray-500">素材の投稿先設定を確認しています…</p>
+          )}
+
+          {assets.length > 0 && assignmentLoadState === 'error' && (
+            <div className="mt-3">
+              <InlineAlert tone="error" title="投稿先設定を確認できません">
+                {assignmentLoadError} 誤った設定で上書きしないよう、投稿先の変更操作は停止しています。
+              </InlineAlert>
+            </div>
+          )}
+
           {assets.length === 0 ? (
             <p className="mt-5 rounded-xl bg-stone-50 px-4 py-4 text-sm text-gray-500">
               {canUploadAssets ? 'まだ素材はありません。左から追加できます。' : 'まだ素材はありません。アップロード権限のあるメンバーが追加できます。'}
@@ -280,9 +311,10 @@ export default function SeedMediaPage() {
                 const usable = hasUsableAssetUrl(asset)
                 const deleting = deletingAssetId === asset.id
                 const savingAssignment = savingAssignmentAssetId === asset.id
-                const assignedChannels = publishingAssignments[asset.id] ?? []
-                const usesAllChannels = assignedChannels.length === 0
-                const appliesToCurrentTargets = usesAllChannels || assignedChannels.some((channel) => seed.targetChannels.includes(channel))
+                const assignmentKnown = assignmentLoadState === 'ready'
+                const assignedChannels = assignmentKnown ? publishingAssignments[asset.id] ?? [] : []
+                const usesAllChannels = assignmentKnown && assignedChannels.length === 0
+                const appliesToCurrentTargets = !assignmentKnown || usesAllChannels || assignedChannels.some((channel) => seed.targetChannels.includes(channel))
 
                 return (
                   <div key={asset.id} className="rounded-xl border border-stone-200 p-3">
@@ -331,7 +363,7 @@ export default function SeedMediaPage() {
                             全媒体
                           </button>
                           {seed.targetChannels.map((channel) => {
-                            const selected = assignedChannels.includes(channel)
+                            const selected = assignmentKnown && assignedChannels.includes(channel)
                             const nextChannels = toggleChannel(assignedChannels, channel)
                             return (
                               <button
@@ -347,6 +379,8 @@ export default function SeedMediaPage() {
                             )
                           })}
                           {savingAssignment && <span className="text-[11px] text-gray-400">保存中…</span>}
+                          {!assignmentKnown && assignmentLoadState === 'loading' && <span className="text-[11px] text-gray-400">確認中…</span>}
+                          {!assignmentKnown && assignmentLoadState === 'error' && <span className="text-[11px] text-rose-600">設定不明</span>}
                         </div>
                         {!appliesToCurrentTargets && (
                           <p className="mt-2 text-[11px] leading-5 text-amber-700">現在のSeed投稿先には割り当てられていません。「全媒体」か使用する媒体を選んでください。</p>
