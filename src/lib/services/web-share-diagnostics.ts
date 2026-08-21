@@ -25,10 +25,11 @@ const DIAGNOSTIC_PNG_BASE64 =
 export function chooseWebShareRecommendation(input: {
   secureContext: boolean
   shareSupported: boolean
+  policyState: WebShareSupportState
   textShareState: WebShareSupportState
   fileShareState: WebShareSupportState
 }): WebShareRecommendation {
-  if (!input.secureContext || !input.shareSupported) return 'fallback'
+  if (!input.secureContext || !input.shareSupported || input.policyState === 'unsupported') return 'fallback'
   if (input.fileShareState === 'supported') return 'file-share'
   if (input.textShareState !== 'unsupported') return 'text-share'
   return 'fallback'
@@ -94,7 +95,13 @@ export function detectWebShareDiagnostics(): WebShareDiagnostics {
     userActivationSupported: typeof navigator.userActivation !== 'undefined',
     visibilityState: document.visibilityState,
     userAgent: navigator.userAgent,
-    recommendation: chooseWebShareRecommendation({ secureContext, shareSupported, textShareState, fileShareState }),
+    recommendation: chooseWebShareRecommendation({
+      secureContext,
+      shareSupported,
+      policyState,
+      textShareState,
+      fileShareState,
+    }),
   }
 }
 
