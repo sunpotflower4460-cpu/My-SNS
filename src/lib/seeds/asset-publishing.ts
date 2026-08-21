@@ -8,8 +8,32 @@ interface AssetPublishingRow {
   publishing_channels?: PublishingChannel[] | null
 }
 
+interface AssignmentReadError {
+  code?: string | null
+  message?: string | null
+}
+
 function normalizeAssignments(rows: AssetPublishingRow[]): AssetPublishingAssignments {
   return Object.fromEntries(rows.map((row) => [row.id, row.publishing_channels ?? []]))
+}
+
+function isMissingAssignmentColumn(error: AssignmentReadError): boolean {
+  const message = error.message?.toLowerCase() ?? ''
+  return error.code === '42703'
+    || (message.includes('publishing_channels') && (message.includes('does not exist') || message.includes('schema cache')))
+}
+
+function handleAssignmentReadError(error: AssignmentReadError, context: string): AssetPublishingAssignments {
+  // Only a deployment that has not applied the additive migration may retain
+  // historical all-assets behavior. Once assignments exist, transient network,
+  // auth, or database errors must fail closed so the wrong channel never gets
+  // another channel's media by accident.
+  if (isMissingAssignmentColumn(error)) {
+    console.warn(`${context}: publishing_channels migration is not applied; using legacy all-channel asset behavior.`)
+    return {}
+  }
+
+  throw new Error('素材の投稿先設定を確認できませんでした。ページを更新して再試行してください。')
 }
 
 /**
@@ -37,13 +61,7 @@ export async function listAssetPublishingAssignments(assetIds: string[]): Promis
     .select('id, publishing_channels')
     .in('id', uniqueIds)
 
-  if (error) {
-    // Fail open to the historical behavior (all Seed assets available) if a
-    // deployment has not applied the new migration yet. Posting must not start
-    // silently dropping media because assignment metadata was unavailable.
-    console.error('Error fetching asset publishing assignments:', error)
-    return {}
-  }
+  if (error) return handleAssignmentReadError(error, 'Error fetching asset publishing assignments')
 
   return normalizeAssignments((data ?? []) as AssetPublishingRow[])
 }
@@ -59,10 +77,7 @@ export async function listSeedAssetPublishingAssignments(params: {
     .eq('workspace_id', params.workspaceId)
     .eq('seed_id', params.seedId)
 
-  if (error) {
-    console.error('Error fetching Seed asset publishing assignments:', error)
-    return {}
-  }
+  if (error) return handleAssignmentReadError(error, 'Error fetching Seed asset publishing assignments')
 
   return normalizeAssignments((data ?? []) as AssetPublishingRow[])
 }
