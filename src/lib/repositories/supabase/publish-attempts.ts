@@ -1,5 +1,6 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import type { PublishAttempt, PublishAttemptStatus, PublishFailureReason } from '@/lib/domain/types'
+import { normalizeExternalHttpUrl } from '@/lib/security/external-url'
 import { createClient } from '@/lib/supabase/client'
 
 interface PublishAttemptRow {
@@ -26,7 +27,7 @@ function mapAttempt(row: PublishAttemptRow): PublishAttempt {
     failureReason: row.failure_reason ?? undefined,
     errorMessage: row.error_message ?? undefined,
     externalPostId: row.external_post_id ?? undefined,
-    externalUrl: row.external_url ?? undefined,
+    externalUrl: normalizeExternalHttpUrl(row.external_url),
     createdBy: row.created_by ?? undefined,
     createdAt: row.created_at,
   }
@@ -111,6 +112,8 @@ export async function recordPublishAttempt(
   supabase: SupabaseClient,
   input: RecordPublishAttemptInput,
 ): Promise<PublishAttempt> {
+  const externalUrl = normalizeExternalHttpUrl(input.externalUrl)
+
   for (let retry = 0; retry < ATTEMPT_NUMBER_RETRIES; retry += 1) {
     const attemptNumber = await nextAttemptNumber(supabase, input.publishJobId)
     const { data, error } = await supabase
@@ -123,7 +126,7 @@ export async function recordPublishAttempt(
         failure_reason: input.failureReason ?? null,
         error_message: input.errorMessage ?? null,
         external_post_id: input.externalPostId ?? null,
-        external_url: input.externalUrl ?? null,
+        external_url: externalUrl ?? null,
         created_by: input.createdBy ?? null,
       })
       .select()
