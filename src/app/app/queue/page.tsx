@@ -58,6 +58,7 @@ export default function QueuePage() {
   } = useApp()
   const canManageQueue = Boolean(currentMember && hasPermission(currentMember.role, 'manage_queue'))
   const publishingStrategy = getPublishingStrategy()
+  const apiPublishingEnabled = publishingStrategy === 'api-first'
   const [activeStatus, setActiveStatus] = useState<PublishJobStatus | 'all'>('all')
   const [feedback, setFeedback] = useState('')
   const [error, setError] = useState('')
@@ -202,7 +203,7 @@ export default function QueuePage() {
         <Card size="container" padded={false} className="overflow-hidden">
           <div className="divide-y divide-stone-100">
             {filtered.map((job) => {
-              const actions = getJobActions(job, canManageQueue)
+              const actions = getJobActions(job, canManageQueue, apiPublishingEnabled)
               const busy = busyJobId === job.id
               const channelLabel = PUBLISHING_CHANNEL_CONFIG[job.channel].shortLabel
               return (
