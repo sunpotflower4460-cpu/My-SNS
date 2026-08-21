@@ -1,7 +1,8 @@
 'use client'
 
 import Link from 'next/link'
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
+import { useRouter, useSearchParams } from 'next/navigation'
 import { CheckCircle2, Copy, ExternalLink, PackageCheck } from 'lucide-react'
 import ChannelBadge from '@/components/ui/ChannelBadge'
 import EmptyState from '@/components/ui/EmptyState'
@@ -17,6 +18,11 @@ import {
   PUBLISH_PACK_STATE_LABELS,
   type PublishPackChannelItem,
 } from '@/lib/presentation/publish-pack'
+import {
+  buildPublishPackHref,
+  publishPackChannelDomId,
+  publishPackDomId,
+} from '@/lib/presentation/publish-pack-link'
 import { getJobActions } from '@/lib/presentation/queue-presenter'
 import { buildPublishCopyFields } from '@/lib/services/publish-copy-fields'
 import { buildPublishHandoff, formatRevisionForHandoff } from '@/lib/services/publish-handoff'
@@ -49,6 +55,7 @@ const STATE_TONE = {
 } as const
 
 type PackFilter = 'active' | 'complete' | 'all'
+type AdvanceTarget = { seedId: string; channel: PublishPackChannelItem['channel'] }
 
 export default function PublishPacksPage() {
   const {
@@ -60,6 +67,10 @@ export default function PublishPacksPage() {
     scheduleDraft,
     seeds,
   } = useApp()
+  const router = useRouter()
+  const searchParams = useSearchParams()
+  const focusedSeedId = searchParams.get('seed')
+  const focusedChannel = searchParams.get('channel')
   const canManageQueue = Boolean(currentMember && hasPermission(currentMember.role, 'manage_queue'))
   const publishingStrategy = getPublishingStrategy()
   const apiPublishingEnabled = publishingStrategy === 'api-first'
@@ -67,6 +78,7 @@ export default function PublishPacksPage() {
   const [busyKey, setBusyKey] = useState<string | null>(null)
   const [feedback, setFeedback] = useState('')
   const [error, setError] = useState('')
+  const [advanceAfterComplete, setAdvanceAfterComplete] = useState<AdvanceTarget | null>(null)
 
   const packs = useMemo(
     () => buildPublishPacks({ seeds, jobs: publishJobs, revisions: draftRevisions }),
@@ -78,6 +90,69 @@ export default function PublishPacksPage() {
     if (filter === 'complete') return pack.isComplete
     return true
   }), [filter, packs])
+
+  useEffect(() => {
+    if (!focusedSeedId || filter !== 'active') return
+    const focusedPack = packs.find((pack) => pack.seed.id === focusedSeedId)
+    if (focusedPack?.isComplete) setFilter('all')
+  }, [filter, focusedSeedId, packs])
+
+  useEffect(() => {
+    if (!focusedSeedId) return
+
+    const timer = window.setTimeout(() => {
+      const channelTarget = focusedChannel
+        ? document.getElementById(publishPackChannelDomId(focusedSeedId, focusedChannel as PublishPackChannelItem['channel']))
+        : null
+      const target = channelTarget ?? document.getElementById(publishPackDomId(focusedSeedId))
+      if (!target) return
+
+      target.scrollIntoView({ behavior: 'smooth', block: 'center' })
+      target.focus({ preventScroll: true })
+    }, 0)
+
+    return () => window.clearTimeout(timer)
+  }, [focusedChannel, focusedSeedId, visiblePacks])
+
+  useEffect(() => {
+    if (!advanceAfterComplete) return
+
+    const currentPack = packs.find((pack) => pack.seed.id === advanceAfterComplete.seedId)
+    if (!currentPack) {
+      setAdvanceAfterComplete(null)
+      return
+    }
+
+    // completeManualPublish may resolve before the provider's derived pack state
+    // reaches this component. Keep the pending advance until the completed
+    // channel is no longer reported as the next actionable channel.
+    if (!currentPack.isComplete && currentPack.nextChannel?.channel === advanceAfterComplete.channel) return
+
+    const targetPack = !currentPack.isComplete && currentPack.nextChannel
+      ? currentPack
+      : packs.find((pack) => !pack.isComplete && pack.nextChannel)
+    const targetChannel = targetPack?.nextChannel
+
+    setAdvanceAfterComplete(null)
+
+    if (targetPack && targetChannel) {
+      setFilter('active')
+      router.replace(buildPublishPackHref(targetPack.seed.id, targetChannel.channel), { scroll: false })
+      setFeedback(
+        `${PUBLISHING_CHANNEL_CONFIG[advanceAfterComplete.channel].shortLabel}を投稿済みにしました。次は ${PUBLISHING_CHANNEL_CONFIG[targetChannel.channel].label} です。`,
+      )
+      return
+    }
+
+    setFilter('all')
+    router.replace('/app/packs', { scroll: false })
+    setFeedback(`${PUBLISHING_CHANNEL_CONFIG[advanceAfterComplete.channel].shortLabel}を投稿済みにしました。進行中の投稿パックはすべて完了です。`)
+  }, [advanceAfterComplete, packs, router])
+
+  const handleFilterChange = (value: PackFilter) => {
+    setFilter(value)
+    if (focusedSeedId) router.replace('/app/packs', { scroll: false })
+  }
 
   const handleSchedule = async (item: PublishPackChannelItem) => {
     if (!item.revision) return
@@ -140,7 +215,7 @@ export default function PublishPacksPage() {
     }
   }
 
-  const handleComplete = async (item: PublishPackChannelItem) => {
+  const handleComplete = async (seedId: string, item: PublishPackChannelItem) => {
     if (!item.job) return
     const externalUrlInput = window.prompt('任意：公開された投稿URLを記録できます。空欄のままOKでも完了できます。')
     if (externalUrlInput === null) return
@@ -150,7 +225,8 @@ export default function PublishPacksPage() {
     setBusyKey(key)
     try {
       await completeManualPublish(item.job.id, externalUrl)
-      setFeedback(`${PUBLISHING_CHANNEL_CONFIG[item.channel].shortLabel}を投稿済みにしました。`)
+      setAdvanceAfterComplete({ seedId, channel: item.channel })
+      setFeedback(`${PUBLISHING_CHANNEL_CONFIG[item.channel].shortLabel}を投稿済みにしました。次の投稿先を確認しています。`)
       setError('')
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : '投稿済みとして記録できませんでした。')
@@ -188,7 +264,7 @@ export default function PublishPacksPage() {
           <button
             key={value}
             type="button"
-            onClick={() => setFilter(value)}
+            onClick={() => handleFilterChange(value)}
             aria-pressed={filter === value}
             className={`rounded-full px-3.5 py-2 text-sm font-medium transition ${filter === value ? 'bg-violet-600 text-white' : 'border border-stone-200 bg-white text-gray-600 hover:bg-stone-50'}`}
           >
@@ -207,8 +283,20 @@ export default function PublishPacksPage() {
         <div className="space-y-6">
           {visiblePacks.map((pack) => {
             const assets = getSeedDetail(pack.seed.id).assets
+            const isFocusedPack = focusedSeedId === pack.seed.id
+            const packClassName = [
+              pack.isComplete ? 'border-emerald-200' : '',
+              isFocusedPack ? 'scroll-mt-24 ring-2 ring-violet-200' : '',
+            ].filter(Boolean).join(' ')
+
             return (
-              <Card key={pack.seed.id} size="container" className={pack.isComplete ? 'border-emerald-200' : undefined}>
+              <Card
+                key={pack.seed.id}
+                id={publishPackDomId(pack.seed.id)}
+                tabIndex={isFocusedPack && !focusedChannel ? -1 : undefined}
+                size="container"
+                className={packClassName || undefined}
+              >
                 <div className="flex flex-col gap-5 xl:flex-row xl:items-start">
                   <div className="min-w-0 flex-1">
                     <div className="flex flex-wrap items-start justify-between gap-3">
@@ -247,9 +335,15 @@ export default function PublishPacksPage() {
                       const copyFields = item.revision ? buildPublishCopyFields(item.revision, item.channel) : []
                       const actions = item.job ? getJobActions(item.job, canManageQueue, apiPublishingEnabled) : null
                       const isNext = pack.nextChannel?.channel === item.channel && !pack.isComplete
+                      const isFocusedChannel = isFocusedPack && focusedChannel === item.channel
 
                       return (
-                        <div key={item.channel} className={`rounded-2xl border p-4 ${isNext ? 'border-violet-300 bg-violet-50/40 ring-1 ring-violet-100' : 'border-stone-200 bg-white'}`}>
+                        <div
+                          key={item.channel}
+                          id={publishPackChannelDomId(pack.seed.id, item.channel)}
+                          tabIndex={isFocusedChannel ? -1 : undefined}
+                          className={`rounded-2xl border p-4 scroll-mt-24 ${isNext ? 'border-violet-300 bg-violet-50/40 ring-1 ring-violet-100' : 'border-stone-200 bg-white'} ${isFocusedChannel ? 'ring-2 ring-violet-400' : ''}`}
+                        >
                           <div className="flex flex-wrap items-center justify-between gap-2">
                             <div className="flex flex-wrap items-center gap-2">
                               <ChannelBadge channel={item.channel} />
@@ -317,7 +411,7 @@ export default function PublishPacksPage() {
                               <Button
                                 size="sm"
                                 variant="secondary"
-                                onClick={() => void handleComplete(item)}
+                                onClick={() => void handleComplete(pack.seed.id, item)}
                                 disabled={busyKey === `${item.channel}-complete-${item.job.id}`}
                               >
                                 <CheckCircle2 aria-hidden className="h-3.5 w-3.5" />
