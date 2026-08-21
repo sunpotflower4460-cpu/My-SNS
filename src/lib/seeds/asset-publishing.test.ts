@@ -1,6 +1,9 @@
 import { describe, expect, it } from 'vitest'
 import type { Asset } from '@/lib/domain/types'
-import { selectAssetsForPublishingChannel } from './asset-publishing'
+import {
+  selectAssetsForPublishingChannel,
+  type AssetPublishingAssignments,
+} from './asset-publishing'
 
 function asset(id: string): Asset {
   return {
@@ -25,10 +28,10 @@ describe('asset publishing assignments', () => {
   })
 
   it('includes empty assignments as all-channel assets and filters explicit assignments', () => {
-    const assignments = {
+    const assignments: AssetPublishingAssignments = {
       all: [],
-      ig: ['instagram'] as const,
-      video: ['youtube', 'tiktok'] as const,
+      ig: ['instagram'],
+      video: ['youtube', 'tiktok'],
     }
 
     expect(selectAssetsForPublishingChannel(assets, assignments, 'instagram').map((entry) => entry.id))
