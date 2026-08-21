@@ -65,6 +65,9 @@ export default function MobilePostShareButton({ channel, revision, assets, disab
     try {
       if (preparedFiles) {
         await sharePrepared(preparedFiles)
+        // Videos can be large. Once the OS accepted the share request there is
+        // no reason to keep those File/Blob references alive in React state.
+        setPreparedFiles(null)
         setMessage('共有シートへ渡しました。共有先アプリ側で内容を確認して投稿してください。')
         return
       }
@@ -91,10 +94,15 @@ export default function MobilePostShareButton({ channel, revision, assets, disab
       }
 
       await sharePrepared(files)
+      setPreparedFiles(null)
       setMessage('画像・動画と投稿文を共有シートへ渡しました。共有先アプリ側で内容を確認して投稿してください。')
     } catch (cause) {
       if (isShareCancellation(cause)) {
-        setMessage('共有をキャンセルしました。素材は準備済みなので、必要ならもう一度タップできます。')
+        setMessage(
+          mediaAssets.length > 0
+            ? '共有をキャンセルしました。素材は準備済みなので、必要ならもう一度タップできます。'
+            : '共有をキャンセルしました。必要ならもう一度タップできます。',
+        )
         return
       }
 
