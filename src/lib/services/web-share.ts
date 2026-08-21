@@ -28,6 +28,21 @@ export function inferShareMimeType(asset: Pick<Asset, 'name' | 'type'>): string 
   return 'application/octet-stream'
 }
 
+export function resolveShareMimeType(
+  asset: Pick<Asset, 'name' | 'type'>,
+  responseMimeType?: string | null,
+): string {
+  const normalized = responseMimeType?.trim().toLowerCase() ?? ''
+  const genericBinaryTypes = new Set([
+    'application/octet-stream',
+    'application/x-octet-stream',
+    'binary/octet-stream',
+  ])
+
+  if (normalized && !genericBinaryTypes.has(normalized)) return normalized
+  return inferShareMimeType(asset)
+}
+
 /**
  * Resolve Seed image/video assets into browser File objects for Web Share.
  * We intentionally fail if any intended media lacks a usable signed URL or
@@ -51,7 +66,7 @@ export async function prepareWebShareFiles(assets: Asset[]): Promise<File[]> {
 
     const blob = await response.blob()
     files.push(new File([blob], asset.name, {
-      type: blob.type || inferShareMimeType(asset),
+      type: resolveShareMimeType(asset, blob.type),
       lastModified: Date.now(),
     }))
   }
