@@ -75,8 +75,8 @@ describe('getJobActions', () => {
     expect(Object.values(actions).every((value) => value === false)).toBe(true)
   })
 
-  it('an auto scheduled job can only be cancelled', () => {
-    expect(getJobActions(job({ status: 'scheduled', publishMode: 'auto' }), true)).toEqual({
+  it('an auto scheduled job can only be cancelled in api-first mode', () => {
+    expect(getJobActions(job({ status: 'scheduled', publishMode: 'auto' }), true, true)).toEqual({
       openHandoff: false,
       publishNow: false,
       completeManually: false,
@@ -85,8 +85,8 @@ describe('getJobActions', () => {
     })
   })
 
-  it('a failed auto job offers retry + cancel', () => {
-    expect(getJobActions(job({ status: 'failed', publishMode: 'auto' }), true)).toEqual({
+  it('a failed auto job offers retry + cancel in api-first mode', () => {
+    expect(getJobActions(job({ status: 'failed', publishMode: 'auto' }), true, true)).toEqual({
       openHandoff: false,
       publishNow: false,
       completeManually: false,
@@ -96,7 +96,7 @@ describe('getJobActions', () => {
   })
 
   it('an active assisted job offers API-first publish-now, manual-complete, cancel', () => {
-    expect(getJobActions(job({ status: 'scheduled', publishMode: 'assisted' }), true)).toEqual({
+    expect(getJobActions(job({ status: 'scheduled', publishMode: 'assisted' }), true, true)).toEqual({
       openHandoff: false,
       publishNow: true,
       completeManually: true,
@@ -106,7 +106,7 @@ describe('getJobActions', () => {
   })
 
   it('an active zero-cost/manual job offers handoff + manual-complete + cancel', () => {
-    expect(getJobActions(job({ status: 'draft', channel: 'x', publishMode: 'manual' }), true)).toEqual({
+    expect(getJobActions(job({ status: 'draft', channel: 'x', publishMode: 'manual' }), true, false)).toEqual({
       openHandoff: true,
       publishNow: false,
       completeManually: true,
@@ -115,12 +115,26 @@ describe('getJobActions', () => {
     })
   })
 
+  it('migrates a legacy auto job to handoff actions while zero-cost mode is active', () => {
+    expect(getJobActions(job({ status: 'scheduled', channel: 'x', publishMode: 'auto' }), true, false)).toEqual({
+      openHandoff: true,
+      publishNow: false,
+      completeManually: true,
+      retry: false,
+      cancel: true,
+    })
+  })
+
+  it('does not create an SNS handoff for the owned website channel', () => {
+    expect(getJobActions(job({ status: 'scheduled', channel: 'website', publishMode: 'owned' }), true, false).openHandoff).toBe(false)
+  })
+
   it('note uses the same generic zero-cost handoff rather than a one-off copy action', () => {
-    expect(getJobActions(job({ status: 'draft', channel: 'note', publishMode: 'manual' }), true).openHandoff).toBe(true)
+    expect(getJobActions(job({ status: 'draft', channel: 'note', publishMode: 'manual' }), true, false).openHandoff).toBe(true)
   })
 
   it('a published job offers no actions', () => {
-    expect(getJobActions(job({ status: 'published', publishMode: 'auto' }), true)).toEqual({
+    expect(getJobActions(job({ status: 'published', publishMode: 'auto' }), true, false)).toEqual({
       openHandoff: false,
       publishNow: false,
       completeManually: false,
