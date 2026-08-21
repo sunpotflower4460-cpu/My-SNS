@@ -38,21 +38,31 @@ describe('publishModeLabel', () => {
   it('maps modes to Japanese labels', () => {
     expect(publishModeLabel('auto')).toBe('自動')
     expect(publishModeLabel('assisted')).toBe('要確認')
-    expect(publishModeLabel('manual')).toBe('手動')
+    expect(publishModeLabel('manual')).toBe('無料ハンドオフ')
   })
 })
 
 describe('describeJobStatus', () => {
-  it('failed / cancelled / published lines', () => {
+  it('describes failed / cancelled / published jobs', () => {
     expect(describeJobStatus(job({ status: 'failed' }))).toContain('エラー')
     expect(describeJobStatus(job({ status: 'cancelled' }))).toContain('除外')
     expect(describeJobStatus(job({ status: 'published', publishedAt: '2026-07-20T01:00:00Z' }))).toContain('公開日時:')
     expect(describeJobStatus(job({ status: 'published', publishedAt: undefined }))).toBe('公開済み')
   })
 
-  it('active-job lines depend on publish mode', () => {
-    expect(describeJobStatus(job({ status: 'scheduled', publishMode: 'manual' }))).toContain('投稿済みにする')
-    expect(describeJobStatus(job({ status: 'scheduled', publishMode: 'assisted' }))).toContain('今すぐ公開')
+  it('guides a zero-cost manual job through copy/open + completion', () => {
+    const line = describeJobStatus(job({
+      status: 'draft',
+      publishMode: 'manual',
+      scheduledAt: '2026-07-20T02:00:00Z',
+    }))
+    expect(line).toContain('投稿予定:')
+    expect(line).toContain('投稿文をコピー')
+    expect(line).toContain('投稿済みにする')
+  })
+
+  it('keeps API-first assisted/draft and auto scheduling guidance distinct', () => {
+    expect(describeJobStatus(job({ status: 'scheduled', publishMode: 'assisted' }))).toContain('API-first')
     expect(describeJobStatus(job({ status: 'draft', publishMode: 'draft' }))).toContain('今すぐ公開')
     expect(describeJobStatus(job({ status: 'scheduled', publishMode: 'auto', scheduledAt: '2026-07-20T02:00:00Z' }))).toContain('予約日時:')
     expect(describeJobStatus(job({ status: 'scheduled', publishMode: 'auto', scheduledAt: undefined }))).toBe('まだ予約されていません')
@@ -62,12 +72,12 @@ describe('describeJobStatus', () => {
 describe('getJobActions', () => {
   it('offers nothing without manage permission', () => {
     const actions = getJobActions(job({ status: 'failed', publishMode: 'auto' }), false)
-    expect(Object.values(actions).every((v) => v === false)).toBe(true)
+    expect(Object.values(actions).every((value) => value === false)).toBe(true)
   })
 
   it('an auto scheduled job can only be cancelled', () => {
     expect(getJobActions(job({ status: 'scheduled', publishMode: 'auto' }), true)).toEqual({
-      copyForNote: false,
+      openHandoff: false,
       publishNow: false,
       completeManually: false,
       retry: false,
@@ -75,19 +85,19 @@ describe('getJobActions', () => {
     })
   })
 
-  it('a failed auto job offers retry + cancel (and manual-complete, since it is active and non-auto? no — auto)', () => {
+  it('a failed auto job offers retry + cancel', () => {
     expect(getJobActions(job({ status: 'failed', publishMode: 'auto' }), true)).toEqual({
-      copyForNote: false,
+      openHandoff: false,
       publishNow: false,
-      completeManually: false, // auto → no manual complete
+      completeManually: false,
       retry: true,
       cancel: true,
     })
   })
 
-  it('an active assisted job offers publish-now, manual-complete, cancel (no retry)', () => {
+  it('an active assisted job offers API-first publish-now, manual-complete, cancel', () => {
     expect(getJobActions(job({ status: 'scheduled', publishMode: 'assisted' }), true)).toEqual({
-      copyForNote: false,
+      openHandoff: false,
       publishNow: true,
       completeManually: true,
       retry: false,
@@ -95,33 +105,27 @@ describe('getJobActions', () => {
     })
   })
 
-  it('an active note (manual) job offers copy-for-note, manual-complete, cancel', () => {
-    expect(getJobActions(job({ status: 'scheduled', channel: 'note', publishMode: 'manual' }), true)).toEqual({
-      copyForNote: true,
+  it('an active zero-cost/manual job offers handoff + manual-complete + cancel', () => {
+    expect(getJobActions(job({ status: 'draft', channel: 'x', publishMode: 'manual' }), true)).toEqual({
+      openHandoff: true,
       publishNow: false,
       completeManually: true,
       retry: false,
       cancel: true,
     })
+  })
+
+  it('note uses the same generic zero-cost handoff rather than a one-off copy action', () => {
+    expect(getJobActions(job({ status: 'draft', channel: 'note', publishMode: 'manual' }), true).openHandoff).toBe(true)
   })
 
   it('a published job offers no actions', () => {
     expect(getJobActions(job({ status: 'published', publishMode: 'auto' }), true)).toEqual({
-      copyForNote: false,
+      openHandoff: false,
       publishNow: false,
       completeManually: false,
       retry: false,
       cancel: false,
-    })
-  })
-
-  it('a failed note job does not offer retry (retry is auto-only) but offers copy + manual + cancel', () => {
-    expect(getJobActions(job({ status: 'failed', channel: 'note', publishMode: 'manual' }), true)).toEqual({
-      copyForNote: true,
-      publishNow: false,
-      completeManually: true,
-      retry: false,
-      cancel: true,
     })
   })
 })
@@ -133,19 +137,18 @@ describe('filterAndSortJobs', () => {
       job({ id: 'new', status: 'scheduled', createdAt: '2026-07-20T00:00:00Z' }),
       job({ id: 'failed', status: 'failed', createdAt: '2026-07-19T00:00:00Z' }),
     ]
-    expect(filterAndSortJobs(jobs, 'all').map((j) => j.id)).toEqual(['new', 'failed', 'old'])
-    expect(filterAndSortJobs(jobs, 'scheduled').map((j) => j.id)).toEqual(['new', 'old'])
+    expect(filterAndSortJobs(jobs, 'all').map((entry) => entry.id)).toEqual(['new', 'failed', 'old'])
+    expect(filterAndSortJobs(jobs, 'scheduled').map((entry) => entry.id)).toEqual(['new', 'old'])
   })
 
   it('does not mutate the input array', () => {
     const jobs = [job({ id: 'a', createdAt: '2026-07-18T00:00:00Z' }), job({ id: 'b', createdAt: '2026-07-20T00:00:00Z' })]
-    const snapshot = jobs.map((j) => j.id)
+    const snapshot = jobs.map((entry) => entry.id)
     filterAndSortJobs(jobs, 'all')
-    expect(jobs.map((j) => j.id)).toEqual(snapshot)
+    expect(jobs.map((entry) => entry.id)).toEqual(snapshot)
   })
 })
 
-// Type guard: the label map must cover every PublishMode/status the union allows.
 const _modes: PublishMode[] = ['auto', 'assisted', 'draft', 'manual', 'owned']
 const _statuses: PublishJobStatus[] = ['draft', 'scheduled', 'published', 'failed', 'cancelled']
 void _modes
