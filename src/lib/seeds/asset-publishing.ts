@@ -72,7 +72,7 @@ export async function listAssetPublishingAssignments(assetIds: string[]): Promis
   const assignments = normalizeAssignments((data ?? []) as AssetPublishingRow[])
 
   // SELECTs filtered by RLS can legitimately return fewer rows without an
-  // explicit database error. Once the migration exists, treating those missing
+  // explicit database error. Once assignments exist, treating those missing
   // rows as an empty assignment would mean "all channels" and could leak media
   // to the wrong publishing target. Require complete coverage and fail closed.
   if (!hasCompleteAssetPublishingAssignmentCoverage(uniqueIds, assignments)) {
@@ -85,27 +85,34 @@ export async function listAssetPublishingAssignments(assetIds: string[]): Promis
 export async function listSeedAssetPublishingAssignments(params: {
   workspaceId: string
   seedId: string
+  assetIds: string[]
 }): Promise<AssetPublishingAssignments> {
+  const uniqueIds = Array.from(new Set(params.assetIds)).filter(Boolean)
+  if (uniqueIds.length === 0) return {}
+
   const supabase = createClient()
   const { data, error } = await supabase
     .from('assets')
     .select('id, publishing_channels')
     .eq('workspace_id', params.workspaceId)
     .eq('seed_id', params.seedId)
+    .in('id', uniqueIds)
 
   if (error) {
-    // This path powers the management UI rather than the publish action. Keep
-    // the screen usable while surfacing the problem in logs; the actual share
-    // path above is intentionally stricter and will stop on transient failures.
     if (isMissingAssignmentColumn(error)) {
-      console.warn('Asset publishing assignments migration is not applied; showing legacy all-channel asset behavior.')
+      console.warn('Asset publishing assignments migration is not applied; assignment management is unavailable.')
     } else {
       console.error('Error fetching Seed asset publishing assignments:', error)
     }
-    return {}
+    throw new Error('素材の投稿先設定を読み込めませんでした。ページを更新して再試行してください。')
   }
 
-  return normalizeAssignments((data ?? []) as AssetPublishingRow[])
+  const assignments = normalizeAssignments((data ?? []) as AssetPublishingRow[])
+  if (!hasCompleteAssetPublishingAssignmentCoverage(uniqueIds, assignments)) {
+    throw new Error('素材の投稿先設定を完全に確認できなかったため、変更操作を停止しました。ページを更新して再試行してください。')
+  }
+
+  return assignments
 }
 
 export async function updateSeedAssetPublishingChannels(params: {
