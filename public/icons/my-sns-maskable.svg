@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="My-SNS">
+  <rect width="512" height="512" fill="#7c3aed"/>
+  <g stroke="#fff" stroke-width="22" stroke-linecap="round">
+    <path d="M190 222 334 176"/>
+    <path d="M190 222 338 346"/>
+  </g>
+  <g fill="#fff">
+    <circle cx="184" cy="224" r="36"/>
+    <circle cx="342" cy="174" r="36"/>
+    <circle cx="346" cy="350" r="36"/>
+  </g>
+  <circle cx="256" cy="256" r="15" fill="#c4b5fd"/>
+</svg>

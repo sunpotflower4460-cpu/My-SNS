@@ -27,8 +27,9 @@ export default function AppShell({ children, user, workspace, pageTitle }: AppSh
         {/* The drawer for extra sections opens from the bottom nav's その他 tab,
             so the TopBar no longer carries a hamburger (one clear affordance). */}
         <TopBar workspace={workspace} pageTitle={pageTitle} />
-        {/* Extra bottom padding below xl so content clears the fixed bottom nav. */}
-        <main className="flex-1 overflow-y-auto px-4 py-6 pb-28 sm:px-6 lg:px-8 xl:pb-6">
+        {/* Keep content clear of both the fixed bottom nav and the iOS home indicator
+            when the app is launched in standalone/PWA mode. */}
+        <main className="flex-1 overflow-y-auto px-4 py-6 pb-[calc(7rem+env(safe-area-inset-bottom))] sm:px-6 lg:px-8 xl:pb-6">
           <div className="mx-auto w-full max-w-6xl">{children}</div>
         </main>
       </div>
