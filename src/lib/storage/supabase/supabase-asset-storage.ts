@@ -49,13 +49,9 @@ export class SupabaseAssetStorage implements AssetStorageAdapter {
     }
 
     try {
-      const { data: signedUrlData, error: signedUrlError } = await this.supabase.storage
+      const { data: signedUrlData } = await this.supabase.storage
         .from(this.bucketName)
         .createSignedUrl(uploaded.path, 60 * 60)
-
-      if (signedUrlError) {
-        throw new Error(`Unable to create a signed URL for ${preparedAsset.name}: ${signedUrlError.message}`)
-      }
 
       const { data, error } = await this.supabase
         .from('assets')
