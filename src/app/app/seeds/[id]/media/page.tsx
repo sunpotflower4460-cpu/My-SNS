@@ -9,6 +9,7 @@ import EmptyState from '@/components/ui/EmptyState'
 import { Button, Card, InlineAlert } from '@/components/ui/kit'
 import { useApp } from '@/lib/app/app-provider'
 import { appendSeedAssets, deleteSeedAsset } from '@/lib/seeds/assets'
+import { hasPermission } from '@/lib/permissions'
 import { assetTypeLabel, formatAssetSize, hasUsableAssetUrl } from '@/lib/presentation/asset-presenter'
 
 const TYPE_ICON = {
@@ -44,9 +45,15 @@ export default function SeedMediaPage() {
 
   const { seed, assets } = detail
   const selectedBytes = selectedFiles.reduce((sum, file) => sum + file.size, 0)
-  const canDeleteAssets = Boolean(currentMember && ['owner', 'admin', 'editor'].includes(currentMember.role))
+  const canUploadAssets = Boolean(currentMember && hasPermission(currentMember.role, 'upload_assets'))
+  const canDeleteAssets = Boolean(currentMember && hasPermission(currentMember.role, 'delete_assets'))
 
   const handleUpload = async () => {
+    if (!canUploadAssets) {
+      setError('あなたの役割では素材を追加できません。')
+      setFeedback('')
+      return
+    }
     if (selectedFiles.length === 0) {
       setError('追加するファイルを選んでください。')
       setFeedback('')
@@ -113,65 +120,79 @@ export default function SeedMediaPage() {
       {error && <div className="mb-5"><InlineAlert tone="error">{error}</InlineAlert></div>}
 
       <div className="grid gap-6 xl:grid-cols-[minmax(0,1.1fr)_minmax(320px,0.9fr)]">
-        <Card size="container">
-          <div className="flex items-start gap-3">
-            <div className="rounded-xl bg-violet-50 p-2.5 text-violet-700">
-              <Upload aria-hidden className="h-5 w-5" />
-            </div>
-            <div>
-              <h2 className="text-base font-semibold text-gray-900">素材を追加</h2>
-              <p className="mt-1 text-sm leading-6 text-gray-500">複数ファイルをまとめて選べます。保存先は既存の非公開Supabase Storageです。</p>
-            </div>
-          </div>
-
-          <label className="mt-5 block cursor-pointer rounded-2xl border border-dashed border-stone-300 bg-stone-50 px-5 py-7 text-center hover:border-violet-300 hover:bg-violet-50/40">
-            <span className="text-sm font-medium text-gray-800">画像・動画などを選択</span>
-            <span className="mt-1 block text-xs text-gray-500">画像 / 動画 / 音声 / PDFなど</span>
-            <input
-              ref={inputRef}
-              type="file"
-              multiple
-              accept="image/*,video/*,audio/*,.pdf,.txt,.md"
-              className="sr-only"
-              onChange={(event) => setSelectedFiles(Array.from(event.target.files ?? []))}
-            />
-          </label>
-
-          {selectedFiles.length > 0 && (
-            <div className="mt-4 rounded-xl border border-stone-200 bg-white p-4">
-              <div className="flex items-center justify-between gap-3">
-                <p className="text-sm font-medium text-gray-800">選択中 {selectedFiles.length}件</p>
-                <p className="text-xs text-gray-400">合計 {formatAssetSize(selectedBytes)}</p>
+        {canUploadAssets ? (
+          <Card size="container">
+            <div className="flex items-start gap-3">
+              <div className="rounded-xl bg-violet-50 p-2.5 text-violet-700">
+                <Upload aria-hidden className="h-5 w-5" />
               </div>
-              <div className="mt-3 space-y-2">
-                {selectedFiles.map((file, index) => (
-                  <div key={`${file.name}-${file.size}-${index}`} className="flex min-w-0 items-center justify-between gap-3 text-xs">
-                    <span className="truncate text-gray-600">{file.name}</span>
-                    <span className="shrink-0 text-gray-400">{formatAssetSize(file.size)}</span>
-                  </div>
-                ))}
+              <div>
+                <h2 className="text-base font-semibold text-gray-900">素材を追加</h2>
+                <p className="mt-1 text-sm leading-6 text-gray-500">複数ファイルをまとめて選べます。保存先は既存の非公開Supabase Storageです。</p>
               </div>
             </div>
-          )}
 
-          <div className="mt-5 flex flex-wrap items-center gap-3">
-            <Button variant="primary" onClick={() => void handleUpload()} disabled={uploading || selectedFiles.length === 0}>
-              {uploading ? 'アップロード中…' : 'このSeedに追加'}
-            </Button>
+            <label className="mt-5 block cursor-pointer rounded-2xl border border-dashed border-stone-300 bg-stone-50 px-5 py-7 text-center hover:border-violet-300 hover:bg-violet-50/40">
+              <span className="text-sm font-medium text-gray-800">画像・動画などを選択</span>
+              <span className="mt-1 block text-xs text-gray-500">画像 / 動画 / 音声 / PDFなど</span>
+              <input
+                ref={inputRef}
+                type="file"
+                multiple
+                accept="image/*,video/*,audio/*,.pdf,.txt,.md"
+                className="sr-only"
+                onChange={(event) => setSelectedFiles(Array.from(event.target.files ?? []))}
+              />
+            </label>
+
             {selectedFiles.length > 0 && (
-              <Button
-                variant="secondary"
-                disabled={uploading}
-                onClick={() => {
-                  setSelectedFiles([])
-                  if (inputRef.current) inputRef.current.value = ''
-                }}
-              >
-                選択解除
-              </Button>
+              <div className="mt-4 rounded-xl border border-stone-200 bg-white p-4">
+                <div className="flex items-center justify-between gap-3">
+                  <p className="text-sm font-medium text-gray-800">選択中 {selectedFiles.length}件</p>
+                  <p className="text-xs text-gray-400">合計 {formatAssetSize(selectedBytes)}</p>
+                </div>
+                <div className="mt-3 space-y-2">
+                  {selectedFiles.map((file, index) => (
+                    <div key={`${file.name}-${file.size}-${index}`} className="flex min-w-0 items-center justify-between gap-3 text-xs">
+                      <span className="truncate text-gray-600">{file.name}</span>
+                      <span className="shrink-0 text-gray-400">{formatAssetSize(file.size)}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
             )}
-          </div>
-        </Card>
+
+            <div className="mt-5 flex flex-wrap items-center gap-3">
+              <Button variant="primary" onClick={() => void handleUpload()} disabled={uploading || selectedFiles.length === 0}>
+                {uploading ? 'アップロード中…' : 'このSeedに追加'}
+              </Button>
+              {selectedFiles.length > 0 && (
+                <Button
+                  variant="secondary"
+                  disabled={uploading}
+                  onClick={() => {
+                    setSelectedFiles([])
+                    if (inputRef.current) inputRef.current.value = ''
+                  }}
+                >
+                  選択解除
+                </Button>
+              )}
+            </div>
+          </Card>
+        ) : (
+          <Card size="container" tone="muted">
+            <div className="flex items-start gap-3">
+              <div className="rounded-xl bg-stone-100 p-2.5 text-gray-500">
+                <Upload aria-hidden className="h-5 w-5" />
+              </div>
+              <div>
+                <h2 className="text-base font-semibold text-gray-900">素材は閲覧のみです</h2>
+                <p className="mt-1 text-sm leading-6 text-gray-500">現在の役割には素材のアップロード権限がありません。既存素材の確認は右側からできます。</p>
+              </div>
+            </div>
+          </Card>
+        )}
 
         <Card size="container">
           <div className="flex items-center justify-between gap-3">
@@ -183,11 +204,13 @@ export default function SeedMediaPage() {
           </div>
 
           {!canDeleteAssets && assets.length > 0 && (
-            <p className="mt-3 text-xs leading-5 text-gray-400">素材の削除は owner / admin / editor のみ可能です。追加は既存のStorage権限に従います。</p>
+            <p className="mt-3 text-xs leading-5 text-gray-400">この役割では素材の削除はできません。</p>
           )}
 
           {assets.length === 0 ? (
-            <p className="mt-5 rounded-xl bg-stone-50 px-4 py-4 text-sm text-gray-500">まだ素材はありません。左から追加できます。</p>
+            <p className="mt-5 rounded-xl bg-stone-50 px-4 py-4 text-sm text-gray-500">
+              {canUploadAssets ? 'まだ素材はありません。左から追加できます。' : 'まだ素材はありません。アップロード権限のあるメンバーが追加できます。'}
+            </p>
           ) : (
             <div className="mt-5 space-y-3">
               {assets.map((asset) => {
