@@ -119,7 +119,7 @@ export default function QueueMediaKit({ seedId, assets }: QueueMediaKitProps) {
       </div>
 
       <p className="mt-2 text-[11px] leading-5 text-gray-400">
-        投稿文と同じSeedに添付した素材です。必要な素材を保存してから、右側のSNS投稿ボタンへ進めます。
+        画像・動画は対応スマホなら投稿カードの「スマホで共有」からまとめて共有できます。「開く・保存」は共有先アプリにうまく渡らない場合の確実な代替手段として残しています。
       </p>
     </div>
   )

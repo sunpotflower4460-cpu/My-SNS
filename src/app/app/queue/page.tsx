@@ -5,6 +5,7 @@ import PageHeader from '@/components/ui/PageHeader'
 import ChannelBadge from '@/components/ui/ChannelBadge'
 import StatusBadge from '@/components/ui/StatusBadge'
 import EmptyState from '@/components/ui/EmptyState'
+import MobilePostShareButton from '@/components/publish/MobilePostShareButton'
 import QueueMediaKit from '@/components/publish/QueueMediaKit'
 import { Badge, Button, Card, InlineAlert } from '@/components/ui/kit'
 import { useApp } from '@/lib/app/app-provider'
@@ -175,7 +176,7 @@ export default function QueuePage() {
       {publishingStrategy === 'zero-cost' && (
         <div className="mb-5">
           <InlineAlert tone="info" title="無料投稿モード">
-            外部の有料投稿APIは使いません。Seedに添付した画像・動画は各投稿の中から開く・保存できます。「○○へ投稿」で文章をコピーしてSNSの投稿画面を開き、素材を選んで最後の公開ボタンだけご自身で押してください。
+            対応スマホでは画像・動画と投稿文を共有シートへ直接渡せます。うまく渡らない端末・共有先では、従来どおり文章をコピーしてSNS投稿画面を開き、素材を選んで最後の公開ボタンだけご自身で押してください。
           </InlineAlert>
         </div>
       )}
@@ -209,6 +210,7 @@ export default function QueuePage() {
               const busy = busyJobId === job.id
               const channelLabel = PUBLISHING_CHANNEL_CONFIG[job.channel].shortLabel
               const assets = getSeedDetail(job.seedId).assets
+              const revision = draftRevisions.find((entry) => entry.id === job.revisionId)
 
               return (
                 <div key={job.id} className="flex flex-col gap-4 px-6 py-5 lg:flex-row lg:items-start">
@@ -223,7 +225,10 @@ export default function QueuePage() {
                     {job.errorMessage && <p className="mt-2 text-xs text-rose-600">{job.errorMessage}</p>}
                     <QueueMediaKit seedId={job.seedId} assets={assets} />
                   </div>
-                  <div className="flex flex-wrap items-center gap-2 lg:max-w-44 lg:justify-end">
+                  <div className="flex flex-wrap items-start gap-2 lg:max-w-52 lg:justify-end">
+                    {actions.openHandoff && revision && (
+                      <MobilePostShareButton channel={job.channel} revision={revision} assets={assets} disabled={busy} />
+                    )}
                     {actions.openHandoff && (
                       <Button size="sm" variant="primary" onClick={() => void handleOpenHandoff(job)} disabled={busy}>
                         {channelLabel}へ投稿
