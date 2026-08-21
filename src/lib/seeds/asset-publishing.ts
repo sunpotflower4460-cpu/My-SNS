@@ -23,6 +23,14 @@ function isMissingAssignmentColumn(error: AssignmentReadError): boolean {
     || (message.includes('publishing_channels') && (message.includes('does not exist') || message.includes('schema cache')))
 }
 
+export function hasCompleteAssetPublishingAssignmentCoverage(
+  assetIds: string[],
+  assignments: AssetPublishingAssignments,
+): boolean {
+  const uniqueIds = Array.from(new Set(assetIds)).filter(Boolean)
+  return uniqueIds.every((assetId) => Object.prototype.hasOwnProperty.call(assignments, assetId))
+}
+
 /**
  * Missing/empty assignments deliberately mean "all channels" for backwards
  * compatibility with every asset created before channel-specific assignment.
@@ -61,7 +69,17 @@ export async function listAssetPublishingAssignments(assetIds: string[]): Promis
     throw new Error('素材の投稿先設定を確認できませんでした。ページを更新して再試行してください。')
   }
 
-  return normalizeAssignments((data ?? []) as AssetPublishingRow[])
+  const assignments = normalizeAssignments((data ?? []) as AssetPublishingRow[])
+
+  // SELECTs filtered by RLS can legitimately return fewer rows without an
+  // explicit database error. Once the migration exists, treating those missing
+  // rows as an empty assignment would mean "all channels" and could leak media
+  // to the wrong publishing target. Require complete coverage and fail closed.
+  if (!hasCompleteAssetPublishingAssignmentCoverage(uniqueIds, assignments)) {
+    throw new Error('素材の投稿先設定を確認できませんでした。ページを更新して再試行してください。')
+  }
+
+  return assignments
 }
 
 export async function listSeedAssetPublishingAssignments(params: {
