@@ -3,12 +3,12 @@
 import { useRef, useState } from 'react'
 import Link from 'next/link'
 import { useParams } from 'next/navigation'
-import { FileText, Image as ImageIcon, Music2, Upload, Video } from 'lucide-react'
+import { FileText, Image as ImageIcon, Music2, Trash2, Upload, Video } from 'lucide-react'
 import PageHeader from '@/components/ui/PageHeader'
 import EmptyState from '@/components/ui/EmptyState'
 import { Button, Card, InlineAlert } from '@/components/ui/kit'
 import { useApp } from '@/lib/app/app-provider'
-import { appendSeedAssets } from '@/lib/seeds/assets'
+import { appendSeedAssets, deleteSeedAsset } from '@/lib/seeds/assets'
 import { assetTypeLabel, formatAssetSize, hasUsableAssetUrl } from '@/lib/presentation/asset-presenter'
 
 const TYPE_ICON = {
@@ -20,11 +20,12 @@ const TYPE_ICON = {
 
 export default function SeedMediaPage() {
   const params = useParams<{ id: string }>()
-  const { currentWorkspace, getSeedDetail, refreshWorkspaceData } = useApp()
+  const { currentMember, currentWorkspace, getSeedDetail, refreshWorkspaceData } = useApp()
   const detail = getSeedDetail(params.id)
   const inputRef = useRef<HTMLInputElement>(null)
   const [selectedFiles, setSelectedFiles] = useState<File[]>([])
   const [uploading, setUploading] = useState(false)
+  const [deletingAssetId, setDeletingAssetId] = useState<string | null>(null)
   const [feedback, setFeedback] = useState('')
   const [error, setError] = useState('')
 
@@ -43,6 +44,7 @@ export default function SeedMediaPage() {
 
   const { seed, assets } = detail
   const selectedBytes = selectedFiles.reduce((sum, file) => sum + file.size, 0)
+  const canDeleteAssets = Boolean(currentMember && ['owner', 'admin', 'editor'].includes(currentMember.role))
 
   const handleUpload = async () => {
     if (selectedFiles.length === 0) {
@@ -71,11 +73,34 @@ export default function SeedMediaPage() {
     }
   }
 
+  const handleDelete = async (assetId: string, assetName: string) => {
+    if (!canDeleteAssets) return
+    const confirmed = window.confirm(`「${assetName}」をこのSeedと非公開ストレージから削除しますか？`)
+    if (!confirmed) return
+
+    setDeletingAssetId(assetId)
+    try {
+      await deleteSeedAsset({
+        workspaceId: currentWorkspace.id,
+        seedId: seed.id,
+        assetId,
+      })
+      await refreshWorkspaceData()
+      setFeedback(`「${assetName}」を削除しました。`)
+      setError('')
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : '素材を削除できませんでした。')
+      setFeedback('')
+    } finally {
+      setDeletingAssetId(null)
+    }
+  }
+
   return (
     <div>
       <PageHeader
         title="素材管理"
-        description={`「${seed.title}」で使う画像・動画・音声・資料を後から追加できます。`}
+        description={`「${seed.title}」で使う画像・動画・音声・資料を後から追加・整理できます。`}
         actions={
           <div className="flex flex-wrap gap-3 text-sm">
             <Link href={`/app/seeds/${seed.id}`} className="text-gray-500 hover:text-gray-700">Seedへ戻る</Link>
@@ -157,6 +182,10 @@ export default function SeedMediaPage() {
             <span className="rounded-full border border-stone-200 bg-stone-50 px-2.5 py-1 text-xs text-gray-500">{assets.length}</span>
           </div>
 
+          {!canDeleteAssets && assets.length > 0 && (
+            <p className="mt-3 text-xs leading-5 text-gray-400">素材の削除は owner / admin / editor のみ可能です。追加は既存のStorage権限に従います。</p>
+          )}
+
           {assets.length === 0 ? (
             <p className="mt-5 rounded-xl bg-stone-50 px-4 py-4 text-sm text-gray-500">まだ素材はありません。左から追加できます。</p>
           ) : (
@@ -164,6 +193,7 @@ export default function SeedMediaPage() {
               {assets.map((asset) => {
                 const Icon = TYPE_ICON[asset.type]
                 const usable = hasUsableAssetUrl(asset)
+                const deleting = deletingAssetId === asset.id
                 return (
                   <div key={asset.id} className="flex min-w-0 items-center gap-3 rounded-xl border border-stone-200 p-3">
                     <div className="flex h-12 w-12 shrink-0 items-center justify-center overflow-hidden rounded-lg bg-stone-50">
@@ -178,9 +208,22 @@ export default function SeedMediaPage() {
                       <p className="truncate text-sm font-medium text-gray-800">{asset.name}</p>
                       <p className="mt-0.5 text-xs text-gray-400">{assetTypeLabel(asset.type)} · {formatAssetSize(asset.size)}</p>
                     </div>
-                    {usable && (
-                      <a href={asset.url} target="_blank" rel="noreferrer" className="shrink-0 text-xs font-medium text-violet-700 hover:text-violet-800">開く</a>
-                    )}
+                    <div className="flex shrink-0 items-center gap-2">
+                      {usable && (
+                        <a href={asset.url} target="_blank" rel="noreferrer" className="text-xs font-medium text-violet-700 hover:text-violet-800">開く</a>
+                      )}
+                      {canDeleteAssets && (
+                        <Button
+                          size="sm"
+                          variant="destructive"
+                          disabled={deleting}
+                          onClick={() => void handleDelete(asset.id, asset.name)}
+                        >
+                          <Trash2 aria-hidden className="h-3.5 w-3.5" />
+                          {deleting ? '削除中…' : '削除'}
+                        </Button>
+                      )}
+                    </div>
                   </div>
                 )
               })}

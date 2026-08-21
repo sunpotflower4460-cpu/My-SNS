@@ -35,3 +35,40 @@ export async function appendSeedAssets(params: {
 
   return saved
 }
+
+export async function deleteSeedAsset(params: {
+  workspaceId: string
+  seedId: string
+  assetId: string
+}): Promise<void> {
+  const supabase = createClient()
+
+  const { data: asset, error: lookupError } = await supabase
+    .from('assets')
+    .select('id, storage_path')
+    .eq('id', params.assetId)
+    .eq('workspace_id', params.workspaceId)
+    .eq('seed_id', params.seedId)
+    .single()
+
+  if (lookupError || !asset) {
+    throw new Error('削除する素材が見つかりません。')
+  }
+
+  // Remove private storage first so a successful metadata delete can never
+  // leave a hidden blob consuming storage. Retrying is safe if metadata
+  // deletion later fails, because Supabase remove tolerates a missing object.
+  if (asset.storage_path) {
+    const { error: storageError } = await supabase.storage.from('assets').remove([asset.storage_path])
+    if (storageError) throw new Error(`素材ファイルを削除できませんでした: ${storageError.message}`)
+  }
+
+  const { error: deleteError } = await supabase
+    .from('assets')
+    .delete()
+    .eq('id', params.assetId)
+    .eq('workspace_id', params.workspaceId)
+    .eq('seed_id', params.seedId)
+
+  if (deleteError) throw new Error(`素材情報を削除できませんでした: ${deleteError.message}`)
+}
