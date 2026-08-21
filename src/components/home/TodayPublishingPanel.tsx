@@ -3,6 +3,7 @@ import { ArrowRight, CheckCircle2, PackageCheck } from 'lucide-react'
 import ChannelBadge from '@/components/ui/ChannelBadge'
 import { Badge, Card } from '@/components/ui/kit'
 import { PUBLISHING_CHANNEL_CONFIG } from '@/lib/channels/config'
+import { buildPublishPackHref } from '@/lib/presentation/publish-pack-link'
 import { PUBLISH_PACK_STATE_LABELS } from '@/lib/presentation/publish-pack'
 import type { TodayPublishingOverview } from '@/lib/presentation/today-publishing'
 
@@ -58,7 +59,7 @@ export default function TodayPublishingPanel({ overview }: TodayPublishingPanelP
                     </div>
                   </div>
                   <Link
-                    href="/app/packs"
+                    href={buildPublishPackHref(pack.seed.id, pack.nextChannel?.channel)}
                     className="inline-flex min-h-touch shrink-0 items-center justify-center gap-1.5 rounded-xl bg-gray-900 px-4 text-sm font-medium text-white transition hover:bg-gray-700"
                   >
                     投稿を進める
@@ -102,7 +103,7 @@ export default function TodayPublishingPanel({ overview }: TodayPublishingPanelP
           </div>
 
           <Link
-            href={nextPack ? '/app/packs' : '/app/seeds/new'}
+            href={nextPack && nextChannel ? buildPublishPackHref(nextPack.seed.id, nextChannel.channel) : '/app/seeds/new'}
             className="mt-5 inline-flex min-h-touch w-full items-center justify-center gap-2 rounded-xl bg-violet-600 px-4 text-sm font-semibold text-white transition hover:bg-violet-700"
           >
             {nextPack ? 'この投稿を続ける' : '新しい発信を作る'}
