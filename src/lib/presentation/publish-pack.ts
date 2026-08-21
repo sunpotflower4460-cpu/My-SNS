@@ -45,9 +45,11 @@ export function buildPublishPacks(params: {
     .map((seed) => {
       const seedJobs = jobs.filter((job) => job.seedId === seed.id)
       const seedRevisions = revisions.filter((revision) => revision.seedId === seed.id)
-      const jobChannels = seedJobs.map((job) => job.channel)
-      const revisionChannels = seedRevisions.map((revision) => revision.channel)
-      const channels = Array.from(new Set([...seed.targetChannels, ...jobChannels, ...revisionChannels]))
+
+      // A pack reflects what the Seed targets now. Historical jobs and revisions
+      // for a channel that was later removed remain in audit/history, but do not
+      // inflate the current pack progress denominator.
+      const channels = Array.from(new Set(seed.targetChannels))
 
       const items = channels.map((channel): PublishPackChannelItem => {
         const job = newestByCreatedAt(seedJobs.filter((entry) => entry.channel === channel))
