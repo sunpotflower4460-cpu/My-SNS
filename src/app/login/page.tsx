@@ -67,11 +67,11 @@ export default function LoginPage() {
         <section className="rounded-[2rem] border border-stone-200 bg-white p-8 shadow-sm shadow-stone-200/70 sm:p-10">
           <div className="mb-8 max-w-xl">
             <div className="mb-4 flex h-12 w-12 items-center justify-center rounded-2xl bg-violet-600 text-xl font-bold text-white shadow-sm shadow-violet-200">
-              C
+              M
             </div>
-            <h1 className="text-3xl font-semibold tracking-tight text-gray-900 sm:text-4xl">Creator Hub</h1>
+            <h1 className="text-3xl font-semibold tracking-tight text-gray-900 sm:text-4xl">My-SNS</h1>
             <p className="mt-3 text-sm leading-6 text-gray-500">
-              メールアドレスを入力するだけで、あなたのワークスペースにログインできます。パスワードは不要です。ご入力のメールアドレス宛てに安全なマジックリンクをお送りしますので、届いたリンクをクリックしてください。
+              メールアドレスを入力するだけで、あなたの発信ワークスペースにログインできます。パスワードは不要です。ご入力のメールアドレス宛てに安全なマジックリンクをお送りしますので、届いたリンクをクリックしてください。
             </p>
           </div>
 
