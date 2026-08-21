@@ -1,28 +1,34 @@
 import { describe, expect, it } from 'vitest'
-import { derivePublishMode, isManualCopyChannel } from './config'
+import { derivePublishMode, getPublishingStrategy, isManualCopyChannel } from './config'
 
-describe('derivePublishMode', () => {
-  it('keeps note strictly manual, never auto', () => {
-    expect(derivePublishMode('note')).toBe('manual')
+describe('publishing strategy', () => {
+  it('fails safe to zero-cost when unset or unknown', () => {
+    expect(getPublishingStrategy(undefined)).toBe('zero-cost')
+    expect(getPublishingStrategy('')).toBe('zero-cost')
+    expect(getPublishingStrategy('something-else')).toBe('zero-cost')
+    expect(getPublishingStrategy('api-first')).toBe('api-first')
+  })
+
+  it('makes third-party publishing manual in zero-cost mode', () => {
+    for (const channel of ['x', 'instagram', 'youtube', 'tiktok', 'note', 'threads', 'facebook', 'line'] as const) {
+      expect(derivePublishMode(channel, 'zero-cost')).toBe('manual')
+    }
+    expect(derivePublishMode('website', 'zero-cost')).toBe('owned')
+  })
+
+  it('preserves the existing connector strategy as an explicit api-first opt-in', () => {
+    expect(derivePublishMode('x', 'api-first')).toBe('auto')
+    expect(derivePublishMode('instagram', 'api-first')).toBe('auto')
+    expect(derivePublishMode('youtube', 'api-first')).toBe('assisted')
+    expect(derivePublishMode('tiktok', 'api-first')).toBe('draft')
+    expect(derivePublishMode('note', 'api-first')).toBe('manual')
+    expect(derivePublishMode('threads', 'api-first')).toBe('assisted')
+    expect(derivePublishMode('facebook', 'api-first')).toBe('assisted')
+    expect(derivePublishMode('website', 'api-first')).toBe('owned')
+  })
+
+  it('keeps the static manual-copy metadata for channels that are always copy based', () => {
     expect(isManualCopyChannel('note')).toBe(true)
-  })
-
-  it('treats the creator-owned website as owned, not auto', () => {
-    expect(derivePublishMode('website')).toBe('owned')
-  })
-
-  it('matches the per-channel MVP strategy in docs/master-plan.md §3', () => {
-    // X and Instagram: auto once a real connector lands (PR4).
-    expect(derivePublishMode('x')).toBe('auto')
-    expect(derivePublishMode('instagram')).toBe('auto')
-    // YouTube and TikTok intentionally start below auto — quota/upload
-    // review and inbox-draft handoff respectively — not simply "api-later = auto".
-    expect(derivePublishMode('youtube')).toBe('assisted')
-    expect(derivePublishMode('tiktok')).toBe('draft')
-  })
-
-  it('defaults channels outside the 5 core MVP channels to a human review gate, not auto', () => {
-    expect(derivePublishMode('threads')).toBe('assisted')
-    expect(derivePublishMode('facebook')).toBe('assisted')
+    expect(isManualCopyChannel('x')).toBe(false)
   })
 })
