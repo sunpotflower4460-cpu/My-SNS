@@ -42,7 +42,7 @@ export default function TodayPublishingPanel({ overview }: TodayPublishingPanelP
                 <CheckCircle2 aria-hidden className="mt-0.5 h-5 w-5 shrink-0 text-emerald-600" />
                 <div>
                   <p className="text-sm font-medium text-emerald-900">今日までの投稿予定はありません</p>
-                  <p className="mt-1 text-xs leading-5 text-emerald-700">下の「次にやること」から、進行中の発信を1つ前へ進められます。</p>
+                  <p className="mt-1 text-xs leading-5 text-emerald-700">右の「次にやること」から、進行中の発信を1つ前へ進められます。</p>
                 </div>
               </div>
             </div>
@@ -58,7 +58,7 @@ export default function TodayPublishingPanel({ overview }: TodayPublishingPanelP
                     </div>
                   </div>
                   <Link
-                    href={`/app/packs#pack-${pack.seed.id}`}
+                    href="/app/packs"
                     className="inline-flex min-h-touch shrink-0 items-center justify-center gap-1.5 rounded-xl bg-gray-900 px-4 text-sm font-medium text-white transition hover:bg-gray-700"
                   >
                     投稿を進める
@@ -102,7 +102,7 @@ export default function TodayPublishingPanel({ overview }: TodayPublishingPanelP
           </div>
 
           <Link
-            href={nextPack ? `/app/packs#pack-${nextPack.seed.id}` : '/app/seeds/new'}
+            href={nextPack ? '/app/packs' : '/app/seeds/new'}
             className="mt-5 inline-flex min-h-touch w-full items-center justify-center gap-2 rounded-xl bg-violet-600 px-4 text-sm font-semibold text-white transition hover:bg-violet-700"
           >
             {nextPack ? 'この投稿を続ける' : '新しい発信を作る'}
