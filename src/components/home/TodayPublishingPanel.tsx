@@ -33,7 +33,7 @@ export default function TodayPublishingPanel({ overview }: TodayPublishingPanelP
               <PackageCheck aria-hidden className="h-4 w-4 text-violet-600" />
               <p className="text-sm font-semibold text-gray-900">今日やる</p>
             </div>
-            <Badge tone={duePacks.length > 0 ? 'selected' : 'neutral'}>{duePacks.length}パック</Badge>
+            <Badge tone={duePacks.length > 0 ? 'accent' : 'neutral'}>{duePacks.length}パック</Badge>
           </div>
 
           {duePacks.length === 0 ? (
