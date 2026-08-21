@@ -112,6 +112,9 @@ export const ROLE_PERMISSIONS: Record<WorkspaceRole, Permission[]> = {
     'view_team',
     'view_settings',
     'upload_assets',
+    // Keep the client permission model aligned with both database and Storage
+    // RLS: editors are allowed to delete workspace Seed assets.
+    'delete_assets',
   ],
   contributor: [
     'view_seeds',

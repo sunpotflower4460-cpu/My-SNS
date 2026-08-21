@@ -52,10 +52,20 @@ export function buildPublishPacks(params: {
       const channels = Array.from(new Set(seed.targetChannels))
 
       const items = channels.map((channel): PublishPackChannelItem => {
-        const job = newestByCreatedAt(seedJobs.filter((entry) => entry.channel === channel))
+        const channelJobs = seedJobs.filter((entry) => entry.channel === channel)
+        const channelRevisions = seedRevisions.filter((entry) => entry.channel === channel)
+        const latestJob = newestByCreatedAt(channelJobs)
+        const latestRevision = newestByCreatedAt(channelRevisions)
+
+        // A cancelled Queue job is history, not an active blocker. Treat the
+        // channel as approved again so the creator can re-add it to the Queue.
+        // This also deliberately switches back to the latest approved Revision,
+        // rather than keeping copy/actions pinned to the cancelled job's older
+        // Revision after the creator has made a newer approval.
+        const job = latestJob?.status === 'cancelled' ? undefined : latestJob
         const revision = job
-          ? seedRevisions.find((entry) => entry.id === job.revisionId)
-          : newestByCreatedAt(seedRevisions.filter((entry) => entry.channel === channel))
+          ? channelRevisions.find((entry) => entry.id === job.revisionId)
+          : latestRevision
 
         return {
           channel,
