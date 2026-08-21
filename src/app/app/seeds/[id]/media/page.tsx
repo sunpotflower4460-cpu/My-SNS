@@ -1,6 +1,6 @@
 'use client'
 
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import Link from 'next/link'
 import { useParams } from 'next/navigation'
 import { FileText, Image as ImageIcon, Music2, Trash2, Upload, Video } from 'lucide-react'
@@ -8,7 +8,14 @@ import PageHeader from '@/components/ui/PageHeader'
 import EmptyState from '@/components/ui/EmptyState'
 import { Button, Card, InlineAlert } from '@/components/ui/kit'
 import { useApp } from '@/lib/app/app-provider'
+import { PUBLISHING_CHANNEL_CONFIG } from '@/lib/channels/config'
+import type { PublishingChannel } from '@/lib/domain/types'
 import { appendSeedAssets, deleteSeedAsset } from '@/lib/seeds/assets'
+import {
+  listSeedAssetPublishingAssignments,
+  updateSeedAssetPublishingChannels,
+  type AssetPublishingAssignments,
+} from '@/lib/seeds/asset-publishing'
 import { hasPermission } from '@/lib/permissions'
 import { assetTypeLabel, formatAssetSize, hasUsableAssetUrl } from '@/lib/presentation/asset-presenter'
 
@@ -27,8 +34,30 @@ export default function SeedMediaPage() {
   const [selectedFiles, setSelectedFiles] = useState<File[]>([])
   const [uploading, setUploading] = useState(false)
   const [deletingAssetId, setDeletingAssetId] = useState<string | null>(null)
+  const [savingAssignmentAssetId, setSavingAssignmentAssetId] = useState<string | null>(null)
+  const [publishingAssignments, setPublishingAssignments] = useState<AssetPublishingAssignments>({})
   const [feedback, setFeedback] = useState('')
   const [error, setError] = useState('')
+  const seedId = detail.seed?.id
+  const assetIdsKey = detail.assets.map((asset) => asset.id).join('|')
+
+  useEffect(() => {
+    let active = true
+
+    if (!currentWorkspace || !seedId) {
+      setPublishingAssignments({})
+      return () => { active = false }
+    }
+
+    void listSeedAssetPublishingAssignments({
+      workspaceId: currentWorkspace.id,
+      seedId,
+    }).then((assignments) => {
+      if (active) setPublishingAssignments(assignments)
+    })
+
+    return () => { active = false }
+  }, [assetIdsKey, currentWorkspace, seedId])
 
   if (!detail.seed || !currentWorkspace) {
     return (
@@ -47,6 +76,7 @@ export default function SeedMediaPage() {
   const selectedBytes = selectedFiles.reduce((sum, file) => sum + file.size, 0)
   const canUploadAssets = Boolean(currentMember && hasPermission(currentMember.role, 'upload_assets'))
   const canDeleteAssets = Boolean(currentMember && hasPermission(currentMember.role, 'delete_assets'))
+  const canAssignAssets = canUploadAssets
 
   const handleUpload = async () => {
     if (!canUploadAssets) {
@@ -70,7 +100,7 @@ export default function SeedMediaPage() {
       await refreshWorkspaceData()
       setSelectedFiles([])
       if (inputRef.current) inputRef.current.value = ''
-      setFeedback(`${saved.length}件の素材を追加しました。公開予定からそのまま開く・保存できます。`)
+      setFeedback(`${saved.length}件の素材を追加しました。初期状態ではすべての投稿先で使われます。`)
       setError('')
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : '素材を追加できませんでした。')
@@ -93,6 +123,11 @@ export default function SeedMediaPage() {
         assetId,
       })
       await refreshWorkspaceData()
+      setPublishingAssignments((current) => {
+        const next = { ...current }
+        delete next[assetId]
+        return next
+      })
       setFeedback(`「${assetName}」を削除しました。`)
       setError('')
     } catch (cause) {
@@ -101,6 +136,33 @@ export default function SeedMediaPage() {
     } finally {
       setDeletingAssetId(null)
     }
+  }
+
+  const handleAssignmentChange = async (assetId: string, assetName: string, channels: PublishingChannel[]) => {
+    if (!canAssignAssets) return
+
+    setSavingAssignmentAssetId(assetId)
+    try {
+      await updateSeedAssetPublishingChannels({ assetId, channels })
+      setPublishingAssignments((current) => ({ ...current, [assetId]: channels }))
+      setFeedback(
+        channels.length === 0
+          ? `「${assetName}」をすべての投稿先で使う設定にしました。`
+          : `「${assetName}」の投稿先を更新しました。`,
+      )
+      setError('')
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : '素材の投稿先を保存できませんでした。')
+      setFeedback('')
+    } finally {
+      setSavingAssignmentAssetId(null)
+    }
+  }
+
+  const toggleChannel = (assignedChannels: PublishingChannel[], channel: PublishingChannel): PublishingChannel[] => {
+    if (assignedChannels.length === 0) return [channel]
+    if (assignedChannels.includes(channel)) return assignedChannels.filter((entry) => entry !== channel)
+    return [...assignedChannels, channel]
   }
 
   return (
@@ -188,7 +250,7 @@ export default function SeedMediaPage() {
               </div>
               <div>
                 <h2 className="text-base font-semibold text-gray-900">素材は閲覧のみです</h2>
-                <p className="mt-1 text-sm leading-6 text-gray-500">現在の役割には素材のアップロード権限がありません。既存素材の確認は右側からできます。</p>
+                <p className="mt-1 text-sm leading-6 text-gray-500">現在の役割には素材のアップロード・投稿先変更権限がありません。既存素材の確認は右側からできます。</p>
               </div>
             </div>
           </Card>
@@ -198,7 +260,7 @@ export default function SeedMediaPage() {
           <div className="flex items-center justify-between gap-3">
             <div>
               <h2 className="text-base font-semibold text-gray-900">現在の素材</h2>
-              <p className="mt-1 text-sm text-gray-500">公開予定にも同じ素材が自動表示されます。</p>
+              <p className="mt-1 text-sm text-gray-500">「全媒体」は従来どおりSeedのすべての投稿先で使います。媒体を選ぶと、その投稿先の共有時だけ素材を渡します。</p>
             </div>
             <span className="rounded-full border border-stone-200 bg-stone-50 px-2.5 py-1 text-xs text-gray-500">{assets.length}</span>
           </div>
@@ -217,36 +279,80 @@ export default function SeedMediaPage() {
                 const Icon = TYPE_ICON[asset.type]
                 const usable = hasUsableAssetUrl(asset)
                 const deleting = deletingAssetId === asset.id
+                const savingAssignment = savingAssignmentAssetId === asset.id
+                const assignedChannels = publishingAssignments[asset.id] ?? []
+                const usesAllChannels = assignedChannels.length === 0
+                const appliesToCurrentTargets = usesAllChannels || assignedChannels.some((channel) => seed.targetChannels.includes(channel))
+
                 return (
-                  <div key={asset.id} className="flex min-w-0 items-center gap-3 rounded-xl border border-stone-200 p-3">
-                    <div className="flex h-12 w-12 shrink-0 items-center justify-center overflow-hidden rounded-lg bg-stone-50">
-                      {asset.type === 'image' && usable ? (
-                        // eslint-disable-next-line @next/next/no-img-element
-                        <img src={asset.url} alt="" className="h-full w-full object-cover" />
-                      ) : (
-                        <Icon aria-hidden className="h-5 w-5 text-gray-400" />
-                      )}
+                  <div key={asset.id} className="rounded-xl border border-stone-200 p-3">
+                    <div className="flex min-w-0 items-center gap-3">
+                      <div className="flex h-12 w-12 shrink-0 items-center justify-center overflow-hidden rounded-lg bg-stone-50">
+                        {asset.type === 'image' && usable ? (
+                          // eslint-disable-next-line @next/next/no-img-element
+                          <img src={asset.url} alt="" className="h-full w-full object-cover" />
+                        ) : (
+                          <Icon aria-hidden className="h-5 w-5 text-gray-400" />
+                        )}
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <p className="truncate text-sm font-medium text-gray-800">{asset.name}</p>
+                        <p className="mt-0.5 text-xs text-gray-400">{assetTypeLabel(asset.type)} · {formatAssetSize(asset.size)}</p>
+                      </div>
+                      <div className="flex shrink-0 items-center gap-2">
+                        {usable && (
+                          <a href={asset.url} target="_blank" rel="noreferrer" className="text-xs font-medium text-violet-700 hover:text-violet-800">開く</a>
+                        )}
+                        {canDeleteAssets && (
+                          <Button
+                            size="sm"
+                            variant="destructive"
+                            disabled={deleting}
+                            onClick={() => void handleDelete(asset.id, asset.name)}
+                          >
+                            <Trash2 aria-hidden className="h-3.5 w-3.5" />
+                            {deleting ? '削除中…' : '削除'}
+                          </Button>
+                        )}
+                      </div>
                     </div>
-                    <div className="min-w-0 flex-1">
-                      <p className="truncate text-sm font-medium text-gray-800">{asset.name}</p>
-                      <p className="mt-0.5 text-xs text-gray-400">{assetTypeLabel(asset.type)} · {formatAssetSize(asset.size)}</p>
-                    </div>
-                    <div className="flex shrink-0 items-center gap-2">
-                      {usable && (
-                        <a href={asset.url} target="_blank" rel="noreferrer" className="text-xs font-medium text-violet-700 hover:text-violet-800">開く</a>
-                      )}
-                      {canDeleteAssets && (
-                        <Button
-                          size="sm"
-                          variant="destructive"
-                          disabled={deleting}
-                          onClick={() => void handleDelete(asset.id, asset.name)}
-                        >
-                          <Trash2 aria-hidden className="h-3.5 w-3.5" />
-                          {deleting ? '削除中…' : '削除'}
-                        </Button>
-                      )}
-                    </div>
+
+                    {seed.targetChannels.length > 0 && (
+                      <div className="mt-3 border-t border-stone-100 pt-3">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className="mr-1 text-[11px] font-medium text-gray-500">この素材を使う投稿先</span>
+                          <button
+                            type="button"
+                            aria-pressed={usesAllChannels}
+                            disabled={!canAssignAssets || savingAssignment}
+                            onClick={() => void handleAssignmentChange(asset.id, asset.name, [])}
+                            className={`rounded-full border px-2.5 py-1 text-[11px] font-medium transition disabled:cursor-not-allowed disabled:opacity-60 ${usesAllChannels ? 'border-violet-300 bg-violet-50 text-violet-700' : 'border-stone-200 bg-white text-gray-500 hover:bg-stone-50'}`}
+                          >
+                            全媒体
+                          </button>
+                          {seed.targetChannels.map((channel) => {
+                            const selected = assignedChannels.includes(channel)
+                            const nextChannels = toggleChannel(assignedChannels, channel)
+                            return (
+                              <button
+                                key={channel}
+                                type="button"
+                                aria-pressed={selected}
+                                disabled={!canAssignAssets || savingAssignment}
+                                onClick={() => void handleAssignmentChange(asset.id, asset.name, nextChannels)}
+                                className={`rounded-full border px-2.5 py-1 text-[11px] font-medium transition disabled:cursor-not-allowed disabled:opacity-60 ${selected ? 'border-violet-300 bg-violet-50 text-violet-700' : 'border-stone-200 bg-white text-gray-500 hover:bg-stone-50'}`}
+                              >
+                                {PUBLISHING_CHANNEL_CONFIG[channel].shortLabel}
+                              </button>
+                            )
+                          })}
+                          {savingAssignment && <span className="text-[11px] text-gray-400">保存中…</span>}
+                        </div>
+                        {!appliesToCurrentTargets && (
+                          <p className="mt-2 text-[11px] leading-5 text-amber-700">現在のSeed投稿先には割り当てられていません。「全媒体」か使用する媒体を選んでください。</p>
+                        )}
+                      </div>
+                    )}
                   </div>
                 )
               })}
