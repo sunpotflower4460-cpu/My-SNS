@@ -23,19 +23,6 @@ function isMissingAssignmentColumn(error: AssignmentReadError): boolean {
     || (message.includes('publishing_channels') && (message.includes('does not exist') || message.includes('schema cache')))
 }
 
-function handleAssignmentReadError(error: AssignmentReadError, context: string): AssetPublishingAssignments {
-  // Only a deployment that has not applied the additive migration may retain
-  // historical all-assets behavior. Once assignments exist, transient network,
-  // auth, or database errors must fail closed so the wrong channel never gets
-  // another channel's media by accident.
-  if (isMissingAssignmentColumn(error)) {
-    console.warn(`${context}: publishing_channels migration is not applied; using legacy all-channel asset behavior.`)
-    return {}
-  }
-
-  throw new Error('素材の投稿先設定を確認できませんでした。ページを更新して再試行してください。')
-}
-
 /**
  * Missing/empty assignments deliberately mean "all channels" for backwards
  * compatibility with every asset created before channel-specific assignment.
@@ -61,7 +48,18 @@ export async function listAssetPublishingAssignments(assetIds: string[]): Promis
     .select('id, publishing_channels')
     .in('id', uniqueIds)
 
-  if (error) return handleAssignmentReadError(error, 'Error fetching asset publishing assignments')
+  if (error) {
+    // Only a deployment that has not applied the additive migration may retain
+    // historical all-assets behavior. Once assignments exist, transient network,
+    // auth, or database errors must fail closed so the wrong channel never gets
+    // another channel's media by accident.
+    if (isMissingAssignmentColumn(error)) {
+      console.warn('Asset publishing assignments migration is not applied; using legacy all-channel asset behavior.')
+      return {}
+    }
+
+    throw new Error('素材の投稿先設定を確認できませんでした。ページを更新して再試行してください。')
+  }
 
   return normalizeAssignments((data ?? []) as AssetPublishingRow[])
 }
@@ -77,7 +75,17 @@ export async function listSeedAssetPublishingAssignments(params: {
     .eq('workspace_id', params.workspaceId)
     .eq('seed_id', params.seedId)
 
-  if (error) return handleAssignmentReadError(error, 'Error fetching Seed asset publishing assignments')
+  if (error) {
+    // This path powers the management UI rather than the publish action. Keep
+    // the screen usable while surfacing the problem in logs; the actual share
+    // path above is intentionally stricter and will stop on transient failures.
+    if (isMissingAssignmentColumn(error)) {
+      console.warn('Asset publishing assignments migration is not applied; showing legacy all-channel asset behavior.')
+    } else {
+      console.error('Error fetching Seed asset publishing assignments:', error)
+    }
+    return {}
+  }
 
   return normalizeAssignments((data ?? []) as AssetPublishingRow[])
 }
