@@ -254,14 +254,19 @@ export async function removeWorkspaceMember(params: {
 }): Promise<void> {
   const supabase = createClient()
 
-  const { error } = await supabase
+  const { data, error } = await supabase
     .from('workspace_members')
     .delete()
     .eq('workspace_id', params.workspaceId)
     .eq('user_id', params.userId)
+    .select('id')
+    .maybeSingle()
 
   if (error) {
     throw new Error(error.message)
+  }
+  if (!data) {
+    throw new Error('削除するメンバーが見つからないか、削除する権限がありません。')
   }
 }
 
