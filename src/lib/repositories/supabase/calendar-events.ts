@@ -117,6 +117,14 @@ export async function updateCalendarEvent(workspaceId: string, eventId: string, 
 export async function deleteCalendarEvent(workspaceId: string, eventId: string): Promise<void> {
   const supabase = createClient()
 
-  const { error } = await supabase.from('calendar_events').delete().eq('id', eventId).eq('workspace_id', workspaceId)
+  const { data, error } = await supabase
+    .from('calendar_events')
+    .delete()
+    .eq('id', eventId)
+    .eq('workspace_id', workspaceId)
+    .select('id')
+    .maybeSingle()
+
   if (error) throw new Error(error.message)
+  if (!data) throw new Error('削除する予定が見つからないか、削除する権限がありません。')
 }
