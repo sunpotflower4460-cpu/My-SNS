@@ -5,6 +5,7 @@ import PageHeader from '@/components/ui/PageHeader'
 import ChannelBadge from '@/components/ui/ChannelBadge'
 import StatusBadge from '@/components/ui/StatusBadge'
 import EmptyState from '@/components/ui/EmptyState'
+import QueueMediaKit from '@/components/publish/QueueMediaKit'
 import { Badge, Button, Card, InlineAlert } from '@/components/ui/kit'
 import { useApp } from '@/lib/app/app-provider'
 import { hasPermission } from '@/lib/permissions'
@@ -51,6 +52,7 @@ export default function QueuePage() {
     completeManualPublish,
     currentMember,
     draftRevisions,
+    getSeedDetail,
     publishJobs,
     retryQueueJob,
     seeds,
@@ -168,12 +170,12 @@ export default function QueuePage() {
 
   return (
     <div>
-      <PageHeader title="公開予定" description="承認済みの投稿を、一箇所から各SNSへ安全に渡して公開できます。" />
+      <PageHeader title="公開予定" description="承認済みの投稿文と添付素材を、一箇所から各SNSへ安全に渡して公開できます。" />
 
       {publishingStrategy === 'zero-cost' && (
         <div className="mb-5">
           <InlineAlert tone="info" title="無料投稿モード">
-            外部の有料投稿APIは使いません。「○○へ投稿」を押すと承認済み文章をコピーして、そのSNS自身の投稿画面を開きます。画像・動画は投稿画面側で選び、最後の公開ボタンだけご自身で押してください。
+            外部の有料投稿APIは使いません。Seedに添付した画像・動画は各投稿の中から開く・保存できます。「○○へ投稿」で文章をコピーしてSNSの投稿画面を開き、素材を選んで最後の公開ボタンだけご自身で押してください。
           </InlineAlert>
         </div>
       )}
@@ -206,9 +208,11 @@ export default function QueuePage() {
               const actions = getJobActions(job, canManageQueue, apiPublishingEnabled)
               const busy = busyJobId === job.id
               const channelLabel = PUBLISHING_CHANNEL_CONFIG[job.channel].shortLabel
+              const assets = getSeedDetail(job.seedId).assets
+
               return (
-                <div key={job.id} className="flex flex-col gap-4 px-6 py-5 lg:flex-row lg:items-center">
-                  <div className="flex flex-wrap items-center gap-2">
+                <div key={job.id} className="flex flex-col gap-4 px-6 py-5 lg:flex-row lg:items-start">
+                  <div className="flex flex-wrap items-center gap-2 lg:pt-0.5">
                     <ChannelBadge channel={job.channel} />
                     <StatusBadge status={job.status} />
                     <Badge tone="neutral">{publishModeLabel(job.publishMode)}</Badge>
@@ -217,8 +221,9 @@ export default function QueuePage() {
                     <p className="truncate text-sm font-medium text-gray-900">{getSeedTitle(job.seedId)}</p>
                     <p className="mt-1 text-xs text-gray-500">{describeJobStatus(job)}</p>
                     {job.errorMessage && <p className="mt-2 text-xs text-rose-600">{job.errorMessage}</p>}
+                    <QueueMediaKit assets={assets} />
                   </div>
-                  <div className="flex flex-wrap items-center gap-2 lg:justify-end">
+                  <div className="flex flex-wrap items-center gap-2 lg:max-w-44 lg:justify-end">
                     {actions.openHandoff && (
                       <Button size="sm" variant="primary" onClick={() => void handleOpenHandoff(job)} disabled={busy}>
                         {channelLabel}へ投稿
