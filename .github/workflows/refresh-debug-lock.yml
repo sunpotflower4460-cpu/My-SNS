@@ -1,9 +1,9 @@
 name: Refresh debug lockfile
 
 on:
-  push:
+  pull_request:
     branches:
-      - fix/debug-pass-20260821
+      - main
     paths:
       - package.json
 
@@ -12,6 +12,7 @@ permissions:
 
 jobs:
   refresh:
+    if: github.actor != 'github-actions[bot]'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
