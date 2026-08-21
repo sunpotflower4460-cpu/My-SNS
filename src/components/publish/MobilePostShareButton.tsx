@@ -1,5 +1,6 @@
 'use client'
 
+import Link from 'next/link'
 import { useEffect, useMemo, useState } from 'react'
 import { Share2 } from 'lucide-react'
 import { Button } from '@/components/ui/kit'
@@ -7,16 +8,13 @@ import { PUBLISHING_CHANNEL_CONFIG } from '@/lib/channels/config'
 import type { Asset, DraftRevision, PublishingChannel } from '@/lib/domain/types'
 import { formatRevisionForHandoff } from '@/lib/services/publish-handoff'
 import { getWebShareMediaAssets, prepareWebShareFiles } from '@/lib/services/web-share'
+import { describeWebShareFailure } from '@/lib/services/web-share-diagnostics'
 
 interface MobilePostShareButtonProps {
   channel: PublishingChannel
   revision: DraftRevision
   assets: Asset[]
   disabled?: boolean
-}
-
-function isShareCancellation(cause: unknown): boolean {
-  return cause instanceof DOMException && cause.name === 'AbortError'
 }
 
 export default function MobilePostShareButton({ channel, revision, assets, disabled = false }: MobilePostShareButtonProps) {
@@ -50,7 +48,7 @@ export default function MobilePostShareButton({ channel, revision, assets, disab
 
     if (files.length > 0) {
       if (typeof navigator.canShare !== 'function' || !navigator.canShare({ files })) {
-        throw new Error('この端末では、この画像・動画を共有シートへ直接渡せません。下の「開く・保存」を使って投稿してください。')
+        throw new TypeError('selected media cannot be shared on this device')
       }
       shareData.files = files
     }
@@ -65,8 +63,6 @@ export default function MobilePostShareButton({ channel, revision, assets, disab
     try {
       if (preparedFiles) {
         await sharePrepared(preparedFiles)
-        // Videos can be large. Once the OS accepted the share request there is
-        // no reason to keep those File/Blob references alive in React state.
         setPreparedFiles(null)
         setMessage('共有シートへ渡しました。共有先アプリ側で内容を確認して投稿してください。')
         return
@@ -86,8 +82,7 @@ export default function MobilePostShareButton({ channel, revision, assets, disab
       // Web Share requires transient user activation. Some mobile browsers keep
       // activation while the signed media fetch finishes; others do not. If it
       // has expired, retain the prepared Files and make the second tap call
-      // navigator.share() immediately, which is reliable and still avoids the
-      // old save-each-file + reopen-app workflow.
+      // navigator.share() immediately.
       if (navigator.userActivation && !navigator.userActivation.isActive) {
         setMessage('素材の準備ができました。もう一度タップすると共有シートを開きます。')
         return
@@ -97,16 +92,12 @@ export default function MobilePostShareButton({ channel, revision, assets, disab
       setPreparedFiles(null)
       setMessage('画像・動画と投稿文を共有シートへ渡しました。共有先アプリ側で内容を確認して投稿してください。')
     } catch (cause) {
-      if (isShareCancellation(cause)) {
-        setMessage(
-          mediaAssets.length > 0
-            ? '共有をキャンセルしました。素材は準備済みなので、必要ならもう一度タップできます。'
-            : '共有をキャンセルしました。必要ならもう一度タップできます。',
-        )
+      const failure = describeWebShareFailure(cause, mediaAssets.length > 0)
+      if (failure.code === 'abort') {
+        setMessage(failure.message)
         return
       }
-
-      setError(cause instanceof Error ? cause.message : '共有シートを開けませんでした。従来の投稿ボタンをご利用ください。')
+      setError(failure.message)
     } finally {
       setPreparing(false)
     }
@@ -127,7 +118,14 @@ export default function MobilePostShareButton({ channel, revision, assets, disab
         {label}
       </Button>
       {message && <p className="mt-1.5 max-w-xs text-[11px] leading-4 text-emerald-700">{message}</p>}
-      {error && <p className="mt-1.5 max-w-xs text-[11px] leading-4 text-rose-600">{error}</p>}
+      {error && (
+        <p className="mt-1.5 max-w-xs text-[11px] leading-4 text-rose-600">
+          {error}{' '}
+          <Link href="/app/share-diagnostics" className="font-medium underline underline-offset-2">
+            共有診断を開く
+          </Link>
+        </p>
+      )}
     </div>
   )
 }
