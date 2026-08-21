@@ -1,6 +1,7 @@
 import {
   LayoutGrid,
   Sprout,
+  PackageCheck,
   CalendarClock,
   Inbox,
   CalendarDays,
@@ -13,8 +14,8 @@ import {
 
 // Shared between the desktop GroupedSidebar, the mobile bottom nav, and the
 // "その他" drawer so every navigation surface stays in sync. Routes are
-// unchanged (UI-PR1 keeps existing URLs); only labels are grouped by the user's
-// jobs — つくる・届ける / つながる / 振り返る / 管理 — and icons are unified to lucide.
+// unchanged for existing destinations; 投稿パック is the practical one-place
+// publishing workspace while 公開予定 remains the detailed job/diagnostic view.
 // 下書き(/app/drafts) is intentionally not in the nav: it's a step within a
 // 発信, not a destination — the route still works for existing links.
 
@@ -35,6 +36,7 @@ export const NAV_GROUPS: NavGroup[] = [
     heading: 'つくる・届ける',
     items: [
       { label: '発信ライブラリ', href: '/app/seeds', icon: Sprout },
+      { label: '投稿パック', href: '/app/packs', icon: PackageCheck },
       { label: '公開予定', href: '/app/queue', icon: CalendarClock },
     ],
   },
