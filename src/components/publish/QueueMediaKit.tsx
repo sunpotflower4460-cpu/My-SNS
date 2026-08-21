@@ -52,11 +52,11 @@ export default function QueueMediaKit({ seedId, assets }: QueueMediaKitProps) {
   return (
     <div className="mt-3 rounded-xl border border-stone-200 bg-stone-50/70 p-3">
       <div className="mb-2 flex items-center justify-between gap-3">
-        <p className="text-xs font-semibold text-gray-700">この投稿で使う素材</p>
+        <p className="text-xs font-semibold text-gray-700">Seedの素材</p>
         <div className="flex items-center gap-2">
           <span className="text-[11px] text-gray-400">{assets.length}件</span>
           <Link href={`/app/seeds/${seedId}/media`} className="text-[11px] font-medium text-violet-700 hover:text-violet-800">
-            追加・管理
+            投稿先を割り当て・管理
           </Link>
         </div>
       </div>
@@ -119,7 +119,7 @@ export default function QueueMediaKit({ seedId, assets }: QueueMediaKitProps) {
       </div>
 
       <p className="mt-2 text-[11px] leading-5 text-gray-400">
-        画像・動画は対応スマホなら投稿カードの「スマホで共有」からまとめて共有できます。「開く・保存」は共有先アプリにうまく渡らない場合の確実な代替手段として残しています。
+        「スマホで共有」は素材管理で設定した投稿先だけを自動で選びます。ここではSeed内の全素材を確認でき、「開く・保存」は共有先アプリにうまく渡らない場合の確実な代替手段です。
       </p>
     </div>
   )
