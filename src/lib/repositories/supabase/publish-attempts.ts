@@ -86,37 +86,56 @@ export interface RecordPublishAttemptInput {
   createdBy?: string
 }
 
+const ATTEMPT_NUMBER_RETRIES = 3
+
+async function nextAttemptNumber(supabase: SupabaseClient, publishJobId: string): Promise<number> {
+  const { data, error } = await supabase
+    .from('publish_attempts')
+    .select('attempt_number')
+    .eq('publish_job_id', publishJobId)
+    .order('attempt_number', { ascending: false })
+    .limit(1)
+    .maybeSingle()
+
+  if (error) throw new Error(error.message)
+  return ((data as { attempt_number?: number } | null)?.attempt_number ?? 0) + 1
+}
+
 /**
- * Records the next attempt for a job (auto-numbered) — used by both the
- * Worker (service-role client, automated attempts) and the app (browser
- * client, a human recording a manual completion). Attempts are never
- * updated after creation; a retry is always a new row.
+ * Records the next attempt for a job. Attempt numbers are unique per job, so
+ * another writer can win the same next number between our read and insert.
+ * Retry that narrow unique-conflict window instead of letting bookkeeping fail
+ * after a real platform action has already happened.
  */
 export async function recordPublishAttempt(
   supabase: SupabaseClient,
   input: RecordPublishAttemptInput,
 ): Promise<PublishAttempt> {
-  const { count } = await supabase
-    .from('publish_attempts')
-    .select('id', { count: 'exact', head: true })
-    .eq('publish_job_id', input.publishJobId)
+  for (let retry = 0; retry < ATTEMPT_NUMBER_RETRIES; retry += 1) {
+    const attemptNumber = await nextAttemptNumber(supabase, input.publishJobId)
+    const { data, error } = await supabase
+      .from('publish_attempts')
+      .insert({
+        workspace_id: input.workspaceId,
+        publish_job_id: input.publishJobId,
+        attempt_number: attemptNumber,
+        status: input.status,
+        failure_reason: input.failureReason ?? null,
+        error_message: input.errorMessage ?? null,
+        external_post_id: input.externalPostId ?? null,
+        external_url: input.externalUrl ?? null,
+        created_by: input.createdBy ?? null,
+      })
+      .select()
+      .single()
 
-  const { data, error } = await supabase
-    .from('publish_attempts')
-    .insert({
-      workspace_id: input.workspaceId,
-      publish_job_id: input.publishJobId,
-      attempt_number: (count ?? 0) + 1,
-      status: input.status,
-      failure_reason: input.failureReason ?? null,
-      error_message: input.errorMessage ?? null,
-      external_post_id: input.externalPostId ?? null,
-      external_url: input.externalUrl ?? null,
-      created_by: input.createdBy ?? null,
-    })
-    .select()
-    .single()
+    if (!error) return mapAttempt(data as PublishAttemptRow)
 
-  if (error) throw new Error(error.message)
-  return mapAttempt(data as PublishAttemptRow)
+    const attemptNumberConflict = error.code === '23505'
+    if (!attemptNumberConflict || retry === ATTEMPT_NUMBER_RETRIES - 1) {
+      throw new Error(error.message)
+    }
+  }
+
+  throw new Error('Unable to record publish attempt.')
 }
