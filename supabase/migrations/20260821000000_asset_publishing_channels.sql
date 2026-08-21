@@ -41,7 +41,7 @@ BEGIN
 
   IF EXISTS (
     SELECT 1
-    FROM unnest(normalized_channels) AS channel
+    FROM unnest(normalized_channels) AS item(channel)
     WHERE channel NOT IN (
       'youtube', 'instagram', 'threads', 'x', 'tiktok', 'facebook', 'line', 'note', 'website'
     )
@@ -51,7 +51,7 @@ BEGIN
 
   SELECT COALESCE(array_agg(DISTINCT channel ORDER BY channel), ARRAY[]::TEXT[])
     INTO normalized_channels
-  FROM unnest(normalized_channels) AS channel;
+  FROM unnest(normalized_channels) AS item(channel);
 
   UPDATE public.assets
   SET publishing_channels = normalized_channels
