@@ -221,7 +221,7 @@ export default function QueuePage() {
                     <p className="truncate text-sm font-medium text-gray-900">{getSeedTitle(job.seedId)}</p>
                     <p className="mt-1 text-xs text-gray-500">{describeJobStatus(job)}</p>
                     {job.errorMessage && <p className="mt-2 text-xs text-rose-600">{job.errorMessage}</p>}
-                    <QueueMediaKit assets={assets} />
+                    <QueueMediaKit seedId={job.seedId} assets={assets} />
                   </div>
                   <div className="flex flex-wrap items-center gap-2 lg:max-w-44 lg:justify-end">
                     {actions.openHandoff && (
