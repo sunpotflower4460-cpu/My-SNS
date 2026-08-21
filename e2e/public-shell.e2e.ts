@@ -1,5 +1,12 @@
 import { expect, test } from '@playwright/test'
 
+test.beforeEach(async ({ context }) => {
+  // These smoke tests deliberately prove the public/auth shell without relying
+  // on Supabase or any SNS. Abort unexpected external requests so CI failures
+  // cannot be caused by third-party availability or accidentally send data.
+  await context.route(/^https?:\/\/(?!127\.0\.0\.1:3100(?:\/|$))/, (route) => route.abort())
+})
+
 test('login renders My-SNS and validates an empty email locally', async ({ page }) => {
   await page.goto('/login')
 
