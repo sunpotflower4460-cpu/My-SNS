@@ -44,6 +44,31 @@ test('PWA manifest is linked and launches into the publishing dashboard', async 
   ]))
 })
 
+test('security headers protect the app without disabling Web Share', async ({ page }) => {
+  const response = await page.goto('/login')
+  expect(response).not.toBeNull()
+
+  const headers = response!.headers()
+  expect(headers['x-content-type-options']).toBe('nosniff')
+  expect(headers['referrer-policy']).toBe('strict-origin-when-cross-origin')
+  expect(headers['x-frame-options']).toBe('DENY')
+  expect(headers['x-dns-prefetch-control']).toBe('off')
+  expect(headers['x-permitted-cross-domain-policies']).toBe('none')
+
+  const contentSecurityPolicy = headers['content-security-policy'] ?? ''
+  expect(contentSecurityPolicy).toContain("base-uri 'self'")
+  expect(contentSecurityPolicy).toContain("frame-ancestors 'none'")
+  expect(contentSecurityPolicy).toContain("object-src 'none'")
+  expect(contentSecurityPolicy).toContain("form-action 'self'")
+
+  const permissionsPolicy = headers['permissions-policy'] ?? ''
+  expect(permissionsPolicy).toContain('camera=()')
+  expect(permissionsPolicy).toContain('microphone=()')
+  expect(permissionsPolicy).toContain('geolocation=()')
+  expect(permissionsPolicy).toContain('web-share=(self)')
+  expect(permissionsPolicy).not.toContain('web-share=()')
+})
+
 test('mobile-width login shell does not overflow horizontally', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 })
   await page.goto('/login')
