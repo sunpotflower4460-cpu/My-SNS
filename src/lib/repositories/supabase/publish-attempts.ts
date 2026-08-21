@@ -27,7 +27,7 @@ function mapAttempt(row: PublishAttemptRow): PublishAttempt {
     failureReason: row.failure_reason ?? undefined,
     errorMessage: row.error_message ?? undefined,
     externalPostId: row.external_post_id ?? undefined,
-    externalUrl: row.external_url ?? undefined,
+    externalUrl: normalizeExternalHttpUrl(row.external_url),
     createdBy: row.created_by ?? undefined,
     createdAt: row.created_at,
   }
