@@ -4,7 +4,7 @@ import { hasUsableAssetUrl } from '@/lib/presentation/asset-presenter'
 export const WEB_SHARE_MEDIA_TYPES = ['image', 'video'] as const
 
 export function getWebShareMediaAssets(assets: Asset[]): Asset[] {
-  return assets.filter((asset) => WEB_SHARE_MEDIA_TYPES.includes(asset.type as (typeof WEB_SHARE_MEDIA_TYPES)[number]))
+  return assets.filter((asset) => asset.type === 'image' || asset.type === 'video')
 }
 
 export function inferShareMimeType(asset: Pick<Asset, 'name' | 'type'>): string {
@@ -25,7 +25,7 @@ export function inferShareMimeType(asset: Pick<Asset, 'name' | 'type'>): string 
   }
 
   if (extension && byExtension[extension]) return byExtension[extension]
-  return asset.type === 'image' ? 'image/*' : asset.type === 'video' ? 'video/*' : 'application/octet-stream'
+  return 'application/octet-stream'
 }
 
 /**
