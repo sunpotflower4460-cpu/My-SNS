@@ -2,18 +2,14 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createServiceClient } from '@/lib/supabase/service'
 import { processPublishJob, type PublishableJob } from '@/lib/services/publish-worker'
+import { getPublishingStrategy } from '@/lib/channels/config'
 import { hasPermission } from '@/lib/permissions'
 import type { WorkspaceRole } from '@/lib/domain/types'
 
-// Manually attempts one job right now, regardless of scheduled_at. Exists
-// because YouTube ('assisted') and TikTok ('draft') jobs are deliberately
-// never picked up by the scheduled Worker (/api/publish/run only processes
-// publish_mode='auto') — this is how a human actually pushes one of those
-// jobs to the platform. 'manual' channels (note) never come through here;
-// they're completed via the Queue's "Mark as posted" action instead.
+// Manually attempts one API-first job right now. In zero-cost mode this route
+// refuses before touching external connectors, so an old assisted/draft job or
+// a direct HTTP request cannot accidentally incur an API posting cost.
 
-// See run/route.ts's comment on the same setting — a real video upload can
-// run long, and this is the route that actually performs it.
 export const maxDuration = 300
 
 interface TriggerRequestBody {
@@ -52,6 +48,13 @@ export async function POST(request: NextRequest) {
   const role = member?.role as WorkspaceRole | undefined
   if (!role || !hasPermission(role, 'manage_queue')) {
     return NextResponse.json({ error: 'このワークスペースで公開する権限がありません。' }, { status: 403 })
+  }
+
+  if (getPublishingStrategy() === 'zero-cost') {
+    return NextResponse.json(
+      { error: '無料投稿モードでは外部投稿APIを実行しません。公開予定画面の「○○へ投稿」から投稿画面を開いてください。' },
+      { status: 409 },
+    )
   }
 
   // RLS-scoped to the caller's own workspace even though the rest of this

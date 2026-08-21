@@ -7,14 +7,20 @@ export interface PublishingChannelConfig {
   delivery: 'api-later' | 'manual-copy' | 'owned-channel'
   description: string
   /**
-   * The publish_jobs.publish_mode a freshly scheduled job starts in for this
-   * channel, per docs/master-plan.md §3's per-platform MVP strategy. Not
-   * simply derived from `delivery`: two "api-later" channels intentionally
-   * start below auto (YouTube waits for quota/upload review, TikTok starts
-   * as an inbox draft) until PR4/PR5 connect a real, audited connector.
+   * The publish_jobs.publish_mode used when API-first publishing is enabled.
+   * Zero-cost mode intentionally overrides this at scheduling time so a new
+   * job never calls a paid/review-gated external posting API by surprise.
    */
   mvpPublishMode: PublishMode
 }
+
+/**
+ * zero-cost is deliberately the default: the app prepares/copies approved
+ * content and opens the platform's own composer, while the human presses the
+ * final platform-side Publish button. api-first preserves the reviewed OAuth
+ * connector behaviour that already exists in the repository.
+ */
+export type PublishingStrategy = 'zero-cost' | 'api-first'
 
 export const PUBLISHING_CHANNEL_CONFIG: Record<PublishingChannel, PublishingChannelConfig> = {
   youtube: {
@@ -63,8 +69,6 @@ export const PUBLISHING_CHANNEL_CONFIG: Record<PublishingChannel, PublishingChan
     icon: '@',
     delivery: 'api-later',
     description: '会話調のソーシャルコピーを作成します。',
-    // Not one of the 5 core MVP channels — master-plan §3 has no explicit
-    // strategy for it yet, so default to a human review gate rather than auto.
     mvpPublishMode: 'assisted',
   },
   facebook: {
@@ -85,8 +89,7 @@ export const PUBLISHING_CHANNEL_CONFIG: Record<PublishingChannel, PublishingChan
   },
   // LINE is a messaging platform (LINE公式アカウント), NOT a publishing channel.
   // It is present here only because PublishingChannel ⊇ SocialPlatform; it is
-  // never offered in the Seed channel picker (not in CORE_PUBLISHING_CHANNELS)
-  // and `mvpPublishMode: 'manual'` ensures the Worker never auto-publishes it.
+  // never offered in the Seed channel picker (not in CORE_PUBLISHING_CHANNELS).
   line: {
     label: 'LINE',
     shortLabel: 'LINE',
@@ -101,7 +104,24 @@ export function isManualCopyChannel(channel: PublishingChannel): boolean {
   return PUBLISHING_CHANNEL_CONFIG[channel].delivery === 'manual-copy'
 }
 
-/** The publish_jobs.publish_mode a freshly scheduled job should start in for this channel. */
-export function derivePublishMode(channel: PublishingChannel): PublishMode {
+/**
+ * Browser-visible, build-time setting. Any unknown/unset value fails safe to
+ * zero-cost rather than accidentally enabling an external API call.
+ */
+export function getPublishingStrategy(value = process.env.NEXT_PUBLIC_PUBLISHING_STRATEGY): PublishingStrategy {
+  return value === 'api-first' ? 'api-first' : 'zero-cost'
+}
+
+/** The publish_jobs.publish_mode a freshly scheduled job should start in. */
+export function derivePublishMode(
+  channel: PublishingChannel,
+  strategy: PublishingStrategy = getPublishingStrategy(),
+): PublishMode {
+  if (strategy === 'zero-cost') {
+    // Website is creator-owned and has no third-party handoff. Everything else
+    // stays human-finalized so the Worker never incurs an external posting cost.
+    return channel === 'website' ? 'owned' : 'manual'
+  }
+
   return PUBLISHING_CHANNEL_CONFIG[channel].mvpPublishMode
 }

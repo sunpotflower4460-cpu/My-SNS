@@ -1,11 +1,10 @@
 import type { PublishJob, PublishMode } from '@/lib/domain/types'
+import { getPublishingStrategy } from '@/lib/channels/config'
 import { createClient } from '@/lib/supabase/client'
 
 // A claim (see publish-worker.ts's claimPublishJob) older than this is
 // treated as abandoned — e.g. a serverless function was killed mid-publish
-// (a large YouTube upload outrunning the execution time limit) before it
-// could clear its own claim. Without this, a job like that would be stuck
-// forever: never cancellable, never reclaimable.
+// before it could clear its own claim. Without this, a job could be stuck.
 const STALE_CLAIM_MINUTES = 10
 
 function notActivelyClaimedFilter(): string {
@@ -101,9 +100,9 @@ export interface CreatePublishJobInput {
 export async function createPublishJob(input: CreatePublishJobInput): Promise<PublishJob> {
   const supabase = createClient()
 
-  // A manual channel (note) has nothing for a Worker to do — it starts
-  // "draft" until a human records completion. Everything else starts
-  // "scheduled" so the Worker can pick it up once due.
+  // A manual channel has nothing for a Worker to do — it starts "draft"
+  // until a human completes the zero-cost platform handoff. Everything else
+  // starts "scheduled" for the opt-in API-first Worker path.
   const status = input.publishMode === 'manual' ? 'draft' : 'scheduled'
 
   const { data, error } = await supabase
@@ -160,10 +159,8 @@ export async function cancelPublishJob(
 ): Promise<PublishJob> {
   const supabase = createClient()
 
-  // Refuses to cancel a job that's actively being published right now (a
-  // real platform call could already be in flight) — cancelling it would
-  // silently hide a post that actually succeeded. A stale/abandoned claim
-  // (see notActivelyClaimedFilter) doesn't block this.
+  // Refuses to cancel a job that's actively being published right now. A
+  // stale/abandoned claim (see notActivelyClaimedFilter) doesn't block this.
   const { data, error } = await supabase
     .from('publish_jobs')
     .update({
@@ -186,25 +183,21 @@ export async function cancelPublishJob(
 }
 
 /**
- * Records that a human published this themselves. Deliberately excludes
- * publish_mode='auto': an auto job's success must only ever come from a
- * real, confirmed adapter call (processPublishJob) — allowing a human to
- * hand-wave one to "published" before the Worker even attempts it would let
- * the Queue claim something was posted that never actually was.
+ * Records that a human actually published the content on the platform.
  *
- * It IS the reconciliation path for manual (note), and for assisted/draft
- * channels whose adapter can time out waiting for the platform to confirm
- * (see tiktok-connector.ts): the human checks the platform app and marks it
- * complete here rather than the app ever guessing at success. Also refuses
- * while the job is actively claimed, for the same reason as cancelPublishJob.
+ * In API-first mode, publish_mode='auto' remains protected: its success may
+ * only come from a confirmed adapter call. In zero-cost mode the Worker and
+ * trigger route are hard-disabled, so legacy auto jobs are intentionally
+ * allowed through this reconciliation path after a human uses the handoff.
  */
 export async function markPublishJobManuallyCompleted(
   workspaceId: string,
   jobId: string
 ): Promise<PublishJob> {
   const supabase = createClient()
+  const allowLegacyAutoCompletion = getPublishingStrategy() === 'zero-cost'
 
-  const { data, error } = await supabase
+  let query = supabase
     .from('publish_jobs')
     .update({
       status: 'published',
@@ -213,8 +206,13 @@ export async function markPublishJobManuallyCompleted(
     })
     .eq('id', jobId)
     .eq('workspace_id', workspaceId)
-    .neq('publish_mode', 'auto')
     .not('status', 'in', '(published,cancelled)')
+
+  if (!allowLegacyAutoCompletion) {
+    query = query.neq('publish_mode', 'auto')
+  }
+
+  const { data, error } = await query
     .or(notActivelyClaimedFilter())
     .select()
     .maybeSingle()
@@ -223,7 +221,7 @@ export async function markPublishJobManuallyCompleted(
     throw new Error(error.message)
   }
   if (!data) {
-    throw new Error('This job cannot be marked as posted right now (already finished, auto-mode, or currently being published).')
+    throw new Error('This job cannot be marked as posted right now (already finished, protected auto-mode, or currently being published).')
   }
 
   return mapJob(data as PublishJobRow)
