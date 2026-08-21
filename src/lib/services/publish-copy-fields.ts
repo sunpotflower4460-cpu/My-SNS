@@ -27,23 +27,27 @@ export function buildPublishCopyFields(
 ): PublishCopyField[] {
   const title = revision.title?.trim() ?? ''
 
-  if (channel === 'youtube') {
-    return [
-      ...(title ? [{ id: 'title' as const, label: 'タイトル', value: title }] : []),
-      { id: 'body', label: '説明文', value: bodyWithExtras(revision) },
-    ].filter((field) => field.value)
+  if (channel === 'youtube' || channel === 'note') {
+    const fields: PublishCopyField[] = []
+    if (title) fields.push({ id: 'title', label: 'タイトル', value: title })
+
+    const body = bodyWithExtras(revision)
+    if (body) {
+      fields.push({
+        id: 'body',
+        label: channel === 'youtube' ? '説明文' : '本文',
+        value: body,
+      })
+    }
+    return fields
   }
 
-  if (channel === 'note') {
-    return [
-      ...(title ? [{ id: 'title' as const, label: 'タイトル', value: title }] : []),
-      { id: 'body', label: '本文', value: bodyWithExtras(revision) },
-    ].filter((field) => field.value)
-  }
+  const combined = formatRevisionForHandoff(revision, channel)
+  if (!combined) return []
 
   return [{
     id: 'combined',
     label: channel === 'instagram' || channel === 'tiktok' ? 'キャプション' : '投稿文',
-    value: formatRevisionForHandoff(revision, channel),
-  }].filter((field) => field.value)
+    value: combined,
+  }]
 }
