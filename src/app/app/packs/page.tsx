@@ -142,7 +142,10 @@ export default function PublishPacksPage() {
 
   const handleComplete = async (item: PublishPackChannelItem) => {
     if (!item.job) return
-    const externalUrl = window.prompt('任意：公開された投稿URLを記録できます。')?.trim() || undefined
+    const externalUrlInput = window.prompt('任意：公開された投稿URLを記録できます。空欄のままOKでも完了できます。')
+    if (externalUrlInput === null) return
+    const externalUrl = externalUrlInput.trim() || undefined
+
     const key = `${item.channel}-complete-${item.job.id}`
     setBusyKey(key)
     try {
