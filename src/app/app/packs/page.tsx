@@ -6,6 +6,7 @@ import { CheckCircle2, Copy, ExternalLink, PackageCheck } from 'lucide-react'
 import ChannelBadge from '@/components/ui/ChannelBadge'
 import EmptyState from '@/components/ui/EmptyState'
 import PageHeader from '@/components/ui/PageHeader'
+import MobilePostShareButton from '@/components/publish/MobilePostShareButton'
 import QueueMediaKit from '@/components/publish/QueueMediaKit'
 import { Badge, Button, Card, InlineAlert } from '@/components/ui/kit'
 import { useApp } from '@/lib/app/app-provider'
@@ -167,7 +168,7 @@ export default function PublishPacksPage() {
       {publishingStrategy === 'zero-cost' && (
         <div className="mb-5">
           <InlineAlert tone="info" title="無料投稿モード">
-            投稿パックから文章をコピーし、素材を開く・保存して、各SNS自身の投稿画面へ進みます。有料投稿APIは呼びません。
+            対応スマホでは「スマホで共有」から画像・動画と投稿文をOSの共有シートへ渡せます。共有先アプリにうまく渡らない場合も、従来どおり文章コピー＋素材の開く・保存＋SNS投稿画面の導線を使えます。有料投稿APIは呼びません。
           </InlineAlert>
         </div>
       )}
@@ -270,7 +271,7 @@ export default function PublishPacksPage() {
                             </div>
                           )}
 
-                          <div className="mt-3 flex flex-wrap gap-2">
+                          <div className="mt-3 flex flex-wrap items-start gap-2">
                             {item.state === 'missing' && (
                               <Link href={`/app/seeds/${pack.seed.id}`} className="inline-flex items-center rounded-xl bg-violet-600 px-3 py-2 text-xs font-medium text-white hover:bg-violet-700">
                                 下書きを準備
@@ -286,6 +287,15 @@ export default function PublishPacksPage() {
                               >
                                 公開予定に追加
                               </Button>
+                            )}
+
+                            {item.job && actions?.openHandoff && item.revision && (
+                              <MobilePostShareButton
+                                channel={item.channel}
+                                revision={item.revision}
+                                assets={assets}
+                                disabled={busyKey === `${item.channel}-open-${item.job.id}`}
+                              />
                             )}
 
                             {item.job && actions?.openHandoff && item.revision && (
