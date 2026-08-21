@@ -6,6 +6,10 @@ import { Share2 } from 'lucide-react'
 import { Button } from '@/components/ui/kit'
 import { PUBLISHING_CHANNEL_CONFIG } from '@/lib/channels/config'
 import type { Asset, DraftRevision, PublishingChannel } from '@/lib/domain/types'
+import {
+  listAssetPublishingAssignments,
+  selectAssetsForPublishingChannel,
+} from '@/lib/seeds/asset-publishing'
 import { formatRevisionForHandoff } from '@/lib/services/publish-handoff'
 import { getWebShareMediaAssets, prepareWebShareFiles } from '@/lib/services/web-share'
 import { describeWebShareFailure } from '@/lib/services/web-share-diagnostics'
@@ -59,6 +63,7 @@ export default function MobilePostShareButton({ channel, revision, assets, disab
   const handleShare = async () => {
     setError('')
     setMessage('')
+    let sharingFiles = preparedFiles ? preparedFiles.length > 0 : mediaAssets.length > 0
 
     try {
       if (preparedFiles) {
@@ -69,30 +74,41 @@ export default function MobilePostShareButton({ channel, revision, assets, disab
       }
 
       if (mediaAssets.length === 0) {
+        sharingFiles = false
         await sharePrepared([])
         setMessage('投稿文を共有シートへ渡しました。共有先アプリ側で内容を確認してください。')
         return
       }
 
       setPreparing(true)
-      const files = await prepareWebShareFiles(assets)
+      const assignments = await listAssetPublishingAssignments(mediaAssets.map((asset) => asset.id))
+      const channelAssets = selectAssetsForPublishingChannel(mediaAssets, assignments, channel)
+      sharingFiles = channelAssets.length > 0
+
+      if (channelAssets.length === 0) {
+        setPreparing(false)
+        await sharePrepared([])
+        setMessage(`${PUBLISHING_CHANNEL_CONFIG[channel].shortLabel}に割り当てた画像・動画はないため、投稿文だけ共有しました。`)
+        return
+      }
+
+      const files = await prepareWebShareFiles(channelAssets)
       setPreparedFiles(files)
       setPreparing(false)
 
-      // Web Share requires transient user activation. Some mobile browsers keep
-      // activation while the signed media fetch finishes; others do not. If it
-      // has expired, retain the prepared Files and make the second tap call
-      // navigator.share() immediately.
+      // Web Share requires transient user activation. Assignment lookup and
+      // signed media fetching can consume that activation on some browsers; the
+      // prepared Files stay in memory so the second tap opens share immediately.
       if (navigator.userActivation && !navigator.userActivation.isActive) {
-        setMessage('素材の準備ができました。もう一度タップすると共有シートを開きます。')
+        setMessage(`${PUBLISHING_CHANNEL_CONFIG[channel].shortLabel}用の素材を準備しました。もう一度タップすると共有シートを開きます。`)
         return
       }
 
       await sharePrepared(files)
       setPreparedFiles(null)
-      setMessage('画像・動画と投稿文を共有シートへ渡しました。共有先アプリ側で内容を確認して投稿してください。')
+      setMessage('この媒体に割り当てた画像・動画と投稿文を共有シートへ渡しました。共有先アプリ側で内容を確認して投稿してください。')
     } catch (cause) {
-      const failure = describeWebShareFailure(cause, mediaAssets.length > 0)
+      const failure = describeWebShareFailure(cause, sharingFiles)
       if (failure.code === 'abort') {
         setMessage(failure.message)
         return
