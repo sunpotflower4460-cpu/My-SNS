@@ -5,13 +5,14 @@ import { Plus } from 'lucide-react'
 import PageHeader from '@/components/ui/PageHeader'
 import NextActionList from '@/components/home/NextActionList'
 import TodayTimeline from '@/components/home/TodayTimeline'
-import ActivePublishingList from '@/components/home/ActivePublishingList'
+import TodayPublishingPanel from '@/components/home/TodayPublishingPanel'
 import HomeSummary, { type HomeSummaryStat } from '@/components/home/HomeSummary'
 import {
   buildTodayTimeline,
   computeNextActions,
-  getUpcomingPublishJobs,
 } from '@/lib/presentation/home-actions'
+import { buildPublishPacks } from '@/lib/presentation/publish-pack'
+import { buildTodayPublishingOverview } from '@/lib/presentation/today-publishing'
 import { useApp } from '@/lib/app/app-provider'
 
 export default function DashboardPage() {
@@ -22,21 +23,26 @@ export default function DashboardPage() {
     replyJobs,
     inboxItems,
     drafts,
+    draftRevisions,
     socialAccounts,
     calendarEvents,
   } = useApp()
 
-  // Date.now() is fine in the browser runtime; the presenter resolves "today"
-  // in JST so the boundary matches the creator's clock regardless of server TZ.
+  // Date.now() is fine in the browser runtime; presenters resolve calendar
+  // boundaries in JST so "today" follows the creator's local day.
   const now = Date.now()
 
+  const packs = buildPublishPacks({ seeds, jobs: publishJobs, revisions: draftRevisions })
+  const publishingOverview = buildTodayPublishingOverview(packs, now)
   const actions = computeNextActions({ publishJobs, replyJobs, inboxItems, drafts, seeds, socialAccounts })
+    // Failed publishing is already the highest-priority item in the publishing
+    // panel above. Keep the supporting action list useful without duplicating it.
+    .filter((action) => action.id !== 'publish-failed')
   const timeline = buildTodayTimeline({ publishJobs, replyJobs, calendarEvents }, now)
-  const upcoming = getUpcomingPublishJobs(publishJobs, now)
 
   const stats: HomeSummaryStat[] = [
-    { label: 'シード', value: seeds.length, href: '/app/seeds' },
-    { label: '公開予定', value: publishJobs.filter((job) => job.status === 'scheduled').length, href: '/app/queue' },
+    { label: '進行中パック', value: publishingOverview.activeCount, href: '/app/packs' },
+    { label: '今日までに投稿', value: publishingOverview.duePacks.length, href: '/app/packs' },
     { label: '受信箱の未読', value: inboxItems.filter((item) => !item.isRead).length, href: '/app/inbox' },
     { label: '公開できる状態', value: seeds.filter((seed) => seed.status === 'ready').length, href: '/app/seeds' },
   ]
@@ -45,7 +51,7 @@ export default function DashboardPage() {
     <div className="space-y-8">
       <PageHeader
         title="ホーム"
-        description={`${currentWorkspace?.name ?? 'ワークスペース'}へようこそ。次に対応が必要なことを、落ち着いてひと目で確認できます。`}
+        description={`${currentWorkspace?.name ?? 'ワークスペース'}の今日の投稿と、次に進める1件を最初に確認できます。`}
         actions={
           <Link
             href="/app/seeds/new"
@@ -57,14 +63,14 @@ export default function DashboardPage() {
         }
       />
 
-      <section aria-label="次にやること">
-        <h2 className="mb-3 text-base font-semibold text-gray-900">次にやること</h2>
-        <NextActionList actions={actions} />
-      </section>
+      <TodayPublishingPanel overview={publishingOverview} />
 
       <div className="grid gap-6 xl:grid-cols-2">
+        <section aria-label="その他の対応">
+          <h2 className="mb-3 text-base font-semibold text-gray-900">その他の対応</h2>
+          <NextActionList actions={actions} />
+        </section>
         <TodayTimeline items={timeline} />
-        <ActivePublishingList jobs={upcoming} />
       </div>
 
       <section aria-label="全体のようす">

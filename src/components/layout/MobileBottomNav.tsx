@@ -2,13 +2,13 @@
 
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
-import { LayoutGrid, Sprout, Inbox, CalendarDays, Menu, Plus, type LucideIcon } from 'lucide-react'
+import { LayoutGrid, Sprout, Inbox, Menu, Plus, Send, type LucideIcon } from 'lucide-react'
 import { CREATE_ACTION, isNavActive } from './nav-items'
 
-// The primary mobile navigation (below xl). Five one-tap entries; the "その他"
-// entry opens the full drawer for the remaining sections. A floating create
-// button sits above it so 新しい発信 is always one tap away. Replaces the old
-// hamburger-only drawer as the main way to move around on a phone.
+// The primary mobile navigation (below xl). Publishing is intentionally a
+// first-class tab: on a phone the common flow is open app -> see today's work ->
+// post, so /app/packs must not be hidden behind the "その他" drawer. Calendar
+// remains available in that drawer through NAV_GROUPS.
 
 interface MobileBottomNavProps {
   onOpenMore: () => void
@@ -27,8 +27,8 @@ export default function MobileBottomNav({ onOpenMore }: MobileBottomNavProps) {
   const tabs: Tab[] = [
     { label: 'ホーム', href: '/app/dashboard', icon: LayoutGrid },
     { label: '発信', href: '/app/seeds', icon: Sprout },
+    { label: '投稿', href: '/app/packs', icon: Send },
     { label: '受信箱', href: '/app/inbox', icon: Inbox },
-    { label: '予定', href: '/app/calendar', icon: CalendarDays },
     { label: 'その他', icon: Menu, onClick: onOpenMore },
   ]
 
