@@ -9,6 +9,7 @@ import PageHeader from '@/components/ui/PageHeader'
 import { PUBLISHING_CHANNEL_CONFIG } from '@/lib/channels/config'
 import { formatBytes, inferAssetType, normalizeTags } from '@/lib/seeds/input'
 import { useApp } from '@/lib/app/app-provider'
+import { getSeedIdFromAssetPersistenceError } from '@/lib/storage/asset-persistence-error'
 import {
   CORE_PUBLISHING_CHANNELS,
   type AssetType,
@@ -58,6 +59,7 @@ export default function NewSeedPage() {
   const [targetChannels, setTargetChannels] = useState<PublishingChannel[]>([...CORE_PUBLISHING_CHANNELS])
   const [assets, setAssets] = useState<PendingAsset[]>([])
   const [error, setError] = useState('')
+  const [persistedSeedId, setPersistedSeedId] = useState<string | null>(null)
   const [isSaving, setIsSaving] = useState(false)
 
   const selectedBrandProfile = brandProfiles.find((profile) => profile.id === brandProfileId) ?? null
@@ -122,6 +124,10 @@ export default function NewSeedPage() {
   }
 
   const handleSave = async (status: SeedStatus) => {
+    if (persistedSeedId) {
+      setError('このシード本体はすでに保存されています。重複作成を避けるため、保存済みシードの素材画面から続きを行ってください。')
+      return
+    }
     if (!title.trim()) {
       setError('後で見つけやすいように、仮タイトルを入力してください。')
       return
@@ -159,7 +165,13 @@ export default function NewSeedPage() {
       })
       router.push(`/app/seeds/${seed.id}`)
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : 'このシードを保存できませんでした。')
+      const savedSeedId = getSeedIdFromAssetPersistenceError(cause)
+      if (savedSeedId) {
+        setPersistedSeedId(savedSeedId)
+        setError('シード本体は保存できましたが、一部の素材を保存できませんでした。新しいシードを作り直さず、保存済みシードの素材画面から不足しているファイルだけ追加してください。')
+      } else {
+        setError(cause instanceof Error ? cause.message : 'このシードを保存できませんでした。')
+      }
     } finally {
       setIsSaving(false)
     }
@@ -186,7 +198,19 @@ export default function NewSeedPage() {
         actions={<Link href="/app/seeds" className="text-sm text-gray-500 hover:text-gray-700">キャンセル</Link>}
       />
 
-      {error && <div className="mb-5 rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div>}
+      {error && (
+        <div className="mb-5 rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+          <p>{error}</p>
+          {persistedSeedId && (
+            <Link
+              href={`/app/seeds/${persistedSeedId}/media`}
+              className="mt-3 inline-flex rounded-xl bg-red-700 px-3 py-2 text-xs font-medium text-white hover:bg-red-800"
+            >
+              保存済みシードの素材を確認
+            </Link>
+          )}
+        </div>
+      )}
 
       <div className="grid gap-6 xl:grid-cols-[minmax(0,1.65fr)_minmax(320px,0.85fr)]">
         <section className="space-y-6">
@@ -328,8 +352,8 @@ export default function NewSeedPage() {
           </div>
 
           <div className="flex flex-col gap-3">
-            <button type="button" disabled={isSaving} onClick={() => void handleSave('ready')} className="rounded-2xl bg-violet-600 px-4 py-3 text-sm font-medium text-white transition hover:bg-violet-700 disabled:cursor-not-allowed disabled:opacity-60">{isSaving ? '保存中…' : '準備完了として保存'}</button>
-            <button type="button" disabled={isSaving} onClick={() => void handleSave('captured')} className="rounded-2xl border border-stone-200 bg-white px-4 py-3 text-sm font-medium text-gray-700 transition hover:bg-stone-50 disabled:cursor-not-allowed disabled:opacity-60">取り込み済みとして保存</button>
+            <button type="button" disabled={isSaving || Boolean(persistedSeedId)} onClick={() => void handleSave('ready')} className="rounded-2xl bg-violet-600 px-4 py-3 text-sm font-medium text-white transition hover:bg-violet-700 disabled:cursor-not-allowed disabled:opacity-60">{isSaving ? '保存中…' : '準備完了として保存'}</button>
+            <button type="button" disabled={isSaving || Boolean(persistedSeedId)} onClick={() => void handleSave('captured')} className="rounded-2xl border border-stone-200 bg-white px-4 py-3 text-sm font-medium text-gray-700 transition hover:bg-stone-50 disabled:cursor-not-allowed disabled:opacity-60">取り込み済みとして保存</button>
           </div>
         </aside>
       </div>
