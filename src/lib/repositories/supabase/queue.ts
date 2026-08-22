@@ -48,6 +48,10 @@ function mapJob(row: PublishJobRow): PublishJob {
   }
 }
 
+function queueReadError(scope: string, message: string): Error {
+  return new Error(`${scope}を読み込めませんでした。空の公開予定として扱わず、再読み込みしてください: ${message}`)
+}
+
 export async function listWorkspacePublishJobs(workspaceId: string): Promise<PublishJob[]> {
   const supabase = createClient()
 
@@ -57,10 +61,7 @@ export async function listWorkspacePublishJobs(workspaceId: string): Promise<Pub
     .eq('workspace_id', workspaceId)
     .order('created_at', { ascending: false })
 
-  if (error) {
-    console.error('Error fetching publish jobs:', error)
-    return []
-  }
+  if (error) throw queueReadError('公開予定', error.message)
 
   return (data ?? []).map((row) => mapJob(row as PublishJobRow))
 }
@@ -78,10 +79,7 @@ export async function listSeedPublishJobs(
     .eq('seed_id', seedId)
     .order('created_at', { ascending: false })
 
-  if (error) {
-    console.error('Error fetching Seed publish jobs:', error)
-    return []
-  }
+  if (error) throw queueReadError('このシードの公開予定', error.message)
 
   return (data ?? []).map((row) => mapJob(row as PublishJobRow))
 }
