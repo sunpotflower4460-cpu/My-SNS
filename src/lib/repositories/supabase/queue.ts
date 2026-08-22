@@ -189,6 +189,11 @@ export async function cancelPublishJob(
  * only come from a confirmed adapter call. In zero-cost mode the Worker and
  * trigger route are hard-disabled, so legacy auto jobs are intentionally
  * allowed through this reconciliation path after a human uses the handoff.
+ *
+ * Human success attempts now atomically mark the job published in the database
+ * function used by recordPublishAttempt(). This method therefore treats an
+ * already-published row as an idempotent success so the existing caller can
+ * safely reconcile both pre- and post-migration flows.
  */
 export async function markPublishJobManuallyCompleted(
   workspaceId: string,
@@ -220,9 +225,17 @@ export async function markPublishJobManuallyCompleted(
   if (error) {
     throw new Error(error.message)
   }
-  if (!data) {
-    throw new Error('This job cannot be marked as posted right now (already finished, protected auto-mode, or currently being published).')
-  }
+  if (data) return mapJob(data as PublishJobRow)
 
-  return mapJob(data as PublishJobRow)
+  const { data: existing, error: existingError } = await supabase
+    .from('publish_jobs')
+    .select('*')
+    .eq('id', jobId)
+    .eq('workspace_id', workspaceId)
+    .maybeSingle()
+
+  if (existingError) throw new Error(existingError.message)
+  if (existing?.status === 'published') return mapJob(existing as PublishJobRow)
+
+  throw new Error('This job cannot be marked as posted right now (already finished, protected auto-mode, or currently being published).')
 }
