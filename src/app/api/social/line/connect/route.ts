@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createServiceClient } from '@/lib/supabase/service'
 import { finalizeSocialAccountConnection, upsertPendingSocialAccount } from '@/lib/repositories/supabase/social-accounts'
-import { saveSocialCredentials } from '@/lib/repositories/supabase/social-credentials'
+import { deleteSocialCredentials, saveSocialCredentials } from '@/lib/repositories/supabase/social-credentials'
 import { getConnectorAdapter, isLineConfigured } from '@/lib/services/connectors'
 import { hasPermission } from '@/lib/permissions'
 import type { WorkspaceRole } from '@/lib/domain/types'
@@ -74,7 +74,17 @@ export async function POST(request: NextRequest) {
       scopes: connected.scopes,
     })
 
-    await finalizeSocialAccountConnection(supabase, account.id)
+    try {
+      await finalizeSocialAccountConnection(supabase, account.id)
+    } catch (cause) {
+      // The account is still deliberately disconnected. Do not retain a secret
+      // token for a connection the user cannot actually use. Cleanup is
+      // compensating/best-effort; preserve the original finalization error.
+      await deleteSocialCredentials(serviceClient, account.id).catch((cleanupCause) => {
+        console.error('Failed to clean credentials after LINE connection finalization failed:', cleanupCause)
+      })
+      throw cause
+    }
 
     await supabase.from('audit_logs').insert({
       workspace_id: workspaceId,
