@@ -3,7 +3,7 @@ import { createClient } from '@/lib/supabase/server'
 import { createServiceClient } from '@/lib/supabase/service'
 import { consumeOAuthState } from '@/lib/repositories/supabase/oauth-states'
 import { finalizeSocialAccountConnection, upsertPendingSocialAccount } from '@/lib/repositories/supabase/social-accounts'
-import { saveSocialCredentials } from '@/lib/repositories/supabase/social-credentials'
+import { deleteSocialCredentials, saveSocialCredentials } from '@/lib/repositories/supabase/social-credentials'
 import { getConnectorAdapter, isConnectablePlatform } from '@/lib/services/connectors'
 
 function redirectUriFor(request: NextRequest, platform: string): string {
@@ -67,7 +67,17 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
       scopes: connected.scopes,
     })
 
-    await finalizeSocialAccountConnection(supabase, account.id)
+    try {
+      await finalizeSocialAccountConnection(supabase, account.id)
+    } catch (cause) {
+      // The account is still deliberately disconnected. Do not retain a secret
+      // token for a connection the user cannot actually use. Cleanup is
+      // compensating/best-effort; preserve the original finalization error.
+      await deleteSocialCredentials(serviceClient, account.id).catch((cleanupCause) => {
+        console.error(`Failed to clean credentials after ${platform} connection finalization failed:`, cleanupCause)
+      })
+      throw cause
+    }
 
     await supabase.from('audit_logs').insert({
       workspace_id: consumed.workspaceId,
