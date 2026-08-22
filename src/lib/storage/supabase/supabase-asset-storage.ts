@@ -1,4 +1,5 @@
 import type { AssetStorageAdapter, AssetUploadContext, AssetUploadInput, PreparedAssetUpload } from '../interfaces'
+import { AssetPersistenceError } from '@/lib/storage/asset-persistence-error'
 import { createClient } from '@/lib/supabase/client'
 import type { Asset } from '@/lib/domain/types'
 import { inferAssetType } from '@/lib/seeds/input'
@@ -45,7 +46,7 @@ export class SupabaseAssetStorage implements AssetStorageAdapter {
       })
 
     if (uploadError) {
-      throw new Error(`Unable to upload ${preparedAsset.name}: ${uploadError.message}`)
+      throw new AssetPersistenceError(`Unable to upload ${preparedAsset.name}: ${uploadError.message}`, params.seedId)
     }
 
     try {
@@ -91,7 +92,11 @@ export class SupabaseAssetStorage implements AssetStorageAdapter {
         console.error('Unable to clean up uploaded asset after metadata failure:', cleanupError)
       }
 
-      throw cause instanceof Error ? cause : new Error('Unable to save asset metadata.')
+      if (cause instanceof AssetPersistenceError) throw cause
+      throw new AssetPersistenceError(
+        cause instanceof Error ? cause.message : 'Unable to save asset metadata.',
+        params.seedId,
+      )
     }
   }
 }
