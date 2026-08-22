@@ -40,14 +40,32 @@ async function claimReplyJob(supabase: SupabaseClient, jobId: string): Promise<b
   return Boolean(data)
 }
 
-async function releaseReplyJobClaim(supabase: SupabaseClient, jobId: string, fields: Record<string, unknown>): Promise<void> {
-  await supabase
+async function releaseReplyJobClaim(supabase: SupabaseClient, jobId: string, fields: Record<string, unknown>): Promise<boolean> {
+  const { data, error } = await supabase
     .from('reply_jobs')
     .update({ ...fields, claimed_at: null })
     .eq('id', jobId)
     // Guard against a human cancelling in the brief window after the claim:
-    // never overwrite a 'cancelled' job back to 'sent'/'failed'.
+    // never overwrite a 'cancelled' or already-reconciled 'sent' job.
     .in('status', ['scheduled', 'failed'])
+    .select('id')
+    .maybeSingle()
+
+  if (error) throw new Error(error.message)
+  return Boolean(data)
+}
+
+async function hasSuccessfulReplyAttempt(supabase: SupabaseClient, jobId: string): Promise<boolean> {
+  const { data, error } = await supabase
+    .from('reply_attempts')
+    .select('id')
+    .eq('reply_job_id', jobId)
+    .eq('status', 'success')
+    .limit(1)
+    .maybeSingle()
+
+  if (error) throw new Error(error.message)
+  return Boolean(data)
 }
 
 /**
@@ -97,6 +115,10 @@ export interface ProcessReplyResult {
   skipped?: boolean
 }
 
+type ConfirmedReplyResult = {
+  externalMessageId?: string
+}
+
 /**
  * Sends one reply job end to end: claim it, resolve the LINE credentials, push
  * the message, record the attempt, update the job, audit, and (on failure)
@@ -112,7 +134,21 @@ export async function processReplyJob(supabase: SupabaseClient, job: ReplyableJo
     return { success: false, skipped: true }
   }
 
+  let confirmedReply: ConfirmedReplyResult | null = null
+
   try {
+    // If LINE already confirmed this message in an earlier run but updating the
+    // reply_jobs row failed afterwards, reconcile from the durable success
+    // attempt and never send the same message again.
+    if (await hasSuccessfulReplyAttempt(supabase, job.id)) {
+      await releaseReplyJobClaim(supabase, job.id, {
+        status: 'sent',
+        sent_at: new Date().toISOString(),
+        error_message: null,
+      })
+      return { success: true }
+    }
+
     const credentials = await resolveCredentials(supabase, job.workspaceId, job.platform)
     if (!credentials) {
       throw new Error(`接続済みのLINEアカウントがありません。設定から接続してください。`)
@@ -126,6 +162,7 @@ export async function processReplyJob(supabase: SupabaseClient, job: ReplyableJo
       text: job.replyText,
       externalAccountId: credentials.externalAccountId,
     })
+    confirmedReply = result
 
     await recordReplyAttempt(supabase, {
       workspaceId: job.workspaceId,
@@ -147,6 +184,31 @@ export async function processReplyJob(supabase: SupabaseClient, job: ReplyableJo
 
     return { success: true }
   } catch (cause) {
+    // A confirmed LINE push must never be rewritten as a failed send merely
+    // because later database bookkeeping failed. Reconcile the success and,
+    // most importantly, keep future Worker runs from pushing the message again.
+    if (confirmedReply) {
+      try {
+        if (!(await hasSuccessfulReplyAttempt(supabase, job.id))) {
+          await recordReplyAttempt(supabase, {
+            workspaceId: job.workspaceId,
+            replyJobId: job.id,
+            status: 'success',
+            externalMessageId: confirmedReply.externalMessageId,
+          })
+        }
+        await releaseReplyJobClaim(supabase, job.id, {
+          status: 'sent',
+          sent_at: new Date().toISOString(),
+          error_message: null,
+        })
+        return { success: true }
+      } catch (reconciliationError) {
+        console.error(`Confirmed reply for job ${job.id} could not be reconciled:`, reconciliationError)
+        return { success: false }
+      }
+    }
+
     const message = cause instanceof Error ? cause.message : '返信の送信に失敗しました。'
     // Our own "接続済みのLINEアカウントがありません" wording is a connection
     // problem → classify as auth, not the generic validation fallback.
