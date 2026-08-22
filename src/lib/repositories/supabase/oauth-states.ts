@@ -36,19 +36,21 @@ export interface ConsumedOAuthState {
   codeVerifier?: string
 }
 
-/** Reads and immediately deletes the state row — a state can only ever be consumed once. */
+/**
+ * Deletes and returns the state row in one PostgREST mutation. This closes the
+ * read→delete race from the previous implementation and makes a state token
+ * single-use even when two callback requests arrive almost simultaneously.
+ */
 export async function consumeOAuthState(supabase: SupabaseClient, state: string): Promise<ConsumedOAuthState | null> {
   const { data, error } = await supabase
     .from('oauth_states')
-    .select('workspace_id, platform, code_verifier, expires_at')
+    .delete()
     .eq('state', state)
+    .select('workspace_id, platform, code_verifier, expires_at')
     .maybeSingle()
 
   if (error) throw new Error(error.message)
   if (!data) return null
-
-  await supabase.from('oauth_states').delete().eq('state', state)
-
   if (new Date(data.expires_at).getTime() < Date.now()) return null
 
   return {
