@@ -1,5 +1,6 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import type { PublishAttempt, PublishAttemptStatus, PublishFailureReason } from '@/lib/domain/types'
+import { getPublishingStrategy } from '@/lib/channels/config'
 import { normalizeExternalHttpUrl } from '@/lib/security/external-url'
 import { createClient } from '@/lib/supabase/client'
 
@@ -103,16 +104,31 @@ async function nextAttemptNumber(supabase: SupabaseClient, publishJobId: string)
 }
 
 /**
- * Records the next attempt for a job. Attempt numbers are unique per job, so
- * another writer can win the same next number between our read and insert.
- * Retry that narrow unique-conflict window instead of letting bookkeeping fail
- * after a real platform action has already happened.
+ * Records the next attempt for a job. A human-confirmed success goes through
+ * complete_manual_publish(), which records the attempt and marks the job
+ * published in one transaction. Worker/failure attempts keep the generic
+ * append-only path with a narrow unique-conflict retry.
  */
 export async function recordPublishAttempt(
   supabase: SupabaseClient,
   input: RecordPublishAttemptInput,
 ): Promise<PublishAttempt> {
   const externalUrl = normalizeExternalHttpUrl(input.externalUrl)
+
+  if (input.status === 'success' && input.createdBy) {
+    const { data, error } = await supabase.rpc('complete_manual_publish', {
+      p_workspace_id: input.workspaceId,
+      p_job_id: input.publishJobId,
+      p_external_url: externalUrl ?? null,
+      p_external_post_id: input.externalPostId ?? null,
+      p_allow_auto: getPublishingStrategy() === 'zero-cost',
+    })
+
+    if (error) throw new Error(error.message)
+    const row = Array.isArray(data) ? data[0] : data
+    if (!row) throw new Error('手動公開の完了記録を保存できませんでした。')
+    return mapAttempt(row as unknown as PublishAttemptRow)
+  }
 
   for (let retry = 0; retry < ATTEMPT_NUMBER_RETRIES; retry += 1) {
     const attemptNumber = await nextAttemptNumber(supabase, input.publishJobId)
