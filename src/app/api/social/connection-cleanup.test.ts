@@ -1,23 +1,12 @@
 import { describe, expect, it, vi } from 'vitest'
+import { finalizeSocialConnectionWithCleanup } from '@/lib/services/social-connection-finalization'
 
-async function finalizeWithCredentialCleanup(
-  finalize: () => Promise<void>,
-  cleanup: () => Promise<void>,
-): Promise<void> {
-  try {
-    await finalize()
-  } catch (cause) {
-    await cleanup().catch(() => undefined)
-    throw cause
-  }
-}
-
-describe('social connection finalization cleanup boundary', () => {
+describe('finalizeSocialConnectionWithCleanup', () => {
   it('does not clean credentials after a successful finalization', async () => {
     const finalize = vi.fn(async () => undefined)
     const cleanup = vi.fn(async () => undefined)
 
-    await finalizeWithCredentialCleanup(finalize, cleanup)
+    await finalizeSocialConnectionWithCleanup({ finalize, cleanup })
 
     expect(finalize).toHaveBeenCalledOnce()
     expect(cleanup).not.toHaveBeenCalled()
@@ -28,15 +17,18 @@ describe('social connection finalization cleanup boundary', () => {
     const finalize = vi.fn(async () => { throw original })
     const cleanup = vi.fn(async () => undefined)
 
-    await expect(finalizeWithCredentialCleanup(finalize, cleanup)).rejects.toBe(original)
+    await expect(finalizeSocialConnectionWithCleanup({ finalize, cleanup })).rejects.toBe(original)
     expect(cleanup).toHaveBeenCalledOnce()
   })
 
-  it('preserves the original error even when cleanup also fails', async () => {
+  it('preserves the original error and reports cleanup failure separately', async () => {
     const original = new Error('finalize failed')
+    const cleanupFailure = new Error('cleanup failed')
     const finalize = vi.fn(async () => { throw original })
-    const cleanup = vi.fn(async () => { throw new Error('cleanup failed') })
+    const cleanup = vi.fn(async () => { throw cleanupFailure })
+    const onCleanupError = vi.fn()
 
-    await expect(finalizeWithCredentialCleanup(finalize, cleanup)).rejects.toBe(original)
+    await expect(finalizeSocialConnectionWithCleanup({ finalize, cleanup, onCleanupError })).rejects.toBe(original)
+    expect(onCleanupError).toHaveBeenCalledWith(cleanupFailure)
   })
 })
