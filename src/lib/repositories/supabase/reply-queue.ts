@@ -55,6 +55,10 @@ export function mapReplyJob(row: ReplyJobRow): ReplyJob {
   }
 }
 
+function replyQueueReadError(message: string): Error {
+  return new Error(`返信予定を読み込めませんでした。空の予定として扱わず、再読み込みしてください: ${message}`)
+}
+
 export async function listWorkspaceReplyJobs(workspaceId: string): Promise<ReplyJob[]> {
   const supabase = createClient()
 
@@ -64,12 +68,33 @@ export async function listWorkspaceReplyJobs(workspaceId: string): Promise<Reply
     .eq('workspace_id', workspaceId)
     .order('created_at', { ascending: false })
 
-  if (error) {
-    console.error('Error fetching reply jobs:', error)
-    return []
-  }
+  if (error) throw replyQueueReadError(error.message)
 
   return (data ?? []).map((row) => mapReplyJob(row as ReplyJobRow))
+}
+
+/**
+ * Used after an INSERT is rejected by the database duplicate guard. Returning
+ * the durable existing row lets an HTTP retry of the same approval be
+ * idempotent instead of reporting a false failure or creating a second send.
+ */
+export async function findNonCancelledReplyJob(
+  supabase: SupabaseClient,
+  workspaceId: string,
+  inboxItemId: string,
+): Promise<ReplyJob | null> {
+  const { data, error } = await supabase
+    .from('reply_jobs')
+    .select('*')
+    .eq('workspace_id', workspaceId)
+    .eq('inbox_item_id', inboxItemId)
+    .neq('status', 'cancelled')
+    .order('created_at', { ascending: false })
+    .limit(1)
+    .maybeSingle()
+
+  if (error) throw new Error(error.message)
+  return data ? mapReplyJob(data as ReplyJobRow) : null
 }
 
 export interface CreateReplyJobInput {
@@ -86,8 +111,9 @@ export interface CreateReplyJobInput {
 }
 
 /**
- * Enqueues an approved reply. Uses the caller's request-scoped client (RLS
- * enforces reply_inbox + created_by = auth.uid()); the Worker sends it later.
+ * Enqueues an approved reply. The database insert guard serializes creations
+ * per inbox item and rejects a second non-cancelled job across manual/auto
+ * paths. Uses the caller's client; normal RLS still authorizes the INSERT.
  */
 export async function createReplyJob(supabase: SupabaseClient, input: CreateReplyJobInput): Promise<ReplyJob> {
   const { data, error } = await supabase
