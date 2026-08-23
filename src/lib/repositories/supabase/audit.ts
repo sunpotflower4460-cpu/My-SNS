@@ -89,6 +89,14 @@ export async function listTargetAuditLogs(
   })
 }
 
+/**
+ * App-side mutations call this only after their authoritative state change has
+ * already committed. Audit logging therefore cannot truthfully roll that
+ * change back. Treat an audit insert failure as observability degradation:
+ * report it loudly to diagnostics, but do not make the caller tell the user
+ * that the already-completed action itself failed (which could trigger a
+ * duplicate retry). Worker/server routes follow the same best-effort policy.
+ */
 export async function appendAuditLog(params: {
   workspaceId: string
   actorId: string
@@ -96,7 +104,7 @@ export async function appendAuditLog(params: {
   targetType?: string
   targetId?: string
   metadata?: Record<string, unknown>
-}): Promise<AuditLog> {
+}): Promise<AuditLog | null> {
   const supabase = createClient()
 
   const { data, error } = await supabase
@@ -115,8 +123,14 @@ export async function appendAuditLog(params: {
     `)
     .single()
 
-  if (error) {
-    throw new Error(error.message)
+  if (error || !data) {
+    console.error('Audit log insert failed after an authoritative action already completed:', {
+      action: params.action,
+      targetType: params.targetType,
+      targetId: params.targetId,
+      error,
+    })
+    return null
   }
 
   const actor = Array.isArray(data.actor) ? data.actor[0] : data.actor
