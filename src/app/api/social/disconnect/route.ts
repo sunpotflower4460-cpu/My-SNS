@@ -1,17 +1,36 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
-import { createServiceClient } from '@/lib/supabase/service'
-import { deleteSocialCredentials } from '@/lib/repositories/supabase/social-credentials'
+import type { SocialAccount, SocialPlatform } from '@/lib/domain/types'
 
 interface DisconnectRequestBody {
   workspaceId?: string
   accountId?: string
 }
 
-// Deleting the encrypted credential row requires the service-role client
-// (social_account_credentials has no client-facing RLS policy at all), so
-// disconnect can't be a plain browser-side Supabase call the way most other
-// mutations in this app are — it has to go through a server route.
+interface DisconnectedAccountRow {
+  id: string
+  workspace_id: string
+  platform: SocialPlatform
+  handle: string
+  connected: boolean
+  connected_at: string | null
+  external_account_id: string | null
+  updated_at: string
+}
+
+function mapDisconnectedAccount(row: DisconnectedAccountRow): SocialAccount {
+  return {
+    id: row.id,
+    workspaceId: row.workspace_id,
+    platform: row.platform,
+    handle: row.handle,
+    connected: row.connected,
+    connectedAt: row.connected_at ?? undefined,
+    externalAccountId: row.external_account_id ?? undefined,
+    updatedAt: row.updated_at,
+  }
+}
+
 export async function POST(request: NextRequest) {
   let body: DisconnectRequestBody
   try {
@@ -33,24 +52,32 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'ログインしていません。' }, { status: 401 })
   }
 
-  // RLS (owner/admin only) both scopes this to the caller's workspace and
-  // enforces manage_social_accounts — a lower role gets zero rows back.
-  const { data: account, error: updateError } = await supabase
-    .from('social_accounts')
-    .update({ connected: false })
-    .eq('id', accountId)
-    .eq('workspace_id', workspaceId)
-    .select()
-    .single()
+  // The RPC rechecks owner/admin, locks the account row, marks it disconnected,
+  // and deletes the encrypted credential in the same database transaction.
+  // This prevents a disconnected account from retaining a secret credential if
+  // a second independent database request fails.
+  const { data, error: disconnectError } = await supabase.rpc('disconnect_social_account', {
+    p_workspace_id: workspaceId,
+    p_account_id: accountId,
+  })
 
-  if (updateError || !account) {
-    return NextResponse.json({ error: 'アカウントが見つからないか、接続を解除する権限がありません。' }, { status: 404 })
+  if (disconnectError || !data) {
+    const status = disconnectError?.code === '42501'
+      ? 403
+      : disconnectError?.code === 'P0002'
+        ? 404
+        : 500
+    const error = status === 403
+      ? 'このアカウントの接続を解除する権限がありません。'
+      : status === 404
+        ? 'アカウントが見つかりません。'
+        : 'アカウントの接続解除を完了できませんでした。'
+    return NextResponse.json({ error }, { status })
   }
 
-  const serviceClient = createServiceClient()
-  await deleteSocialCredentials(serviceClient, accountId)
+  const account = mapDisconnectedAccount(data as DisconnectedAccountRow)
 
-  await supabase.from('audit_logs').insert({
+  const { error: auditError } = await supabase.from('audit_logs').insert({
     workspace_id: workspaceId,
     actor_id: user.id,
     action: 'social_account_disconnected',
@@ -58,6 +85,11 @@ export async function POST(request: NextRequest) {
     target_id: accountId,
     metadata: { platform: account.platform, handle: account.handle },
   })
+  if (auditError) {
+    // The authoritative disconnect already committed atomically. Audit logging
+    // is observability and must not turn that completed action into a false 500.
+    console.error('Failed to audit social account disconnect:', auditError)
+  }
 
   return NextResponse.json({ account })
 }
