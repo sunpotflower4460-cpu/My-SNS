@@ -62,35 +62,54 @@ export interface RecordReplyAttemptInput {
   createdBy?: string
 }
 
+const ATTEMPT_NUMBER_RETRIES = 3
+
+async function nextReplyAttemptNumber(supabase: SupabaseClient, replyJobId: string): Promise<number> {
+  const { data, error } = await supabase
+    .from('reply_attempts')
+    .select('attempt_number')
+    .eq('reply_job_id', replyJobId)
+    .order('attempt_number', { ascending: false })
+    .limit(1)
+    .maybeSingle()
+
+  if (error) throw new Error(error.message)
+  return ((data as { attempt_number?: number } | null)?.attempt_number ?? 0) + 1
+}
+
 /**
- * Records the next send attempt for a reply job (auto-numbered). Only ever
- * called by the reply Worker (service-role client) — there is no manual-send
- * path for a DM, so unlike publish attempts there is no browser-client writer.
+ * Records the next send attempt for a reply job. The claim guard normally
+ * serializes senders, but attempt numbering still fails closed on read errors
+ * and retries the narrow unique-number race instead of defaulting to #1.
  */
 export async function recordReplyAttempt(
   supabase: SupabaseClient,
   input: RecordReplyAttemptInput,
 ): Promise<ReplyAttempt> {
-  const { count } = await supabase
-    .from('reply_attempts')
-    .select('id', { count: 'exact', head: true })
-    .eq('reply_job_id', input.replyJobId)
+  for (let retry = 0; retry < ATTEMPT_NUMBER_RETRIES; retry += 1) {
+    const attemptNumber = await nextReplyAttemptNumber(supabase, input.replyJobId)
+    const { data, error } = await supabase
+      .from('reply_attempts')
+      .insert({
+        workspace_id: input.workspaceId,
+        reply_job_id: input.replyJobId,
+        attempt_number: attemptNumber,
+        status: input.status,
+        failure_reason: input.failureReason ?? null,
+        error_message: input.errorMessage ?? null,
+        external_message_id: input.externalMessageId ?? null,
+        created_by: input.createdBy ?? null,
+      })
+      .select()
+      .single()
 
-  const { data, error } = await supabase
-    .from('reply_attempts')
-    .insert({
-      workspace_id: input.workspaceId,
-      reply_job_id: input.replyJobId,
-      attempt_number: (count ?? 0) + 1,
-      status: input.status,
-      failure_reason: input.failureReason ?? null,
-      error_message: input.errorMessage ?? null,
-      external_message_id: input.externalMessageId ?? null,
-      created_by: input.createdBy ?? null,
-    })
-    .select()
-    .single()
+    if (!error) return mapAttempt(data as ReplyAttemptRow)
 
-  if (error) throw new Error(error.message)
-  return mapAttempt(data as ReplyAttemptRow)
+    const attemptNumberConflict = error.code === '23505'
+    if (!attemptNumberConflict || retry === ATTEMPT_NUMBER_RETRIES - 1) {
+      throw new Error(error.message)
+    }
+  }
+
+  throw new Error('Unable to record reply attempt.')
 }

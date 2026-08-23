@@ -43,11 +43,31 @@ async function claimPublishJob(supabase: SupabaseClient, jobId: string): Promise
   return Boolean(data)
 }
 
-async function releasePublishJobClaim(supabase: SupabaseClient, jobId: string, fields: Record<string, unknown>): Promise<void> {
-  await supabase
+async function releasePublishJobClaim(supabase: SupabaseClient, jobId: string, fields: Record<string, unknown>): Promise<boolean> {
+  const { data, error } = await supabase
     .from('publish_jobs')
     .update({ ...fields, claimed_at: null })
     .eq('id', jobId)
+    // Never overwrite a cancellation or an already-reconciled published row.
+    .in('status', ['scheduled', 'draft', 'failed'])
+    .select('id')
+    .maybeSingle()
+
+  if (error) throw new Error(error.message)
+  return Boolean(data)
+}
+
+async function hasSuccessfulPublishAttempt(supabase: SupabaseClient, jobId: string): Promise<boolean> {
+  const { data, error } = await supabase
+    .from('publish_attempts')
+    .select('id')
+    .eq('publish_job_id', jobId)
+    .eq('status', 'success')
+    .limit(1)
+    .maybeSingle()
+
+  if (error) throw new Error(error.message)
+  return Boolean(data)
 }
 
 /**
@@ -178,6 +198,11 @@ export interface ProcessJobResult {
   skipped?: boolean
 }
 
+type ConfirmedPublishResult = {
+  externalPostId?: string
+  externalUrl?: string
+}
+
 /**
  * Attempts one job end to end: claim it, resolve credentials, call the
  * adapter, record the attempt, update the job, write an audit log. Never
@@ -194,7 +219,21 @@ export async function processPublishJob(supabase: SupabaseClient, job: Publishab
     return { success: false, skipped: true }
   }
 
+  let confirmedPublish: ConfirmedPublishResult | null = null
+
   try {
+    // A previous run can have completed the real platform call and persisted
+    // its success attempt, then failed while updating publish_jobs. Reconcile
+    // that durable success before ever calling the external platform again.
+    if (await hasSuccessfulPublishAttempt(supabase, job.id)) {
+      await releasePublishJobClaim(supabase, job.id, {
+        status: 'published',
+        published_at: new Date().toISOString(),
+        error_message: null,
+      })
+      return { success: true }
+    }
+
     const credentials = await resolveCredentials(supabase, job.workspaceId, job.channel)
     if (!credentials) {
       throw new Error(`No connected ${job.channel} account for this workspace. Connect one from Settings.`)
@@ -212,6 +251,7 @@ export async function processPublishJob(supabase: SupabaseClient, job: Publishab
       cta: job.revision.cta ?? undefined,
       metadata: job.revision.metadata,
     })
+    confirmedPublish = result
 
     await recordPublishAttempt(supabase, {
       workspaceId: job.workspaceId,
@@ -221,11 +261,9 @@ export async function processPublishJob(supabase: SupabaseClient, job: Publishab
       externalUrl: result.externalUrl,
     })
 
-    // Guarded on status='scheduled'/'draft'/'failed' (i.e. not 'cancelled'):
-    // if a human cancelled this job right as the claim above was taken —
-    // there's a brief window between the two — this no-ops instead of
-    // overwriting the cancellation back to "published". The attempt above
-    // still recorded the real outcome either way.
+    // If a human cancelled after the real publish began, this deliberately
+    // leaves the cancellation intact. The success attempt still records what
+    // happened externally, and future workers will not call the platform again.
     await releasePublishJobClaim(supabase, job.id, { status: 'published', published_at: new Date().toISOString(), error_message: null })
 
     await supabase.from('audit_logs').insert({
@@ -239,6 +277,33 @@ export async function processPublishJob(supabase: SupabaseClient, job: Publishab
 
     return { success: true }
   } catch (cause) {
+    // Once the external platform has confirmed success, never classify a later
+    // database bookkeeping problem as a failed publish. Reconcile the durable
+    // success attempt/job state instead; most importantly, never trigger a
+    // second platform call on the next Worker run.
+    if (confirmedPublish) {
+      try {
+        if (!(await hasSuccessfulPublishAttempt(supabase, job.id))) {
+          await recordPublishAttempt(supabase, {
+            workspaceId: job.workspaceId,
+            publishJobId: job.id,
+            status: 'success',
+            externalPostId: confirmedPublish.externalPostId,
+            externalUrl: confirmedPublish.externalUrl,
+          })
+        }
+        await releasePublishJobClaim(supabase, job.id, {
+          status: 'published',
+          published_at: new Date().toISOString(),
+          error_message: null,
+        })
+        return { success: true }
+      } catch (reconciliationError) {
+        console.error(`Confirmed publish for job ${job.id} could not be reconciled:`, reconciliationError)
+        return { success: false }
+      }
+    }
+
     const message = cause instanceof Error ? cause.message : 'Publishing failed.'
     // "No connected ... account" is our own resolveCredentials wording, not
     // an adapter error — checked precisely here rather than folded into the
