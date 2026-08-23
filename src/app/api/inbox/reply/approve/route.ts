@@ -1,11 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createServiceClient } from '@/lib/supabase/service'
-import { createReplyJob } from '@/lib/repositories/supabase/reply-queue'
+import { createReplyJob, findNonCancelledReplyJob } from '@/lib/repositories/supabase/reply-queue'
 import { processReplyJob } from '@/lib/services/reply-worker'
 import { computeRecipientSendTime } from '@/lib/services/reply-timing'
 import { hasPermission } from '@/lib/permissions'
-import type { WorkspaceRole } from '@/lib/domain/types'
+import type { ReplyJob, WorkspaceRole } from '@/lib/domain/types'
 
 // Approve a suggested reply and enqueue it for sending. The human's edited text
 // is captured as an immutable snapshot on the reply_job; the send target and an
@@ -142,7 +142,8 @@ export async function POST(request: NextRequest) {
         quietEnd: contact.quiet_hours_end ?? undefined,
       })
 
-  let job
+  let job: ReplyJob
+  let reusedExistingJob = false
   try {
     job = await createReplyJob(supabase, {
       workspaceId,
@@ -157,20 +158,47 @@ export async function POST(request: NextRequest) {
       createdBy: user.id,
     })
   } catch (cause) {
-    return NextResponse.json(
-      { error: cause instanceof Error ? cause.message : '返信を予約できませんでした。' },
-      { status: 502 },
-    )
+    // The DB insert guard serializes all manual/auto creations for this inbox
+    // item. If our INSERT lost that race (or this is an HTTP retry after the
+    // first request committed), recover the durable existing job instead of
+    // creating/reporting a duplicate send.
+    let existing: ReplyJob | null = null
+    try {
+      existing = await findNonCancelledReplyJob(supabase, workspaceId, inboxItemId)
+    } catch (lookupCause) {
+      console.error('Failed to resolve an existing reply job after enqueue failure:', lookupCause)
+    }
+
+    if (!existing) {
+      return NextResponse.json(
+        { error: cause instanceof Error ? cause.message : '返信を予約できませんでした。' },
+        { status: 502 },
+      )
+    }
+
+    const requestedSuggestionId = suggestionId ?? undefined
+    if (existing.replyText !== replyText || existing.suggestionId !== requestedSuggestionId) {
+      return NextResponse.json(
+        { error: 'このメッセージには別の返信がすでに予約・送信されています。受信箱を再読み込みして既存の返信状態を確認してください。' },
+        { status: 409 },
+      )
+    }
+
+    job = existing
+    reusedExistingJob = true
   }
 
-  await supabase.from('audit_logs').insert({
-    workspace_id: workspaceId,
-    actor_id: user.id,
-    action: 'inbox_reply_scheduled',
-    target_type: 'inbox_item',
-    target_id: inboxItemId,
-    metadata: { platform: 'line', replyJobId: job.id, scheduledAt, sendNow: Boolean(sendNow) },
-  })
+  if (!reusedExistingJob) {
+    const { error: auditError } = await supabase.from('audit_logs').insert({
+      workspace_id: workspaceId,
+      actor_id: user.id,
+      action: 'inbox_reply_scheduled',
+      target_type: 'inbox_item',
+      target_id: inboxItemId,
+      metadata: { platform: 'line', replyJobId: job.id, scheduledAt, sendNow: Boolean(sendNow) },
+    })
+    if (auditError) console.error('Failed to audit scheduled inbox reply:', auditError)
+  }
 
   // Approving a reply resolves the item: it no longer needs action and is read.
   // Best-effort — a failure here must not fail the (already-committed) enqueue.
@@ -182,11 +210,28 @@ export async function POST(request: NextRequest) {
   if (itemUpdateError) console.error('Failed to clear inbox item after approving a reply:', itemUpdateError)
 
   if (!sendNow) {
-    return NextResponse.json({ status: 'scheduled', job })
+    if (job.status === 'sent') {
+      return NextResponse.json({ status: 'sent', job, reused: reusedExistingJob })
+    }
+    if (job.status === 'failed') {
+      return NextResponse.json(
+        { status: 'failed', job, error: 'この返信は以前の送信で失敗しています。既存ジョブの「再送」を使用してください。' },
+        { status: 409 },
+      )
+    }
+    return NextResponse.json({ status: 'scheduled', job, reused: reusedExistingJob })
+  }
+
+  // A retry that discovers the durable job is already sent must never call the
+  // external platform again.
+  if (job.status === 'sent') {
+    return NextResponse.json({ status: 'sent', job, reused: true })
   }
 
   // Immediate send: process inline with the service client (credentials +
   // append-only attempt writes need service role). processReplyJob never throws.
+  // Failed existing jobs deliberately go through this path too, matching the
+  // dedicated retry endpoint while keeping this approval request idempotent.
   const serviceClient = createServiceClient()
   const result = await processReplyJob(serviceClient, {
     id: job.id,
@@ -199,14 +244,13 @@ export async function POST(request: NextRequest) {
   })
 
   if (result.success) {
-    return NextResponse.json({ status: 'sent', job })
+    return NextResponse.json({ status: 'sent', job, reused: reusedExistingJob })
   }
 
   if (result.skipped) {
-    // The scheduled Worker claimed this brand-new due job in the tiny window
-    // between enqueue and our inline claim — it may well have already delivered
-    // it. Don't report a false failure: re-read the authoritative row status
-    // and surface that instead (the UI reflects the final state on next refresh).
+    // The scheduled Worker claimed this due job in the tiny window between
+    // enqueue/recovery and our inline claim — it may well have already delivered
+    // it. Don't report a false failure: re-read the authoritative row status.
     const { data: current } = await serviceClient
       .from('reply_jobs')
       .select('status')
@@ -221,7 +265,7 @@ export async function POST(request: NextRequest) {
     }
     // 'sent' (Worker delivered it) or 'scheduled' (Worker is sending it right
     // now) — either way this is not a failure.
-    return NextResponse.json({ status: status === 'sent' ? 'sent' : 'scheduled', job })
+    return NextResponse.json({ status: status === 'sent' ? 'sent' : 'scheduled', job, reused: reusedExistingJob })
   }
 
   // A genuine failure: the job row now carries status='failed' + error_message;
