@@ -102,6 +102,7 @@ export async function createPublishJob(input: CreatePublishJobInput): Promise<Pu
   // until a human completes the zero-cost platform handoff. Everything else
   // starts "scheduled" for the opt-in API-first Worker path.
   const status = input.publishMode === 'manual' ? 'draft' : 'scheduled'
+  const requestedScheduledAt = input.scheduledAt ?? null
 
   const { data, error } = await supabase
     .from('publish_jobs')
@@ -113,14 +114,43 @@ export async function createPublishJob(input: CreatePublishJobInput): Promise<Pu
       channel: input.channel,
       publish_mode: input.publishMode,
       status,
-      scheduled_at: input.scheduledAt ?? null,
+      scheduled_at: requestedScheduledAt,
       created_by: input.createdBy,
     })
     .select()
     .single()
 
-  if (error) throw new Error(error.message)
-  return mapJob(data as PublishJobRow)
+  if (!error) return mapJob(data as PublishJobRow)
+
+  // The database insert guard serializes scheduling by immutable Revision. If
+  // this was an HTTP retry after the first request committed (or the losing
+  // half of an identical double click), return that durable row rather than
+  // claiming scheduling failed. A genuinely different schedule/job remains an
+  // error and must be reconciled by the user instead of silently changing it.
+  const { data: existing, error: existingError } = await supabase
+    .from('publish_jobs')
+    .select('*')
+    .eq('workspace_id', input.workspaceId)
+    .eq('revision_id', input.revisionId)
+    .neq('status', 'cancelled')
+    .order('created_at', { ascending: false })
+    .limit(1)
+    .maybeSingle()
+
+  if (!existingError && existing) {
+    const row = existing as PublishJobRow
+    const identicalRequest =
+      row.seed_id === input.seedId
+      && row.draft_id === input.draftId
+      && row.channel === input.channel
+      && row.publish_mode === input.publishMode
+      && (row.scheduled_at ?? null) === requestedScheduledAt
+      && row.created_by === input.createdBy
+
+    if (identicalRequest) return mapJob(row)
+  }
+
+  throw new Error(error.message)
 }
 
 export async function retryPublishJob(
