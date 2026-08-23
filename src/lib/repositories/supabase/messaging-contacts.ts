@@ -47,8 +47,7 @@ export async function listWorkspaceMessagingContacts(workspaceId: string): Promi
     .order('last_message_at', { ascending: false, nullsFirst: false })
 
   if (error) {
-    console.error('Error fetching messaging contacts:', error)
-    return []
+    throw new Error(`メッセージ連絡先と自動送信設定を読み込めませんでした。空の連絡先として扱わず、再読み込みしてください: ${error.message}`)
   }
 
   return (data ?? []).map((row) => mapMessagingContact(row as MessagingContactRow))
