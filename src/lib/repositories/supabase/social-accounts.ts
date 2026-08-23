@@ -36,8 +36,7 @@ export async function listWorkspaceSocialAccounts(workspaceId: string): Promise<
     .order('created_at', { ascending: false })
 
   if (error) {
-    console.error('Error fetching social accounts:', error)
-    return []
+    throw new Error(`SNS接続状態を読み込めませんでした。未接続として扱わず、再読み込みしてください: ${error.message}`)
   }
 
   return (data ?? []).map((row) => mapAccount(row as SocialAccountRow))
