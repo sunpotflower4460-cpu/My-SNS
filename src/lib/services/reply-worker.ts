@@ -161,6 +161,10 @@ export async function processReplyJob(supabase: SupabaseClient, job: ReplyableJo
       target: job.sendTarget,
       text: job.replyText,
       externalAccountId: credentials.externalAccountId,
+      // Stable across every retry of this durable outbound job. LINE maps this
+      // UUID to X-Line-Retry-Key, which closes the "provider accepted it but
+      // our HTTP response was lost" duplicate-send window.
+      retryKey: job.id,
     })
     confirmedReply = result
 
