@@ -159,6 +159,8 @@ export interface SendMessageRequest {
   target: string
   text: string
   externalAccountId?: string
+  /** Stable provider idempotency/retry key for one durable outbound job. LINE maps this to X-Line-Retry-Key. */
+  retryKey?: string
 }
 
 export interface SendMessageResult {
