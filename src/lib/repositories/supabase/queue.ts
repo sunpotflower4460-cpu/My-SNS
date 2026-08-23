@@ -171,11 +171,14 @@ export async function retryPublishJob(
     })
     .eq('id', jobId)
     .eq('workspace_id', workspaceId)
+    .eq('status', 'failed')
+    .or(notActivelyClaimedFilter())
     .select()
-    .single()
+    .maybeSingle()
 
-  if (error) {
-    throw new Error(error.message)
+  if (error) throw new Error(error.message)
+  if (!data) {
+    throw new Error('この公開予定は再試行できません（失敗状態ではないか、現在公開処理中です）。')
   }
 
   return mapJob(data as PublishJobRow)
@@ -187,8 +190,10 @@ export async function cancelPublishJob(
 ): Promise<PublishJob> {
   const supabase = createClient()
 
-  // Refuses to cancel a job that's actively being published right now. A
-  // stale/abandoned claim (see notActivelyClaimedFilter) doesn't block this.
+  // Only mutable, not-yet-terminal states may be cancelled. This protects a
+  // published job from being rewritten to cancelled (which could otherwise
+  // make the same Revision look eligible for a fresh schedule and re-publish).
+  // Active claims remain protected; a stale/abandoned claim does not block.
   const { data, error } = await supabase
     .from('publish_jobs')
     .update({
@@ -196,15 +201,14 @@ export async function cancelPublishJob(
     })
     .eq('id', jobId)
     .eq('workspace_id', workspaceId)
+    .in('status', ['draft', 'scheduled', 'failed'])
     .or(notActivelyClaimedFilter())
     .select()
     .maybeSingle()
 
-  if (error) {
-    throw new Error(error.message)
-  }
+  if (error) throw new Error(error.message)
   if (!data) {
-    throw new Error('This job is currently being published — try cancelling again in a moment.')
+    throw new Error('この公開予定はキャンセルできません（すでに完了済み・キャンセル済み、または現在公開処理中です）。')
   }
 
   return mapJob(data as PublishJobRow)
