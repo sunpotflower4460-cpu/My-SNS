@@ -81,19 +81,31 @@ export class LineConnectorAdapter implements SocialConnectorAdapter {
     // Push message (not a reply-token reply): reply tokens expire ~1 minute
     // after the inbound event and are single-use, but our sends are scheduled
     // (possibly hours later) and always flow through the reply Worker — so we
-    // push to the recipient's userId instead. See docs and the webhook mapper,
-    // which deliberately never persists the replyToken.
+    // push to the recipient's userId instead.
+    //
+    // LINE explicitly supports X-Line-Retry-Key for push messages. The Worker
+    // supplies the durable reply_job UUID, so a timeout/5xx can be retried with
+    // the exact same provider key instead of risking a duplicate real message.
     const response = await fetch(PUSH_URL, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         Authorization: `Bearer ${request.accessToken}`,
+        ...(request.retryKey ? { 'X-Line-Retry-Key': request.retryKey } : {}),
       },
       body: JSON.stringify({
         to: request.target,
         messages: [{ type: 'text', text: request.text }],
       }),
     })
+
+    // If the first request was accepted but its response was lost, LINE returns
+    // 409 for a retry with the same key and identifies the previously accepted
+    // request. That is a confirmed accepted send, not a failure to retry again.
+    if (response.status === 409 && request.retryKey) {
+      const acceptedRequestId = response.headers.get('x-line-accepted-request-id')
+      if (acceptedRequestId) return { externalMessageId: acceptedRequestId }
+    }
 
     if (!response.ok) {
       const detail = await response.text().catch(() => '')
