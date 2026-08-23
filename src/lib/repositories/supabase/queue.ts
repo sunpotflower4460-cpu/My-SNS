@@ -168,6 +168,7 @@ export async function retryPublishJob(
       status: 'scheduled',
       scheduled_at: scheduledAt.toISOString(),
       error_message: null,
+      claimed_at: null,
     })
     .eq('id', jobId)
     .eq('workspace_id', workspaceId)
@@ -198,6 +199,7 @@ export async function cancelPublishJob(
     .from('publish_jobs')
     .update({
       status: 'cancelled',
+      claimed_at: null,
     })
     .eq('id', jobId)
     .eq('workspace_id', workspaceId)
