@@ -8,12 +8,12 @@ type CardTone = 'default' | 'muted' | 'selected' | 'warning' | 'error' | 'succes
 type CardSize = 'card' | 'container'
 
 const TONES: Record<CardTone, string> = {
-  default: 'border-stone-200 bg-white',
-  muted: 'border-stone-200 bg-stone-50',
-  selected: 'border-violet-200 bg-violet-50/50',
-  warning: 'border-amber-200 bg-amber-50',
-  error: 'border-rose-200 bg-rose-50',
-  success: 'border-emerald-200 bg-emerald-50',
+  default: 'border-[color:var(--border-default)] glass-surface',
+  muted: 'border-[color:var(--border-default)] bg-[color:var(--surface-secondary)]',
+  selected: 'border-[color:rgba(109,93,246,0.18)] bg-[color:var(--accent-soft)]',
+  warning: 'border-amber-200/80 bg-amber-50/90',
+  error: 'border-rose-200/80 bg-rose-50/90',
+  success: 'border-emerald-200/80 bg-emerald-50/90',
 }
 
 export interface CardProps extends React.HTMLAttributes<HTMLDivElement> {
@@ -22,17 +22,29 @@ export interface CardProps extends React.HTMLAttributes<HTMLDivElement> {
   /** Only elements that genuinely float (dialogs, popovers) get a shadow — flat cards read calmer. */
   elevated?: boolean
   padded?: boolean
+  interactive?: boolean
 }
 
-export default function Card({ tone = 'default', size = 'card', elevated = false, padded = true, className, children, ...props }: CardProps) {
+export default function Card({
+  tone = 'default',
+  size = 'card',
+  elevated = true,
+  padded = true,
+  interactive = false,
+  className,
+  children,
+  ...props
+}: CardProps) {
   return (
     <div
       className={cn(
         'border',
         size === 'container' ? 'rounded-container' : 'rounded-card',
-        TONES[tone],
         padded && (size === 'container' ? 'p-6' : 'p-4'),
-        elevated && 'shadow-sm shadow-stone-100/70',
+        TONES[tone],
+        elevated && 'shadow-[var(--shadow-soft)]',
+        interactive
+          && 'transition duration-200 ease-[var(--ease-out-premium)] hover:-translate-y-px hover:shadow-[0_12px_36px_rgba(24,24,27,0.08)]',
         className,
       )}
       {...props}

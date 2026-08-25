@@ -29,12 +29,12 @@ export default function FormField({ label, description, error, required, classNa
 
   return (
     <div className={cn('flex flex-col gap-1.5', className)}>
-      <label htmlFor={id} className="text-sm font-medium text-gray-700">
+      <label htmlFor={id} className="text-sm font-medium text-[color:var(--text-strong)]">
         {label}
         {required && <span className="ml-0.5 text-rose-500" aria-hidden>*</span>}
       </label>
       {description && (
-        <p id={descriptionId} className="text-xs text-gray-500">
+        <p id={descriptionId} className="text-xs leading-5 text-[color:var(--text-muted)]">
           {description}
         </p>
       )}

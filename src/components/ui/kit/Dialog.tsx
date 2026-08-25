@@ -27,24 +27,24 @@ export default function Dialog({ open, onClose, title, description, children, fo
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-      <div className="absolute inset-0 bg-gray-900/40" onClick={onClose} aria-hidden />
+      <div className="absolute inset-0 bg-slate-950/32 backdrop-blur-sm" onClick={onClose} aria-hidden />
       <div
         ref={ref}
         role="dialog"
         aria-modal="true"
         aria-label={title}
         tabIndex={-1}
-        className={cn('relative w-full max-w-md rounded-container border border-stone-200 bg-white p-6 shadow-xl')}
+        className={cn('ui-floating relative w-full max-w-md rounded-container p-6')}
       >
         <div className="flex items-start justify-between gap-4">
           <div className="min-w-0">
-            <h2 className="text-base font-semibold text-gray-900">{title}</h2>
-            {description && <p className="mt-1 text-sm text-gray-500">{description}</p>}
+            <h2 className="text-base font-semibold tracking-[-0.01em] text-[color:var(--text-strong)]">{title}</h2>
+            {description && <p className="mt-1 text-sm text-[color:var(--text-muted)]">{description}</p>}
           </div>
           <IconButton icon={X} label="閉じる" onClick={onClose} />
         </div>
-        {children && <div className="mt-4 text-sm text-gray-700">{children}</div>}
-        {footer && <div className="mt-6 flex items-center justify-end gap-2">{footer}</div>}
+        {children && <div className="mt-4 text-sm text-[color:var(--text-default)]">{children}</div>}
+        {footer && <div className="mt-6 flex items-center justify-end gap-2.5">{footer}</div>}
       </div>
     </div>
   )

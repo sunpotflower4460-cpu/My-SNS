@@ -27,7 +27,7 @@ export default function Sheet({ open, onClose, title, children, footer }: SheetP
 
   return (
     <div className="fixed inset-0 z-50 flex items-end justify-center sm:items-stretch sm:justify-end">
-      <div className="absolute inset-0 bg-gray-900/40" onClick={onClose} aria-hidden />
+      <div className="absolute inset-0 bg-slate-950/32 backdrop-blur-sm" onClick={onClose} aria-hidden />
       <div
         ref={ref}
         role="dialog"
@@ -35,16 +35,16 @@ export default function Sheet({ open, onClose, title, children, footer }: SheetP
         aria-label={title}
         tabIndex={-1}
         className={cn(
-          'relative flex max-h-[85vh] w-full flex-col overflow-hidden border-stone-200 bg-white shadow-xl',
-          'rounded-t-container border-t sm:h-full sm:max-h-none sm:max-w-md sm:rounded-none sm:border-l sm:border-t-0',
+          'ui-floating relative flex max-h-[85vh] w-full flex-col overflow-hidden',
+          'rounded-t-container border-t-0 sm:h-full sm:max-h-none sm:max-w-md sm:rounded-none sm:border-r-0 sm:border-t-0',
         )}
       >
-        <div className="flex items-center justify-between gap-4 border-b border-stone-100 px-5 py-4">
-          <h2 className="text-base font-semibold text-gray-900">{title}</h2>
+        <div className="flex items-center justify-between gap-4 border-b border-[color:var(--border-default)] px-5 py-4">
+          <h2 className="text-base font-semibold tracking-[-0.01em] text-[color:var(--text-strong)]">{title}</h2>
           <IconButton icon={X} label="閉じる" onClick={onClose} />
         </div>
         <div className="flex-1 overflow-y-auto px-5 pt-4 pb-[calc(1rem+env(safe-area-inset-bottom))]">{children}</div>
-        {footer && <div className="border-t border-stone-100 px-5 pt-4 pb-[calc(1rem+env(safe-area-inset-bottom))]">{footer}</div>}
+        {footer && <div className="border-t border-[color:var(--border-default)] px-5 pt-4 pb-[calc(1rem+env(safe-area-inset-bottom))]">{footer}</div>}
       </div>
     </div>
   )

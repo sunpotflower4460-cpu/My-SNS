@@ -40,33 +40,33 @@ export default function DraftEditorCard({ draft, onEdit, onApprove, onRegenerate
   }
 
   return (
-    <div className="rounded-3xl border border-stone-200 bg-white p-5 shadow-sm shadow-stone-100/70">
-      <div className="flex items-center gap-2 mb-3 flex-wrap">
+    <div className="ui-panel rounded-container p-5">
+      <div className="mb-3 flex flex-wrap items-center gap-2">
         <ChannelBadge channel={draft.channel} />
         <StatusBadge status={draft.status} />
-        <span className={`rounded-full px-2.5 py-1 text-[11px] font-semibold ${draft.source === 'ai' ? 'border border-violet-200 bg-violet-50 text-violet-700' : 'border border-stone-200 bg-stone-50 text-stone-500'}`}>
+        <span className={`rounded-full px-2.5 py-1 text-[11px] font-semibold ${draft.source === 'ai' ? 'border border-[color:rgba(109,93,246,0.16)] bg-[color:var(--accent-soft)] text-[color:var(--accent)]' : 'border border-[color:var(--border-default)] bg-black/[0.03] text-[color:var(--text-muted)]'}`}>
           {draft.source === 'ai' ? 'AI提案' : 'テンプレート'}
         </span>
-        <span className="text-xs text-gray-400 ml-auto">
+        <span className="ml-auto text-xs text-[color:var(--text-subtle)]">
           {draft.tone} · {draft.length}
         </span>
       </div>
 
-      {draft.title && <p className="mb-2 text-sm font-semibold text-gray-900">{draft.title}</p>}
+      {draft.title && <p className="mb-2 text-sm font-semibold text-[color:var(--text-strong)]">{draft.title}</p>}
 
       <textarea
         value={text}
         onChange={(e) => handleChange(e.target.value)}
         rows={4}
-        className="w-full rounded-2xl border border-stone-200 p-3 text-sm text-gray-700 resize-none focus:outline-none focus:ring-2 focus:ring-violet-300"
+        className="ui-input w-full resize-none rounded-card p-3 text-sm text-[color:var(--text-default)] focus:outline-none"
       />
 
       {draft.hashtags.length > 0 && (
-        <p className="mt-2 text-xs text-gray-400">{draft.hashtags.map((tag) => `#${tag}`).join(' ')}</p>
+        <p className="mt-2 text-xs text-[color:var(--text-subtle)]">{draft.hashtags.map((tag) => `#${tag}`).join(' ')}</p>
       )}
 
       {draft.assumptions.length > 0 && (
-        <div className="mt-3 rounded-2xl border border-amber-200 bg-amber-50 p-3">
+        <div className="mt-3 rounded-card border border-amber-200/80 bg-amber-50/90 p-3">
           <p className="text-[11px] font-semibold text-amber-700">確認が必要な前提</p>
           <ul className="mt-1.5 space-y-1 text-xs leading-5 text-amber-800">
             {draft.assumptions.map((assumption, index) => <li key={index}>• {assumption}</li>)}
@@ -75,30 +75,30 @@ export default function DraftEditorCard({ draft, onEdit, onApprove, onRegenerate
       )}
 
       {onSchedule && draft.status === 'approved' && (
-        <div className="mt-3 flex flex-wrap items-center gap-2 rounded-2xl border border-stone-200 bg-stone-50 p-3">
-          <label className="text-xs font-medium text-gray-600" htmlFor={`schedule-${draft.id}`}>公開日時</label>
+        <div className="mt-3 flex flex-wrap items-center gap-2 rounded-card border border-[color:var(--border-default)] bg-black/[0.025] p-3">
+          <label className="text-xs font-medium text-[color:var(--text-default)]" htmlFor={`schedule-${draft.id}`}>公開日時</label>
           <input
             id={`schedule-${draft.id}`}
             type="datetime-local"
             value={scheduleInput}
             onChange={(event) => setScheduleInput(event.target.value)}
-            className="rounded-xl border border-stone-200 px-2.5 py-1.5 text-xs"
+            className="ui-input rounded-control px-2.5 py-1.5 text-xs focus:outline-none"
           />
           <button
             onClick={() => onSchedule(draft.id, new Date(scheduleInput).toISOString())}
-            className="rounded-xl bg-violet-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-violet-700"
+            className="rounded-full bg-[color:var(--accent)] px-3 py-1.5 text-xs font-medium text-white transition duration-200 ease-[var(--ease-out-premium)] hover:bg-[color:var(--accent-hover)]"
           >
             予約する
           </button>
         </div>
       )}
 
-      <div className="flex items-center gap-2 mt-3">
-        {isDirty && <span className="rounded-full border border-amber-200 bg-amber-50 px-2.5 py-1 text-[11px] font-semibold text-amber-700">未保存</span>}
+      <div className="mt-3 flex items-center gap-2">
+        {isDirty && <span className="rounded-full border border-amber-200/80 bg-amber-50/90 px-2.5 py-1 text-[11px] font-semibold text-amber-700">未保存</span>}
         {isDirty && onEdit && (
           <button
             onClick={handleSave}
-            className="rounded-xl bg-gray-900 px-3 py-1.5 text-xs text-white hover:bg-gray-700"
+            className="rounded-full bg-[color:var(--text-strong)] px-3 py-1.5 text-xs text-white transition duration-200 ease-[var(--ease-out-premium)] hover:opacity-90"
           >
             保存
           </button>
@@ -106,7 +106,7 @@ export default function DraftEditorCard({ draft, onEdit, onApprove, onRegenerate
         {onApprove && draft.status === 'draft' && (
           <button
             onClick={() => onApprove(draft.id)}
-            className="rounded-xl bg-green-600 px-3 py-1.5 text-xs text-white hover:bg-green-700"
+            className="rounded-full bg-emerald-600 px-3 py-1.5 text-xs text-white transition duration-200 ease-[var(--ease-out-premium)] hover:bg-emerald-700"
           >
             承認する
           </button>
@@ -114,12 +114,12 @@ export default function DraftEditorCard({ draft, onEdit, onApprove, onRegenerate
         {onRegenerate && (
           <button
             onClick={() => onRegenerate(draft.id)}
-            className="rounded-xl border border-stone-200 px-3 py-1.5 text-xs text-gray-500 hover:bg-stone-50"
+            className="rounded-full border border-[color:var(--border-default)] px-3 py-1.5 text-xs text-[color:var(--text-muted)] transition duration-200 ease-[var(--ease-out-premium)] hover:bg-white hover:text-[color:var(--text-strong)]"
           >
             テンプレートに戻す
           </button>
         )}
-        <span className="ml-auto text-xs text-gray-400">{text.length}文字</span>
+        <span className="ml-auto text-xs text-[color:var(--text-subtle)]">{text.length}文字</span>
       </div>
     </div>
   )

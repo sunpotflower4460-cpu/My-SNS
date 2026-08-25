@@ -8,8 +8,8 @@ import { cn } from '@/lib/ui/cn'
 type IconButtonVariant = 'ghost' | 'secondary'
 
 const VARIANTS: Record<IconButtonVariant, string> = {
-  ghost: 'text-gray-500 hover:bg-stone-100 hover:text-gray-900',
-  secondary: 'border border-stone-200 bg-white text-gray-600 hover:bg-stone-50',
+  ghost: 'text-[color:var(--text-muted)] hover:bg-black/[0.045] hover:text-[color:var(--text-strong)]',
+  secondary: 'border border-[color:var(--border-default)] bg-white/90 text-[color:var(--text-default)] hover:bg-white',
 }
 
 export interface IconButtonProps extends Omit<React.ButtonHTMLAttributes<HTMLButtonElement>, 'aria-label'> {
@@ -29,7 +29,7 @@ const IconButton = forwardRef<HTMLButtonElement, IconButtonProps>(function IconB
       aria-label={label}
       title={label}
       className={cn(
-        'inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-full transition disabled:opacity-50 sm:h-9 sm:w-9',
+        'inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-full transition duration-200 ease-[var(--ease-out-premium)] active:scale-[0.985] disabled:opacity-50 sm:h-9 sm:w-9',
         VARIANTS[variant],
         className,
       )}

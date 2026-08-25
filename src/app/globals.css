@@ -11,39 +11,58 @@
  */
 :root {
   /* Surfaces */
-  --surface-page: #fafaf9; /* stone-50 */
-  --surface-primary: #ffffff;
-  --surface-secondary: #f5f5f4; /* stone-100 */
-  --surface-selected: #f5f3ff; /* violet-50 */
+  --surface-page: #f6f4ef;
+  --surface-primary: rgba(255, 255, 255, 0.82);
+  --surface-solid: #ffffff;
+  --surface-secondary: #f8f6f1;
+  --surface-selected: #f2f0ff;
 
   /* Text */
-  --text-strong: #111827; /* gray-900 */
-  --text-default: #374151; /* gray-700 */
-  --text-muted: #6b7280; /* gray-500 */
-  --text-subtle: #9ca3af; /* gray-400 */
+  --text-strong: #18181b;
+  --text-default: #3f3f46;
+  --text-muted: #71717a;
+  --text-subtle: #a1a1aa;
 
   /* Border */
-  --border-default: #e7e5e4; /* stone-200 */
-  --border-strong: #d6d3d1; /* stone-300 */
+  --border-default: rgba(24, 24, 27, 0.08);
+  --border-strong: rgba(24, 24, 27, 0.14);
 
   /* Accent / status (bases used by Badge/InlineAlert) */
-  --accent: #7c3aed; /* violet-600 */
-  --accent-hover: #6d28d9; /* violet-700 */
+  --accent: #6d5df6;
+  --accent-hover: #5b4cf0;
+  --accent-soft: #f2f0ff;
 
   /* Focus ring — shared by every interactive element */
-  --focus-ring: #c4b5fd; /* violet-300 */
+  --focus-ring: rgba(109, 93, 246, 0.35);
 
   /* Radius scale (§17.2 of the redesign brief) */
-  --radius-control: 0.75rem; /* 12px — inputs / buttons */
-  --radius-card: 1rem; /* 16px — normal cards */
-  --radius-container: 1.5rem; /* 24px — large work containers */
+  --radius-control: 0.875rem; /* 14px — inputs / buttons */
+  --radius-card: 1.25rem; /* 20px — normal cards */
+  --radius-container: 1.75rem; /* 28px — large work containers */
 
   /* Minimum interactive sizes */
   --control-height: 2.5rem; /* 40px desktop */
   --control-height-touch: 2.75rem; /* 44px touch target */
+
+  /* Shared premium shadows / easing */
+  --shadow-soft: 0 1px 2px rgba(24, 24, 27, 0.04), 0 12px 32px rgba(24, 24, 27, 0.06);
+  --shadow-floating: 0 24px 80px rgba(15, 23, 42, 0.18);
+  --ease-out-premium: cubic-bezier(0.22, 1, 0.36, 1);
 }
 
 @layer base {
+  html {
+    background: var(--surface-page);
+  }
+
+  body {
+    background:
+      radial-gradient(circle at top, rgba(109, 93, 246, 0.08), transparent 32%),
+      linear-gradient(180deg, rgba(255, 255, 255, 0.4), transparent 20%),
+      var(--surface-page);
+    color: var(--text-default);
+  }
+
   /*
    * A single visible focus style for keyboard users across every interactive
    * element — never removed (accessibility foundation). Mouse clicks don't show
@@ -53,6 +72,55 @@
     outline: 2px solid var(--focus-ring);
     outline-offset: 2px;
     border-radius: 2px;
+  }
+}
+
+@layer components {
+  .glass-surface {
+    background: var(--surface-primary);
+    backdrop-filter: blur(14px);
+    -webkit-backdrop-filter: blur(14px);
+  }
+
+  .ui-panel {
+    border: 1px solid var(--border-default);
+    background: var(--surface-primary);
+    box-shadow: var(--shadow-soft);
+    backdrop-filter: blur(14px);
+    -webkit-backdrop-filter: blur(14px);
+  }
+
+  .ui-floating {
+    border: 1px solid var(--border-default);
+    background: rgba(255, 255, 255, 0.92);
+    box-shadow: var(--shadow-floating);
+    backdrop-filter: blur(18px);
+    -webkit-backdrop-filter: blur(18px);
+  }
+
+  .ui-input {
+    border: 1px solid var(--border-default);
+    background: rgba(255, 255, 255, 0.88);
+    color: var(--text-strong);
+    transition:
+      border-color 180ms var(--ease-out-premium),
+      background-color 180ms var(--ease-out-premium),
+      box-shadow 180ms var(--ease-out-premium),
+      transform 180ms var(--ease-out-premium);
+  }
+
+  .ui-input::placeholder {
+    color: var(--text-subtle);
+  }
+
+  .ui-input:hover {
+    border-color: var(--border-strong);
+    background: rgba(255, 255, 255, 0.96);
+  }
+
+  .ui-input:focus {
+    border-color: rgba(109, 93, 246, 0.24);
+    box-shadow: 0 0 0 4px rgba(109, 93, 246, 0.12);
   }
 }
 
