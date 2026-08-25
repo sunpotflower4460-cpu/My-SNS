@@ -17,6 +17,11 @@ import { hasPermission } from '@/lib/permissions'
 // same threshold applied to cancel/manual-complete.
 const STALE_CLAIM_MINUTES = 10
 
+// Signed URLs from Supabase Storage are valid for 1 hour (3600 s). This is
+// intentionally short: the URL is generated immediately before the publish
+// call so it is always fresh, regardless of when the job was scheduled.
+const SIGNED_URL_TTL_SECONDS = 60 * 60
+
 function staleClaimFilter(): string {
   const staleBefore = new Date(Date.now() - STALE_CLAIM_MINUTES * 60_000).toISOString()
   return `claimed_at.is.null,claimed_at.lt.${staleBefore}`
@@ -246,7 +251,7 @@ async function resolvePublishMediaMetadata(
 
   const { data: signedData, error: signError } = await supabase.storage
     .from('assets')
-    .createSignedUrl(chosen.storage_path, 60 * 60)
+    .createSignedUrl(chosen.storage_path, SIGNED_URL_TTL_SECONDS)
 
   if (signError || !signedData?.signedUrl) return null
 
