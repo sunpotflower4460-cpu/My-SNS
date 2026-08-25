@@ -61,7 +61,7 @@ export async function POST(request: NextRequest) {
   // route uses the service-role client below (needed for credentials access).
   const { data: job, error: jobError } = await supabase
     .from('publish_jobs')
-    .select('id, workspace_id, channel, created_by, publish_mode, status, draft_revisions!inner(title, body, hashtags, cta, metadata)')
+    .select('id, workspace_id, channel, created_by, seed_id, publish_mode, status, draft_revisions!inner(title, body, hashtags, cta, metadata)')
     .eq('id', jobId)
     .eq('workspace_id', workspaceId)
     .single()
@@ -83,6 +83,7 @@ export async function POST(request: NextRequest) {
     workspaceId: job.workspace_id,
     channel: job.channel,
     createdBy: job.created_by,
+    seedId: (job as unknown as { seed_id: string | null }).seed_id ?? undefined,
     revision,
   })
 
