@@ -28,7 +28,7 @@ export interface CardProps extends React.HTMLAttributes<HTMLDivElement> {
 export default function Card({
   tone = 'default',
   size = 'card',
-  elevated = true,
+  elevated = false,
   padded = true,
   interactive = false,
   className,

@@ -42,7 +42,7 @@ export default function NotificationBell() {
         aria-label="通知"
         className="relative rounded-full border border-[color:var(--border-default)] bg-white/84 p-2.5 text-[color:var(--text-default)] transition duration-200 ease-[var(--ease-out-premium)] hover:bg-white hover:text-[color:var(--text-strong)]"
       >
-        <Bell aria-hidden className="h-4.5 w-4.5" />
+        <Bell aria-hidden className="h-[18px] w-[18px]" />
         {unreadCount > 0 && (
           <span className="absolute -right-1 -top-1 flex h-5 min-w-5 items-center justify-center rounded-full bg-[color:var(--accent)] px-1 text-[10px] font-semibold text-white shadow-[0_8px_18px_rgba(109,93,246,0.3)]">
             {unreadCount > 9 ? '9+' : unreadCount}
