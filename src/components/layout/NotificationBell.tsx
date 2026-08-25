@@ -2,6 +2,7 @@
 
 import { useState } from 'react'
 import Link from 'next/link'
+import { Bell } from 'lucide-react'
 import { useApp } from '@/lib/app/app-provider'
 import type { Notification } from '@/lib/domain/types'
 
@@ -39,11 +40,11 @@ export default function NotificationBell() {
       <button
         onClick={() => setIsOpen((open) => !open)}
         aria-label="通知"
-        className="relative rounded-xl border border-stone-200 bg-white p-2.5 text-gray-600 transition hover:bg-stone-50"
+        className="relative rounded-full border border-[color:var(--border-default)] bg-white/84 p-2.5 text-[color:var(--text-default)] transition duration-200 ease-[var(--ease-out-premium)] hover:bg-white hover:text-[color:var(--text-strong)]"
       >
-        🔔
+        <Bell aria-hidden className="h-[18px] w-[18px]" />
         {unreadCount > 0 && (
-          <span className="absolute -right-1 -top-1 flex h-5 min-w-5 items-center justify-center rounded-full bg-red-500 px-1 text-[10px] font-semibold text-white">
+          <span className="absolute -right-1 -top-1 flex h-5 min-w-5 items-center justify-center rounded-full bg-[color:var(--accent)] px-1 text-[10px] font-semibold text-white shadow-[0_8px_18px_rgba(109,93,246,0.3)]">
             {unreadCount > 9 ? '9+' : unreadCount}
           </span>
         )}
@@ -52,29 +53,31 @@ export default function NotificationBell() {
       {isOpen && (
         <>
           <button aria-label="通知を閉じる" onClick={() => setIsOpen(false)} className="fixed inset-0 z-30 cursor-default" />
-          <div className="absolute right-0 z-40 mt-2 w-80 max-w-[90vw] rounded-2xl border border-stone-200 bg-white shadow-xl">
-            <div className="flex items-center justify-between border-b border-stone-100 px-4 py-3">
-              <p className="text-sm font-semibold text-gray-900">通知</p>
+          <div className="ui-floating absolute right-0 z-40 mt-2 w-80 max-w-[90vw] overflow-hidden rounded-[1.5rem]">
+            <div className="flex items-center justify-between border-b border-[color:var(--border-default)] px-4 py-3">
+              <p className="text-sm font-semibold text-[color:var(--text-strong)]">通知</p>
               {unreadCount > 0 && (
-                <button onClick={() => void markAllNotificationsRead()} className="text-xs font-medium text-violet-600 hover:text-violet-800">
+                <button onClick={() => void markAllNotificationsRead()} className="text-xs font-medium text-[color:var(--accent)] transition hover:text-[color:var(--accent-hover)]">
                   すべて既読にする
                 </button>
               )}
             </div>
             <div className="max-h-96 overflow-y-auto">
               {notifications.length === 0 ? (
-                <p className="px-4 py-8 text-center text-sm text-gray-400">通知はまだありません。</p>
+                <p className="px-4 py-8 text-center text-sm text-[color:var(--text-subtle)]">通知はまだありません。</p>
               ) : (
                 notifications.map((notification) => (
                   <Link
                     key={notification.id}
                     href={targetHref(notification)}
                     onClick={() => handleOpenNotification(notification)}
-                    className={`block border-b border-stone-50 px-4 py-3 text-sm transition hover:bg-stone-50 ${notification.isRead ? 'text-gray-500' : 'bg-violet-50/40 text-gray-900'}`}
+                    className={`block border-b border-black/[0.04] px-4 py-3 text-sm transition duration-200 ease-[var(--ease-out-premium)] hover:bg-black/[0.025] ${
+                      notification.isRead ? 'text-[color:var(--text-muted)]' : 'bg-[color:rgba(109,93,246,0.06)] text-[color:var(--text-strong)]'
+                    }`}
                   >
                     <p className="font-medium">{notification.title}</p>
-                    {notification.body && <p className="mt-0.5 truncate text-xs text-gray-500">{notification.body}</p>}
-                    <p className="mt-1 text-[11px] text-gray-400">{relativeTime(notification.createdAt)}</p>
+                    {notification.body && <p className="mt-0.5 truncate text-xs text-[color:var(--text-muted)]">{notification.body}</p>}
+                    <p className="mt-1 text-[11px] text-[color:var(--text-subtle)]">{relativeTime(notification.createdAt)}</p>
                   </Link>
                 ))
               )}

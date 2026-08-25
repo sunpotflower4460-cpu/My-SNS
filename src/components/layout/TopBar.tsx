@@ -21,9 +21,9 @@ export default function TopBar({ workspace, pageTitle }: TopBarProps) {
   const hasMultipleWorkspaces = workspaces.length > 1
 
   return (
-    <header className="sticky top-0 z-20 flex min-h-16 shrink-0 items-center justify-between gap-3 border-b border-stone-200 bg-white/90 px-4 py-3 backdrop-blur sm:px-6 lg:px-8">
+    <header className="sticky top-0 z-20 flex min-h-16 shrink-0 items-center justify-between gap-3 border-b border-[color:var(--border-default)] bg-white/72 px-4 py-3 backdrop-blur-xl sm:px-6 lg:px-8">
       <div className="flex min-w-0 items-center gap-2 text-sm">
-        <span className="truncate font-medium text-gray-800">{pageTitle ?? workspace.name}</span>
+        <span className="truncate font-medium tracking-[-0.01em] text-[color:var(--text-strong)]">{pageTitle ?? workspace.name}</span>
       </div>
       <div className="flex items-center justify-end gap-2">
         <NotificationBell />

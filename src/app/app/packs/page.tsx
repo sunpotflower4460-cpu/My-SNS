@@ -8,8 +8,9 @@ import ChannelBadge from '@/components/ui/ChannelBadge'
 import EmptyState from '@/components/ui/EmptyState'
 import PageHeader from '@/components/ui/PageHeader'
 import MobilePostShareButton from '@/components/publish/MobilePostShareButton'
+import ManualPublishDialog from '@/components/publish/ManualPublishDialog'
 import QueueMediaKit from '@/components/publish/QueueMediaKit'
-import { Badge, Button, Card, InlineAlert } from '@/components/ui/kit'
+import { Badge, Button, ButtonLink, Card, InlineAlert, SegmentedControl } from '@/components/ui/kit'
 import { useApp } from '@/lib/app/app-provider'
 import { PUBLISHING_CHANNEL_CONFIG, getPublishingStrategy } from '@/lib/channels/config'
 import { hasPermission } from '@/lib/permissions'
@@ -56,6 +57,13 @@ const STATE_TONE = {
 
 type PackFilter = 'active' | 'complete' | 'all'
 type AdvanceTarget = { seedId: string; channel: PublishPackChannelItem['channel'] }
+type ManualCompleteTarget = AdvanceTarget & { jobId: string; label: string }
+
+const PACK_FILTERS: Array<{ label: string; value: PackFilter }> = [
+  { label: '進行中', value: 'active' },
+  { label: '完了', value: 'complete' },
+  { label: 'すべて', value: 'all' },
+]
 
 export default function PublishPacksPage() {
   const {
@@ -79,6 +87,8 @@ export default function PublishPacksPage() {
   const [feedback, setFeedback] = useState('')
   const [error, setError] = useState('')
   const [advanceAfterComplete, setAdvanceAfterComplete] = useState<AdvanceTarget | null>(null)
+  const [manualCompleteTarget, setManualCompleteTarget] = useState<ManualCompleteTarget | null>(null)
+  const [manualCompleteError, setManualCompleteError] = useState('')
 
   const packs = useMemo(
     () => buildPublishPacks({ seeds, jobs: publishJobs, revisions: draftRevisions }),
@@ -215,22 +225,19 @@ export default function PublishPacksPage() {
     }
   }
 
-  const handleComplete = async (seedId: string, item: PublishPackChannelItem) => {
-    if (!item.job) return
-    const externalUrlInput = window.prompt('任意：公開された投稿URLを記録できます。空欄のままOKでも完了できます。')
-    if (externalUrlInput === null) return
-    const externalUrl = externalUrlInput.trim() || undefined
-
-    const key = `${item.channel}-complete-${item.job.id}`
+  const handleComplete = async (externalUrl?: string) => {
+    if (!manualCompleteTarget) return
+    const key = `${manualCompleteTarget.channel}-complete-${manualCompleteTarget.jobId}`
     setBusyKey(key)
+    setManualCompleteError('')
     try {
-      await completeManualPublish(item.job.id, externalUrl)
-      setAdvanceAfterComplete({ seedId, channel: item.channel })
-      setFeedback(`${PUBLISHING_CHANNEL_CONFIG[item.channel].shortLabel}を投稿済みにしました。次の投稿先を確認しています。`)
+      await completeManualPublish(manualCompleteTarget.jobId, externalUrl)
+      setAdvanceAfterComplete({ seedId: manualCompleteTarget.seedId, channel: manualCompleteTarget.channel })
+      setFeedback(`${PUBLISHING_CHANNEL_CONFIG[manualCompleteTarget.channel].shortLabel}を投稿済みにしました。次の投稿先を確認しています。`)
       setError('')
+      setManualCompleteTarget(null)
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : '投稿済みとして記録できませんでした。')
-      setFeedback('')
+      setManualCompleteError(cause instanceof Error ? cause.message : '投稿済みとして記録できませんでした。')
     } finally {
       setBusyKey(null)
     }
@@ -241,7 +248,7 @@ export default function PublishPacksPage() {
       <PageHeader
         title="投稿パック"
         description="1つの発信ごとに、完成文・素材・投稿先・進捗をまとめて、次のSNSへ順番に流せます。"
-        actions={<Link href="/app/queue" className="text-sm font-medium text-violet-700 hover:text-violet-800">公開予定の詳細 →</Link>}
+        actions={<ButtonLink href="/app/queue" size="sm">公開予定の詳細</ButtonLink>}
       />
 
       {publishingStrategy === 'zero-cost' && (
@@ -255,29 +262,25 @@ export default function PublishPacksPage() {
       {feedback && <div className="mb-5"><InlineAlert tone="success">{feedback}</InlineAlert></div>}
       {error && <div className="mb-5"><InlineAlert tone="error">{error}</InlineAlert></div>}
 
-      <div className="mb-5 flex flex-wrap gap-2">
-        {([
-          ['active', '進行中'],
-          ['complete', '完了'],
-          ['all', 'すべて'],
-        ] as const).map(([value, label]) => (
-          <button
-            key={value}
-            type="button"
-            onClick={() => handleFilterChange(value)}
-            aria-pressed={filter === value}
-            className={`rounded-full px-3.5 py-2 text-sm font-medium transition ${filter === value ? 'bg-violet-600 text-white' : 'border border-stone-200 bg-white text-gray-600 hover:bg-stone-50'}`}
-          >
-            {label}
-          </button>
-        ))}
+      <div className="mb-5">
+        <SegmentedControl
+          options={PACK_FILTERS}
+          value={filter}
+          onChange={handleFilterChange}
+          ariaLabel="投稿パックの状態フィルター"
+          className="max-w-full overflow-x-auto"
+        />
       </div>
 
       {visiblePacks.length === 0 ? (
         <EmptyState
           title={filter === 'complete' ? '完了した投稿パックはまだありません' : '進行中の投稿パックはありません'}
           description="発信ライブラリで投稿先を選び、媒体向け下書きを承認するとここにまとまります。"
-          action={<Link href="/app/seeds" className="rounded-2xl bg-violet-600 px-4 py-2 text-sm font-medium text-white">発信ライブラリへ</Link>}
+          action={(
+            <ButtonLink href="/app/seeds" variant="primary">
+              発信ライブラリへ
+            </ButtonLink>
+          )}
         />
       ) : (
         <div className="space-y-6">
@@ -313,7 +316,9 @@ export default function PublishPacksPage() {
                               : '次の投稿先を確認してください。'}
                         </p>
                       </div>
-                      <Link href={`/app/seeds/${pack.seed.id}`} className="shrink-0 text-xs font-medium text-violet-700 hover:text-violet-800">Seedを編集</Link>
+                      <ButtonLink href={`/app/seeds/${pack.seed.id}`} size="sm" className="shrink-0">
+                        Seedを編集
+                      </ButtonLink>
                     </div>
 
                     <div className="mt-4">
@@ -370,9 +375,9 @@ export default function PublishPacksPage() {
 
                           <div className="mt-3 flex flex-wrap items-start gap-2">
                             {item.state === 'missing' && (
-                              <Link href={`/app/seeds/${pack.seed.id}`} className="inline-flex items-center rounded-xl bg-violet-600 px-3 py-2 text-xs font-medium text-white hover:bg-violet-700">
+                              <ButtonLink href={`/app/seeds/${pack.seed.id}`} variant="primary" size="sm">
                                 下書きを準備
-                              </Link>
+                              </ButtonLink>
                             )}
 
                             {item.state === 'approved' && item.revision && canManageQueue && (
@@ -411,7 +416,15 @@ export default function PublishPacksPage() {
                               <Button
                                 size="sm"
                                 variant="secondary"
-                                onClick={() => void handleComplete(pack.seed.id, item)}
+                                onClick={() => {
+                                  setManualCompleteTarget({
+                                    seedId: pack.seed.id,
+                                    channel: item.channel,
+                                    jobId: item.job!.id,
+                                    label: `${pack.seed.title} / ${channelLabel}`,
+                                  })
+                                  setManualCompleteError('')
+                                }}
                                 disabled={busyKey === `${item.channel}-complete-${item.job.id}`}
                               >
                                 <CheckCircle2 aria-hidden className="h-3.5 w-3.5" />
@@ -427,9 +440,9 @@ export default function PublishPacksPage() {
                             )}
 
                             {(item.state === 'failed' || item.state === 'cancelled' || (apiPublishingEnabled && item.state === 'ready' && !actions?.openHandoff)) && (
-                              <Link href="/app/queue" className="inline-flex items-center rounded-xl border border-stone-200 bg-white px-3 py-2 text-xs font-medium text-gray-700 hover:bg-stone-50">
+                              <ButtonLink href="/app/queue" size="sm">
                                 公開予定で確認
-                              </Link>
+                              </ButtonLink>
                             )}
                           </div>
                         </div>
@@ -442,6 +455,18 @@ export default function PublishPacksPage() {
           })}
         </div>
       )}
+
+      <ManualPublishDialog
+        open={Boolean(manualCompleteTarget)}
+        loading={busyKey === (manualCompleteTarget ? `${manualCompleteTarget.channel}-complete-${manualCompleteTarget.jobId}` : null)}
+        targetLabel={manualCompleteTarget?.label}
+        error={manualCompleteError}
+        onClose={() => {
+          setManualCompleteTarget(null)
+          setManualCompleteError('')
+        }}
+        onConfirm={handleComplete}
+      />
     </div>
   )
 }

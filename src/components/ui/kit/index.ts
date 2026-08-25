@@ -2,6 +2,8 @@
 // migrate gradually (nothing is force-replaced in this PR).
 export { default as Button } from './Button'
 export type { ButtonProps } from './Button'
+export { default as ButtonLink } from './ButtonLink'
+export type { ButtonLinkProps } from './ButtonLink'
 export { default as IconButton } from './IconButton'
 export type { IconButtonProps } from './IconButton'
 export { default as Card } from './Card'

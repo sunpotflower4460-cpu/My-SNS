@@ -6,8 +6,9 @@ import ChannelBadge from '@/components/ui/ChannelBadge'
 import StatusBadge from '@/components/ui/StatusBadge'
 import EmptyState from '@/components/ui/EmptyState'
 import MobilePostShareButton from '@/components/publish/MobilePostShareButton'
+import ManualPublishDialog from '@/components/publish/ManualPublishDialog'
 import QueueMediaKit from '@/components/publish/QueueMediaKit'
-import { Badge, Button, Card, InlineAlert } from '@/components/ui/kit'
+import { Badge, Button, Card, InlineAlert, SegmentedControl } from '@/components/ui/kit'
 import { useApp } from '@/lib/app/app-provider'
 import { hasPermission } from '@/lib/permissions'
 import { getPublishingStrategy, PUBLISHING_CHANNEL_CONFIG } from '@/lib/channels/config'
@@ -66,6 +67,8 @@ export default function QueuePage() {
   const [feedback, setFeedback] = useState('')
   const [error, setError] = useState('')
   const [busyJobId, setBusyJobId] = useState<string | null>(null)
+  const [manualCompleteTarget, setManualCompleteTarget] = useState<{ jobId: string; label: string } | null>(null)
+  const [manualCompleteError, setManualCompleteError] = useState('')
 
   const filtered = useMemo(() => filterAndSortJobs(publishJobs, activeStatus), [activeStatus, publishJobs])
 
@@ -99,19 +102,17 @@ export default function QueuePage() {
     }
   }
 
-  const handleCompleteManually = async (jobId: string) => {
-    const externalUrlInput = window.prompt('任意：記録用に、公開されたURLを貼り付けてください。空欄のままOKでも完了できます。')
-    if (externalUrlInput === null) return
-    const externalUrl = externalUrlInput.trim() || undefined
-
-    setBusyJobId(jobId)
+  const handleCompleteManually = async (externalUrl?: string) => {
+    if (!manualCompleteTarget) return
+    setBusyJobId(manualCompleteTarget.jobId)
+    setManualCompleteError('')
     try {
-      await completeManualPublish(jobId, externalUrl)
+      await completeManualPublish(manualCompleteTarget.jobId, externalUrl)
       setFeedback('投稿済みにしました。')
       setError('')
+      setManualCompleteTarget(null)
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : '投稿済みとして記録できませんでした。')
-      setFeedback('')
+      setManualCompleteError(cause instanceof Error ? cause.message : '投稿済みとして記録できませんでした。')
     } finally {
       setBusyJobId(null)
     }
@@ -187,20 +188,14 @@ export default function QueuePage() {
       {feedback && <div className="mb-5"><InlineAlert tone="success">{feedback}</InlineAlert></div>}
       {error && <div className="mb-5"><InlineAlert tone="error">{error}</InlineAlert></div>}
 
-      <div className="mb-5 flex flex-wrap items-center gap-2">
-        {STATUS_FILTERS.map((filter) => (
-          <button
-            key={filter.value}
-            type="button"
-            onClick={() => setActiveStatus(filter.value)}
-            aria-pressed={activeStatus === filter.value}
-            className={`inline-flex min-h-touch items-center justify-center rounded-full px-3.5 text-sm font-medium transition sm:min-h-control ${
-              activeStatus === filter.value ? 'bg-violet-600 text-white shadow-sm' : 'border border-stone-200 bg-white text-gray-600 hover:bg-stone-50'
-            }`}
-          >
-            {filter.label}
-          </button>
-        ))}
+      <div className="mb-5">
+        <SegmentedControl
+          options={STATUS_FILTERS}
+          value={activeStatus}
+          onChange={setActiveStatus}
+          ariaLabel="公開予定の状態フィルター"
+          className="max-w-full overflow-x-auto"
+        />
       </div>
 
       {filtered.length === 0 ? (
@@ -243,7 +238,15 @@ export default function QueuePage() {
                       </Button>
                     )}
                     {actions.completeManually && (
-                      <Button size="sm" variant="secondary" onClick={() => handleCompleteManually(job.id)} disabled={busy}>
+                      <Button
+                        size="sm"
+                        variant="secondary"
+                        onClick={() => {
+                          setManualCompleteTarget({ jobId: job.id, label: `${getSeedTitle(job.seedId)} / ${channelLabel}` })
+                          setManualCompleteError('')
+                        }}
+                        disabled={busy}
+                      >
                         投稿済みにする
                       </Button>
                     )}
@@ -264,6 +267,18 @@ export default function QueuePage() {
           </div>
         </Card>
       )}
+
+      <ManualPublishDialog
+        open={Boolean(manualCompleteTarget)}
+        loading={busyJobId === manualCompleteTarget?.jobId}
+        targetLabel={manualCompleteTarget?.label}
+        error={manualCompleteError}
+        onClose={() => {
+          setManualCompleteTarget(null)
+          setManualCompleteError('')
+        }}
+        onConfirm={handleCompleteManually}
+      />
     </div>
   )
 }

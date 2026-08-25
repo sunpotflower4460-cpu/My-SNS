@@ -194,45 +194,46 @@ export default function NewSeedPage() {
     <div>
       <PageHeader
         title="新しいシード"
+        eyebrow="SEED CAPTURE"
         description="生のアイデア・録音・画像・メモなどを1つ追加します。媒体ごとの提案はレビュー後に作成されます。"
-        actions={<Link href="/app/seeds" className="text-sm text-gray-500 hover:text-gray-700">キャンセル</Link>}
+        actions={<Link href="/app/seeds" className="text-sm font-medium text-[color:var(--text-muted)] transition hover:text-[color:var(--text-strong)]">キャンセル</Link>}
       />
 
       {error && (
-        <div className="mb-5 rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
-          <p>{error}</p>
-          {persistedSeedId && (
-            <Link
-              href={`/app/seeds/${persistedSeedId}/media`}
-              className="mt-3 inline-flex rounded-xl bg-red-700 px-3 py-2 text-xs font-medium text-white hover:bg-red-800"
-            >
-              保存済みシードの素材を確認
-            </Link>
+      <div className="mb-5 rounded-card border border-red-200/80 bg-red-50/90 px-4 py-3 text-sm text-red-700 shadow-[var(--shadow-soft)]">
+        <p>{error}</p>
+        {persistedSeedId && (
+          <Link
+            href={`/app/seeds/${persistedSeedId}/media`}
+            className="mt-3 inline-flex rounded-full bg-red-700 px-3 py-2 text-xs font-medium text-white transition duration-200 ease-[var(--ease-out-premium)] hover:bg-red-800"
+          >
+            保存済みシードの素材を確認
+          </Link>
           )}
         </div>
       )}
 
       <div className="grid gap-6 xl:grid-cols-[minmax(0,1.65fr)_minmax(320px,0.85fr)]">
         <section className="space-y-6">
-          <div className="rounded-[2rem] border border-stone-200 bg-white p-6 shadow-sm shadow-stone-100/80">
+          <div className="ui-panel rounded-container p-6">
             <div className="mb-5">
-              <p className="text-xs font-semibold text-violet-500">1・原文</p>
-              <h2 className="mt-1 text-lg font-semibold text-gray-900">何を伝えたいですか？</h2>
+              <p className="text-[11px] font-semibold tracking-[0.08em] text-[color:var(--accent)]">1・原文</p>
+              <h2 className="mt-1 text-lg font-semibold tracking-[-0.02em] text-[color:var(--text-strong)]">何を伝えたいですか？</h2>
             </div>
             <div className="grid gap-4">
               <div>
-                <label className="mb-2 block text-sm font-medium text-gray-700">仮タイトル</label>
-                <input value={title} onChange={(event) => setTitle(event.target.value)} placeholder="このシードの名前" className="w-full rounded-2xl border border-stone-200 px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-violet-300" />
+                <label className="mb-2 block text-sm font-medium text-[color:var(--text-strong)]">仮タイトル</label>
+                <input value={title} onChange={(event) => setTitle(event.target.value)} placeholder="このシードの名前" className="ui-input w-full rounded-card px-4 py-3 text-sm focus:outline-none" />
               </div>
               <div>
-                <label className="mb-2 block text-sm font-medium text-gray-700">原文</label>
-                <textarea value={sourceText} onChange={(event) => setSourceText(event.target.value)} rows={8} placeholder="この作品はどんな内容ですか？ラフなメモ、文字起こし、告知文、歌詞の背景など、AIに伝えたいことを書いてください…" className="w-full rounded-2xl border border-stone-200 px-4 py-3 text-sm leading-6 focus:outline-none focus:ring-2 focus:ring-violet-300" />
-                <p className="mt-2 text-xs text-gray-400">ここに書いた内容が、各媒体向けの文章を作るときのAIへの説明になります。粗いままで構いません。不足している文脈はAIが提案しますが、この原文を上書きすることはありません。</p>
+                <label className="mb-2 block text-sm font-medium text-[color:var(--text-strong)]">原文</label>
+                <textarea value={sourceText} onChange={(event) => setSourceText(event.target.value)} rows={8} placeholder="この作品はどんな内容ですか？ラフなメモ、文字起こし、告知文、歌詞の背景など、AIに伝えたいことを書いてください…" className="ui-input w-full rounded-card px-4 py-3 text-sm leading-6 focus:outline-none" />
+                <p className="mt-2 text-xs leading-5 text-[color:var(--text-subtle)]">ここに書いた内容が、各媒体向けの文章を作るときのAIへの説明になります。粗いままで構いません。不足している文脈はAIが提案しますが、この原文を上書きすることはありません。</p>
               </div>
               <div className="grid gap-4 sm:grid-cols-2">
                 <div>
-                  <label className="mb-2 block text-sm font-medium text-gray-700">シードの種類</label>
-                  <select value={kind} onChange={(event) => setKind(event.target.value as SeedKind)} className="w-full rounded-2xl border border-stone-200 px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-violet-300">
+                  <label className="mb-2 block text-sm font-medium text-[color:var(--text-strong)]">シードの種類</label>
+                  <select value={kind} onChange={(event) => setKind(event.target.value as SeedKind)} className="ui-input w-full rounded-card px-4 py-3 text-sm focus:outline-none">
                     <option value="text">テキスト</option>
                     <option value="image">画像</option>
                     <option value="video">動画</option>
@@ -241,8 +242,8 @@ export default function NewSeedPage() {
                   </select>
                 </div>
                 <div>
-                  <label className="mb-2 block text-sm font-medium text-gray-700">ブランドプロフィール</label>
-                  <select value={brandProfileId} onChange={(event) => setBrandProfileId(event.target.value)} className="w-full rounded-2xl border border-stone-200 px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-violet-300">
+                  <label className="mb-2 block text-sm font-medium text-[color:var(--text-strong)]">ブランドプロフィール</label>
+                  <select value={brandProfileId} onChange={(event) => setBrandProfileId(event.target.value)} className="ui-input w-full rounded-card px-4 py-3 text-sm focus:outline-none">
                     {brandProfiles.map((profile) => <option key={profile.id} value={profile.id}>{profile.name}</option>)}
                   </select>
                 </div>
@@ -250,51 +251,51 @@ export default function NewSeedPage() {
             </div>
           </div>
 
-          <div className="rounded-[2rem] border border-stone-200 bg-white p-6 shadow-sm shadow-stone-100/80">
+          <div className="ui-panel rounded-container p-6">
             <div className="mb-5">
-              <p className="text-xs font-semibold text-violet-500">2・文脈</p>
-              <h2 className="mt-1 text-lg font-semibold text-gray-900">編集の役に立つ制約を伝える</h2>
+              <p className="text-[11px] font-semibold tracking-[0.08em] text-[color:var(--accent)]">2・文脈</p>
+              <h2 className="mt-1 text-lg font-semibold tracking-[-0.02em] text-[color:var(--text-strong)]">編集の役に立つ制約を伝える</h2>
             </div>
             <div className="grid gap-4 sm:grid-cols-2">
               <div>
-                <label className="mb-2 block text-sm font-medium text-gray-700">目的</label>
-                <input value={goal} onChange={(event) => setGoal(event.target.value)} placeholder="これで何を達成したいですか？" className="w-full rounded-2xl border border-stone-200 px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-violet-300" />
+                <label className="mb-2 block text-sm font-medium text-[color:var(--text-strong)]">目的</label>
+                <input value={goal} onChange={(event) => setGoal(event.target.value)} placeholder="これで何を達成したいですか？" className="ui-input w-full rounded-card px-4 py-3 text-sm focus:outline-none" />
               </div>
               <div>
-                <label className="mb-2 block text-sm font-medium text-gray-700">対象読者（上書き）</label>
-                <input value={audience} onChange={(event) => setAudience(event.target.value)} placeholder={selectedBrandProfile?.audience || '未入力時はブランドプロフィールの設定を使用します'} className="w-full rounded-2xl border border-stone-200 px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-violet-300" />
+                <label className="mb-2 block text-sm font-medium text-[color:var(--text-strong)]">対象読者（上書き）</label>
+                <input value={audience} onChange={(event) => setAudience(event.target.value)} placeholder={selectedBrandProfile?.audience || '未入力時はブランドプロフィールの設定を使用します'} className="ui-input w-full rounded-card px-4 py-3 text-sm focus:outline-none" />
               </div>
               <div>
-                <label className="mb-2 block text-sm font-medium text-gray-700">要点</label>
-                <textarea value={keyPoints} onChange={(event) => setKeyPoints(event.target.value)} rows={5} placeholder={'1行につき1つの事実\n日付・名前・リンクなど、正確さを保つべき情報'} className="w-full rounded-2xl border border-stone-200 px-4 py-3 text-sm leading-6 focus:outline-none focus:ring-2 focus:ring-violet-300" />
+                <label className="mb-2 block text-sm font-medium text-[color:var(--text-strong)]">要点</label>
+                <textarea value={keyPoints} onChange={(event) => setKeyPoints(event.target.value)} rows={5} placeholder={'1行につき1つの事実\n日付・名前・リンクなど、正確さを保つべき情報'} className="ui-input w-full rounded-card px-4 py-3 text-sm leading-6 focus:outline-none" />
               </div>
               <div>
-                <label className="mb-2 block text-sm font-medium text-gray-700">CTA（上書き）</label>
-                <textarea value={callToAction} onChange={(event) => setCallToAction(event.target.value)} rows={5} placeholder={selectedBrandProfile?.defaultCallToAction || '任意項目です。未入力時はブランドプロフィールの設定を使用します'} className="w-full rounded-2xl border border-stone-200 px-4 py-3 text-sm leading-6 focus:outline-none focus:ring-2 focus:ring-violet-300" />
+                <label className="mb-2 block text-sm font-medium text-[color:var(--text-strong)]">CTA（上書き）</label>
+                <textarea value={callToAction} onChange={(event) => setCallToAction(event.target.value)} rows={5} placeholder={selectedBrandProfile?.defaultCallToAction || '任意項目です。未入力時はブランドプロフィールの設定を使用します'} className="ui-input w-full rounded-card px-4 py-3 text-sm leading-6 focus:outline-none" />
               </div>
             </div>
             <div className="mt-4">
-              <label className="mb-2 block text-sm font-medium text-gray-700">タグ</label>
-              <input value={tags} onChange={(event) => setTags(event.target.value)} placeholder="リリース, 制作の裏側" className="w-full rounded-2xl border border-stone-200 px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-violet-300" />
+              <label className="mb-2 block text-sm font-medium text-[color:var(--text-strong)]">タグ</label>
+              <input value={tags} onChange={(event) => setTags(event.target.value)} placeholder="リリース, 制作の裏側" className="ui-input w-full rounded-card px-4 py-3 text-sm focus:outline-none" />
             </div>
           </div>
 
-          <div className="rounded-[2rem] border border-stone-200 bg-white p-6 shadow-sm shadow-stone-100/80">
+          <div className="ui-panel rounded-container p-6">
             <div className="mb-5">
-              <p className="text-xs font-semibold text-violet-500">3・配信媒体</p>
-              <h2 className="mt-1 text-lg font-semibold text-gray-900">どこに向けて提案を準備しますか？</h2>
+              <p className="text-[11px] font-semibold tracking-[0.08em] text-[color:var(--accent)]">3・配信媒体</p>
+              <h2 className="mt-1 text-lg font-semibold tracking-[-0.02em] text-[color:var(--text-strong)]">どこに向けて提案を準備しますか？</h2>
             </div>
             <div className="grid gap-3 sm:grid-cols-2">
               {CORE_PUBLISHING_CHANNELS.map((channel) => {
                 const config = PUBLISHING_CHANNEL_CONFIG[channel]
                 const selected = targetChannels.includes(channel)
                 return (
-                  <button key={channel} type="button" onClick={() => toggleChannel(channel)} className={`rounded-2xl border p-4 text-left transition ${selected ? 'border-violet-300 bg-violet-50' : 'border-stone-200 bg-white hover:bg-stone-50'}`}>
+                  <button key={channel} type="button" onClick={() => toggleChannel(channel)} className={`rounded-card border p-4 text-left transition duration-200 ease-[var(--ease-out-premium)] ${selected ? 'border-[color:rgba(109,93,246,0.22)] bg-[color:var(--accent-soft)] shadow-[inset_0_0_0_1px_rgba(109,93,246,0.08)]' : 'border-[color:var(--border-default)] bg-white/76 hover:bg-white hover:-translate-y-px'}`}>
                     <div className="flex items-center justify-between gap-2">
                       <ChannelBadge channel={channel} />
-                      <span className={`h-3 w-3 rounded-full ${selected ? 'bg-violet-500' : 'bg-stone-200'}`} />
+                      <span className={`h-3 w-3 rounded-full ${selected ? 'bg-[color:var(--accent)]' : 'bg-black/10'}`} />
                     </div>
-                    <p className="mt-3 text-xs leading-5 text-gray-500">{config.description}</p>
+                    <p className="mt-3 text-xs leading-5 text-[color:var(--text-muted)]">{config.description}</p>
                     {channel === 'note' && <p className="mt-1 text-[11px] font-medium text-emerald-700">確認してコピーするのみ</p>}
                   </button>
                 )
@@ -302,22 +303,22 @@ export default function NewSeedPage() {
             </div>
           </div>
 
-          <div className="rounded-[2rem] border border-stone-200 bg-white p-6 shadow-sm shadow-stone-100/80">
+          <div className="ui-panel rounded-container p-6">
             <div className="flex flex-wrap items-center justify-between gap-3">
               <div>
-                <h2 className="text-lg font-semibold text-gray-900">ファイル</h2>
-                <p className="mt-1 text-sm text-gray-500">画像・動画・音声・参考資料は非公開で保管されます。</p>
+                <h2 className="text-lg font-semibold tracking-[-0.02em] text-[color:var(--text-strong)]">ファイル</h2>
+                <p className="mt-1 text-sm text-[color:var(--text-muted)]">画像・動画・音声・参考資料は非公開で保管されます。</p>
               </div>
-              <button type="button" onClick={() => fileInputRef.current?.click()} className="rounded-2xl border border-stone-200 bg-white px-4 py-2.5 text-sm font-medium text-gray-700 hover:bg-stone-50">ファイルを追加</button>
+              <button type="button" onClick={() => fileInputRef.current?.click()} className="rounded-full border border-[color:var(--border-default)] bg-white/90 px-4 py-2.5 text-sm font-medium text-[color:var(--text-strong)] transition duration-200 ease-[var(--ease-out-premium)] hover:bg-white active:scale-[0.985]">ファイルを追加</button>
               <input ref={fileInputRef} type="file" multiple className="hidden" onChange={(event) => { handleFiles(event.target.files); event.currentTarget.value = '' }} />
             </div>
             {assets.length > 0 && (
               <div className="mt-4 space-y-3">
                 {assets.map((asset) => (
-                  <div key={asset.id} className="flex items-center gap-3 rounded-2xl border border-stone-100 bg-stone-50 p-3">
-                    {asset.previewUrl ? <div className="h-12 w-12 rounded-xl bg-cover bg-center" style={{ backgroundImage: `url(${asset.previewUrl})` }} /> : <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-white">📎</div>}
-                    <div className="min-w-0 flex-1"><p className="truncate text-sm font-medium text-gray-900">{asset.name}</p><p className="text-xs text-gray-500">{asset.type} · {formatBytes(asset.size)}</p></div>
-                    <button type="button" onClick={() => removeAsset(asset.id)} className="text-xs text-red-500 hover:text-red-700">削除</button>
+                  <div key={asset.id} className="glass-surface flex items-center gap-3 rounded-card border border-[color:var(--border-default)] p-3">
+                    {asset.previewUrl ? <div className="h-12 w-12 rounded-[1rem] bg-cover bg-center" style={{ backgroundImage: `url(${asset.previewUrl})` }} /> : <div className="flex h-12 w-12 items-center justify-center rounded-[1rem] bg-white">📎</div>}
+                    <div className="min-w-0 flex-1"><p className="truncate text-sm font-medium text-[color:var(--text-strong)]">{asset.name}</p><p className="text-xs text-[color:var(--text-muted)]">{asset.type} · {formatBytes(asset.size)}</p></div>
+                    <button type="button" onClick={() => removeAsset(asset.id)} className="text-xs font-medium text-red-500 transition hover:text-red-700">削除</button>
                   </div>
                 ))}
               </div>
@@ -326,34 +327,34 @@ export default function NewSeedPage() {
         </section>
 
         <aside className="space-y-5 xl:sticky xl:top-6 xl:self-start">
-          <div className="rounded-[2rem] border border-stone-200 bg-white p-6 shadow-sm shadow-stone-100/80">
+          <div className="ui-panel rounded-container p-6">
             <div className="flex items-center justify-between gap-3">
-              <h2 className="text-base font-semibold text-gray-900">シードの準備状況</h2>
-              <span className="text-2xl font-semibold text-violet-700">{readiness.score}%</span>
+              <h2 className="text-base font-semibold tracking-[-0.01em] text-[color:var(--text-strong)]">シードの準備状況</h2>
+              <span className="text-2xl font-semibold text-[color:var(--accent)]">{readiness.score}%</span>
             </div>
-            <div className="mt-3 h-2 overflow-hidden rounded-full bg-stone-100"><div className="h-full rounded-full bg-violet-500 transition-all" style={{ width: `${readiness.score}%` }} /></div>
+            <div className="mt-3 h-2 overflow-hidden rounded-full bg-black/[0.06]"><div className="h-full rounded-full bg-[color:var(--accent)] transition-all" style={{ width: `${readiness.score}%` }} /></div>
             {readiness.missingFields.length === 0 ? (
               <p className="mt-4 text-sm leading-6 text-green-700">レビュー済みの媒体向け提案を作成できます。</p>
             ) : (
               <div className="mt-4">
-                <p className="text-sm text-gray-600">追加しておくと役立つ項目:</p>
-                <ul className="mt-2 space-y-2 text-sm text-gray-500">
+                <p className="text-sm text-[color:var(--text-default)]">追加しておくと役立つ項目:</p>
+                <ul className="mt-2 space-y-2 text-sm text-[color:var(--text-muted)]">
                   {readiness.missingFields.map((field) => <li key={field}>○ {READINESS_LABELS[field]}</li>)}
                 </ul>
               </div>
             )}
-            <p className="mt-4 border-t border-stone-100 pt-4 text-xs leading-5 text-gray-400">未完成のままでもシードは保存できます。不足している項目は、後で承認できる提案として表示されます。</p>
+            <p className="mt-4 border-t border-black/[0.06] pt-4 text-xs leading-5 text-[color:var(--text-subtle)]">未完成のままでもシードは保存できます。不足している項目は、後で承認できる提案として表示されます。</p>
           </div>
 
-          <div className="rounded-[2rem] border border-violet-100 bg-violet-50 p-6">
-            <p className="text-xs font-semibold text-violet-500">現在のワークスペース</p>
-            <p className="mt-2 text-sm font-medium text-violet-950">{currentWorkspace?.name}</p>
-            <p className="mt-1 text-xs leading-5 text-violet-700">ブランド: {selectedBrandProfile?.name}</p>
+          <div className="rounded-container border border-[color:rgba(109,93,246,0.16)] bg-[color:rgba(109,93,246,0.08)] p-6 shadow-[var(--shadow-soft)]">
+            <p className="text-[11px] font-semibold tracking-[0.08em] text-[color:var(--accent)]">現在のワークスペース</p>
+            <p className="mt-2 text-sm font-medium text-[color:var(--text-strong)]">{currentWorkspace?.name}</p>
+            <p className="mt-1 text-xs leading-5 text-[color:var(--text-default)]">ブランド: {selectedBrandProfile?.name}</p>
           </div>
 
           <div className="flex flex-col gap-3">
-            <button type="button" disabled={isSaving || Boolean(persistedSeedId)} onClick={() => void handleSave('ready')} className="rounded-2xl bg-violet-600 px-4 py-3 text-sm font-medium text-white transition hover:bg-violet-700 disabled:cursor-not-allowed disabled:opacity-60">{isSaving ? '保存中…' : '準備完了として保存'}</button>
-            <button type="button" disabled={isSaving || Boolean(persistedSeedId)} onClick={() => void handleSave('captured')} className="rounded-2xl border border-stone-200 bg-white px-4 py-3 text-sm font-medium text-gray-700 transition hover:bg-stone-50 disabled:cursor-not-allowed disabled:opacity-60">取り込み済みとして保存</button>
+            <button type="button" disabled={isSaving || Boolean(persistedSeedId)} onClick={() => void handleSave('ready')} className="rounded-full bg-[color:var(--accent)] px-4 py-3 text-sm font-medium text-white shadow-[0_14px_32px_rgba(109,93,246,0.24)] transition duration-200 ease-[var(--ease-out-premium)] hover:bg-[color:var(--accent-hover)] active:scale-[0.985] disabled:cursor-not-allowed disabled:opacity-60">{isSaving ? '保存中…' : '準備完了として保存'}</button>
+            <button type="button" disabled={isSaving || Boolean(persistedSeedId)} onClick={() => void handleSave('captured')} className="rounded-full border border-[color:var(--border-default)] bg-white/90 px-4 py-3 text-sm font-medium text-[color:var(--text-strong)] transition duration-200 ease-[var(--ease-out-premium)] hover:bg-white active:scale-[0.985] disabled:cursor-not-allowed disabled:opacity-60">取り込み済みとして保存</button>
           </div>
         </aside>
       </div>

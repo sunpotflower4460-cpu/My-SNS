@@ -37,22 +37,24 @@ export default function MobileBottomNav({ onOpenMore }: MobileBottomNavProps) {
       <Link
         href={CREATE_ACTION.href}
         aria-label={CREATE_ACTION.label}
-        className="fixed bottom-[calc(4.5rem+env(safe-area-inset-bottom))] right-4 z-40 flex h-14 w-14 items-center justify-center rounded-full bg-gray-900 text-white shadow-lg transition hover:bg-gray-700 xl:hidden"
+        className="fixed bottom-[calc(4.75rem+env(safe-area-inset-bottom))] right-4 z-40 flex h-14 w-14 items-center justify-center rounded-full bg-[color:var(--accent)] text-white shadow-[0_18px_38px_rgba(109,93,246,0.28)] transition duration-200 ease-[var(--ease-out-premium)] hover:bg-[color:var(--accent-hover)] active:scale-[0.985] xl:hidden"
       >
         <Plus aria-hidden className="h-6 w-6" />
       </Link>
 
-      <nav className="fixed inset-x-0 bottom-0 z-40 flex border-t border-stone-200 bg-white/95 pb-safe backdrop-blur xl:hidden">
+      <nav className="fixed inset-x-0 bottom-0 z-40 flex border-t border-[color:var(--border-default)] bg-white/82 pb-safe backdrop-blur-xl xl:hidden">
         {tabs.map((tab) => {
           const active = tab.href ? isNavActive(pathname, tab.href) : false
           const Icon = tab.icon
           const inner = (
             <>
-              <Icon aria-hidden className={`h-5 w-5 ${active ? 'text-violet-600' : 'text-gray-400'}`} />
-              <span className={active ? 'text-violet-700' : 'text-gray-500'}>{tab.label}</span>
+              <Icon aria-hidden className={`h-5 w-5 transition duration-200 ${active ? 'text-[color:var(--accent)]' : 'text-[color:var(--text-subtle)]'}`} />
+              <span className={active ? 'text-[color:var(--accent)]' : 'text-[color:var(--text-muted)]'}>{tab.label}</span>
             </>
           )
-          const className = 'flex min-h-touch flex-1 flex-col items-center justify-center gap-0.5 py-2 text-[11px] font-medium'
+          const className = `flex min-h-touch flex-1 flex-col items-center justify-center gap-0.5 py-2 text-[11px] font-medium transition duration-200 ease-[var(--ease-out-premium)] ${
+            active ? 'bg-[color:rgba(109,93,246,0.06)]' : 'hover:bg-white/70'
+          }`
           return tab.href ? (
             <Link key={tab.label} href={tab.href} aria-current={active ? 'page' : undefined} className={className}>
               {inner}
