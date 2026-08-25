@@ -21,6 +21,7 @@ interface DueJobRow {
   workspace_id: string
   channel: SocialPlatform
   created_by: string
+  seed_id: string | null
   draft_revisions: PublishableJob['revision'] | null
 }
 
@@ -48,7 +49,7 @@ export async function GET(request: NextRequest) {
 
   const { data: dueJobs, error: dueJobsError } = await supabase
     .from('publish_jobs')
-    .select('id, workspace_id, channel, created_by, draft_revisions!inner(title, body, hashtags, cta, metadata)')
+    .select('id, workspace_id, channel, created_by, seed_id, draft_revisions!inner(title, body, hashtags, cta, metadata)')
     .eq('status', 'scheduled')
     .eq('publish_mode', 'auto')
     .lte('scheduled_at', new Date().toISOString())
@@ -70,6 +71,7 @@ export async function GET(request: NextRequest) {
       workspaceId: rawJob.workspace_id,
       channel: rawJob.channel,
       createdBy: rawJob.created_by,
+      seedId: rawJob.seed_id ?? undefined,
       revision: rawJob.draft_revisions,
     })
 

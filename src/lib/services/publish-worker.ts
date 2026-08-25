@@ -1,5 +1,5 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
-import type { PublishFailureReason, SocialPlatform, WorkspaceRole } from '@/lib/domain/types'
+import type { AssetType, PublishFailureReason, SocialPlatform, WorkspaceRole } from '@/lib/domain/types'
 import { recordPublishAttempt } from '@/lib/repositories/supabase/publish-attempts'
 import { getSocialCredentials, saveSocialCredentials } from '@/lib/repositories/supabase/social-credentials'
 import { createNotifications } from '@/lib/repositories/supabase/notifications'
@@ -16,6 +16,11 @@ import { hasPermission } from '@/lib/permissions'
 // can be reclaimed — see queue.ts's matching STALE_CLAIM_MINUTES for the
 // same threshold applied to cancel/manual-complete.
 const STALE_CLAIM_MINUTES = 10
+
+// Signed URLs from Supabase Storage are valid for 1 hour (3600 s). This is
+// intentionally short: the URL is generated immediately before the publish
+// call so it is always fresh, regardless of when the job was scheduled.
+const SIGNED_URL_TTL_SECONDS = 60 * 60
 
 function staleClaimFilter(): string {
   const staleBefore = new Date(Date.now() - STALE_CLAIM_MINUTES * 60_000).toISOString()
@@ -183,6 +188,8 @@ export interface PublishableJob {
   workspaceId: string
   channel: SocialPlatform
   createdBy: string
+  /** Seed that originated this job. Used to resolve media assets at publish time. */
+  seedId?: string
   revision: {
     title: string | null
     body: string
@@ -201,6 +208,57 @@ export interface ProcessJobResult {
 type ConfirmedPublishResult = {
   externalPostId?: string
   externalUrl?: string
+}
+
+interface AssetRow {
+  id: string
+  storage_path: string | null
+  type: AssetType
+  publishing_channels: SocialPlatform[] | null
+}
+
+/**
+ * Resolves a signed media URL from the Seed's uploaded assets for the given
+ * channel. Returns null when there are no relevant assets or the Seed is not
+ * known (e.g. note / text-only channels where mediaUrl is never needed).
+ *
+ * A fresh signed URL is generated every time so the URL passed to the adapter
+ * is always valid for at least one hour regardless of when the job was
+ * originally scheduled.
+ */
+async function resolvePublishMediaMetadata(
+  supabase: SupabaseClient,
+  seedId: string,
+  channel: SocialPlatform,
+): Promise<{ mediaUrl: string; mediaType: 'image' | 'video' } | null> {
+  const { data: rows, error } = await supabase
+    .from('assets')
+    .select('id, storage_path, type, publishing_channels')
+    .eq('seed_id', seedId)
+    .in('type', ['image', 'video'])
+
+  if (error || !rows || rows.length === 0) return null
+
+  // Respect per-asset channel assignments (empty/null means all channels).
+  const candidates = (rows as AssetRow[]).filter((row) => {
+    const channels = row.publishing_channels
+    return !channels || channels.length === 0 || channels.includes(channel)
+  })
+
+  // Prefer video over image so the richer format is used when both exist.
+  const chosen = candidates.find((row) => row.type === 'video') ?? candidates.find((row) => row.type === 'image')
+  if (!chosen?.storage_path) return null
+
+  const { data: signedData, error: signError } = await supabase.storage
+    .from('assets')
+    .createSignedUrl(chosen.storage_path, SIGNED_URL_TTL_SECONDS)
+
+  if (signError || !signedData?.signedUrl) return null
+
+  return {
+    mediaUrl: signedData.signedUrl,
+    mediaType: chosen.type === 'video' ? 'video' : 'image',
+  }
 }
 
 /**
@@ -239,6 +297,25 @@ export async function processPublishJob(supabase: SupabaseClient, job: Publishab
       throw new Error(`No connected ${job.channel} account for this workspace. Connect one from Settings.`)
     }
 
+    // Resolve a fresh signed URL from the Seed's uploaded assets so the
+    // adapter always receives a valid, non-expired mediaUrl at publish time
+    // (signed URLs are only 1 hour, too short to store in the revision).
+    // If mediaUrl is already present in the revision metadata (e.g. set
+    // manually), it takes precedence over the automatic resolution.
+    let resolvedMetadata: Record<string, unknown> = { ...job.revision.metadata }
+    if (job.seedId && !resolvedMetadata.mediaUrl) {
+      const media = await resolvePublishMediaMetadata(supabase, job.seedId, job.channel).catch((cause) => {
+        // Media resolution is best-effort: a missing signed URL means the
+        // adapter will throw its own "requires a media URL" error, which is
+        // clearer to the user and already classified as a validation failure.
+        console.warn(`Media resolution for job ${job.id} failed:`, cause)
+        return null
+      })
+      if (media) {
+        resolvedMetadata = { ...resolvedMetadata, mediaUrl: media.mediaUrl, mediaType: media.mediaType }
+      }
+    }
+
     const adapter = getConnectorAdapter(job.channel)
     const result = await adapter.publish({
       platform: job.channel,
@@ -249,7 +326,7 @@ export async function processPublishJob(supabase: SupabaseClient, job: Publishab
       body: job.revision.body,
       hashtags: job.revision.hashtags,
       cta: job.revision.cta ?? undefined,
-      metadata: job.revision.metadata,
+      metadata: resolvedMetadata,
     })
     confirmedPublish = result
 
