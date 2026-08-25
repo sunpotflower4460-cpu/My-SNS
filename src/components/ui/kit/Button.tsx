@@ -6,8 +6,8 @@ import { cn } from '@/lib/ui/cn'
 // screen — §17.6); destructive is not permanently red, it just reads as a real
 // action. Touch target stays >= 44px on mobile via min-h-touch.
 
-type ButtonVariant = 'primary' | 'secondary' | 'ghost' | 'destructive'
-type ButtonSize = 'sm' | 'md'
+export type ButtonVariant = 'primary' | 'secondary' | 'ghost' | 'destructive'
+export type ButtonSize = 'sm' | 'md'
 
 const VARIANTS: Record<ButtonVariant, string> = {
   primary: 'bg-[color:var(--accent)] text-white shadow-[0_10px_24px_rgba(109,93,246,0.22)] hover:bg-[color:var(--accent-hover)]',
@@ -28,6 +28,26 @@ export interface ButtonProps extends React.ButtonHTMLAttributes<HTMLButtonElemen
   fullWidth?: boolean
 }
 
+export function buttonClassName({
+  variant = 'secondary',
+  size = 'md',
+  fullWidth = false,
+  className,
+}: {
+  variant?: ButtonVariant
+  size?: ButtonSize
+  fullWidth?: boolean
+  className?: string
+}) {
+  return cn(
+    'inline-flex items-center justify-center rounded-full font-medium transition duration-200 ease-[var(--ease-out-premium)] active:scale-[0.985] disabled:opacity-50 disabled:pointer-events-none',
+    VARIANTS[variant],
+    SIZES[size],
+    fullWidth && 'w-full',
+    className,
+  )
+}
+
 const Button = forwardRef<HTMLButtonElement, ButtonProps>(function Button(
   { variant = 'secondary', size = 'md', loading = false, fullWidth = false, type, className, children, disabled, ...props },
   ref,
@@ -39,13 +59,7 @@ const Button = forwardRef<HTMLButtonElement, ButtonProps>(function Button(
       // submit by accident; callers can still opt into type="submit".
       type={type ?? 'button'}
       disabled={disabled || loading}
-      className={cn(
-        'inline-flex items-center justify-center rounded-full font-medium transition duration-200 ease-[var(--ease-out-premium)] active:scale-[0.985] disabled:opacity-50 disabled:pointer-events-none',
-        VARIANTS[variant],
-        SIZES[size],
-        fullWidth && 'w-full',
-        className,
-      )}
+      className={buttonClassName({ variant, size, fullWidth, className })}
       {...props}
     >
       {loading && <Loader2 aria-hidden className="h-4 w-4 animate-spin" />}

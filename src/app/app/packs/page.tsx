@@ -10,7 +10,7 @@ import PageHeader from '@/components/ui/PageHeader'
 import MobilePostShareButton from '@/components/publish/MobilePostShareButton'
 import ManualPublishDialog from '@/components/publish/ManualPublishDialog'
 import QueueMediaKit from '@/components/publish/QueueMediaKit'
-import { Badge, Button, Card, InlineAlert, SegmentedControl } from '@/components/ui/kit'
+import { Badge, Button, ButtonLink, Card, InlineAlert, SegmentedControl } from '@/components/ui/kit'
 import { useApp } from '@/lib/app/app-provider'
 import { PUBLISHING_CHANNEL_CONFIG, getPublishingStrategy } from '@/lib/channels/config'
 import { hasPermission } from '@/lib/permissions'
@@ -248,7 +248,7 @@ export default function PublishPacksPage() {
       <PageHeader
         title="投稿パック"
         description="1つの発信ごとに、完成文・素材・投稿先・進捗をまとめて、次のSNSへ順番に流せます。"
-        actions={<Link href="/app/queue" className="text-sm font-medium text-violet-700 hover:text-violet-800">公開予定の詳細 →</Link>}
+        actions={<ButtonLink href="/app/queue" size="sm">公開予定の詳細</ButtonLink>}
       />
 
       {publishingStrategy === 'zero-cost' && (
@@ -277,12 +277,9 @@ export default function PublishPacksPage() {
           title={filter === 'complete' ? '完了した投稿パックはまだありません' : '進行中の投稿パックはありません'}
           description="発信ライブラリで投稿先を選び、媒体向け下書きを承認するとここにまとまります。"
           action={(
-            <Link
-              href="/app/seeds"
-              className="inline-flex min-h-touch items-center justify-center rounded-full bg-[color:var(--accent)] px-4.5 py-2.5 text-sm font-medium text-white shadow-[0_10px_24px_rgba(109,93,246,0.22)] transition duration-200 ease-[var(--ease-out-premium)] hover:bg-[color:var(--accent-hover)] active:scale-[0.985] sm:min-h-control"
-            >
+            <ButtonLink href="/app/seeds" variant="primary">
               発信ライブラリへ
-            </Link>
+            </ButtonLink>
           )}
         />
       ) : (
@@ -319,7 +316,9 @@ export default function PublishPacksPage() {
                               : '次の投稿先を確認してください。'}
                         </p>
                       </div>
-                      <Link href={`/app/seeds/${pack.seed.id}`} className="shrink-0 text-xs font-medium text-violet-700 hover:text-violet-800">Seedを編集</Link>
+                      <ButtonLink href={`/app/seeds/${pack.seed.id}`} size="sm" className="shrink-0">
+                        Seedを編集
+                      </ButtonLink>
                     </div>
 
                     <div className="mt-4">
@@ -376,9 +375,9 @@ export default function PublishPacksPage() {
 
                           <div className="mt-3 flex flex-wrap items-start gap-2">
                             {item.state === 'missing' && (
-                              <Link href={`/app/seeds/${pack.seed.id}`} className="inline-flex items-center rounded-xl bg-violet-600 px-3 py-2 text-xs font-medium text-white hover:bg-violet-700">
+                              <ButtonLink href={`/app/seeds/${pack.seed.id}`} variant="primary" size="sm">
                                 下書きを準備
-                              </Link>
+                              </ButtonLink>
                             )}
 
                             {item.state === 'approved' && item.revision && canManageQueue && (
@@ -441,9 +440,9 @@ export default function PublishPacksPage() {
                             )}
 
                             {(item.state === 'failed' || item.state === 'cancelled' || (apiPublishingEnabled && item.state === 'ready' && !actions?.openHandoff)) && (
-                              <Link href="/app/queue" className="inline-flex items-center rounded-xl border border-stone-200 bg-white px-3 py-2 text-xs font-medium text-gray-700 hover:bg-stone-50">
+                              <ButtonLink href="/app/queue" size="sm">
                                 公開予定で確認
-                              </Link>
+                              </ButtonLink>
                             )}
                           </div>
                         </div>
