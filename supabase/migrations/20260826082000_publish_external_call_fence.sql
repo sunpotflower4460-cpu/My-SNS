@@ -20,6 +20,16 @@ ALTER TABLE public.publish_jobs
 COMMENT ON COLUMN public.publish_jobs.external_call_started_at IS
   'Conservative irreversible-side-effect fence automatically set when the service-role Worker claims a job. Cleared only after a durably recorded safe provider rejection; otherwise blocks automatic replay.';
 
+-- Deployment-race repair: a Worker may already be in flight when this migration
+-- is applied, so that claim could not have passed through the new trigger yet.
+-- Conservatively fence every currently claimed row at its existing claim time.
+-- This can strand a pre-call crash for manual inspection, but cannot duplicate a
+-- post; that is the intended safety trade-off during rollout.
+UPDATE public.publish_jobs
+SET external_call_started_at = claimed_at
+WHERE claimed_at IS NOT NULL
+  AND external_call_started_at IS NULL;
+
 CREATE OR REPLACE FUNCTION public.guard_publish_job_insert()
 RETURNS TRIGGER
 LANGUAGE plpgsql
