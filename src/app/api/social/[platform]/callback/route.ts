@@ -2,7 +2,11 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createServiceClient } from '@/lib/supabase/service'
 import { consumeOAuthState } from '@/lib/repositories/supabase/oauth-states'
-import { finalizeSocialAccountConnection, upsertPendingSocialAccount } from '@/lib/repositories/supabase/social-accounts'
+import {
+  deletePendingSocialAccount,
+  finalizeSocialAccountConnection,
+  upsertPendingSocialAccount,
+} from '@/lib/repositories/supabase/social-accounts'
 import { deleteSocialCredentials, saveSocialCredentials } from '@/lib/repositories/supabase/social-credentials'
 import { getConnectorAdapter, isConnectablePlatform } from '@/lib/services/connectors'
 import { finalizeSocialConnectionWithCleanup } from '@/lib/services/social-connection-finalization'
@@ -44,6 +48,8 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
     return NextResponse.redirect(settingsUrl)
   }
 
+  let pendingAccountId: string | null = null
+
   try {
     const adapter = getConnectorAdapter(platform)
     const connected = await adapter.connect(platform, code, {
@@ -51,14 +57,16 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
       codeVerifier: consumed.codeVerifier,
     })
 
-    // Row created but not yet marked connected — see upsertPendingSocialAccount's
-    // doc comment for why the order here matters.
+    // Every OAuth attempt gets a fresh disconnected staging row. The currently
+    // working account remains live until the new encrypted credential is saved
+    // and finalizeSocialAccountConnection atomically swaps active accounts.
     const account = await upsertPendingSocialAccount(supabase, {
       workspaceId: consumed.workspaceId,
       platform,
       handle: connected.handle,
       externalAccountId: connected.externalAccountId,
     })
+    pendingAccountId = account.id
 
     const serviceClient = createServiceClient()
     await saveSocialCredentials(serviceClient, account.id, {
@@ -88,6 +96,16 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
     settingsUrl.searchParams.set('connected', platform)
     return NextResponse.redirect(settingsUrl)
   } catch (cause) {
+    // A failed OAuth attempt must not leave disconnected staging rows forever.
+    // The delete is constrained to connected=false, so if finalization actually
+    // committed but its HTTP response was lost, this cleanup cannot delete the
+    // now-live account. Credential rows cascade with a genuinely pending row.
+    if (pendingAccountId) {
+      await deletePendingSocialAccount(supabase, pendingAccountId).catch((cleanupCause) => {
+        console.error(`Failed to remove pending ${platform} account after OAuth failure:`, cleanupCause)
+      })
+    }
+
     const message = cause instanceof Error ? cause.message : '接続を完了できませんでした。'
     settingsUrl.searchParams.set('error', message)
     return NextResponse.redirect(settingsUrl)
