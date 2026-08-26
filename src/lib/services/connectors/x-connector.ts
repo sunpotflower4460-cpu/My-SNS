@@ -143,10 +143,28 @@ export class XConnectorAdapter implements SocialConnectorAdapter {
     let firstId: string | undefined
     let username = request.handle
 
-    for (const text of tweets) {
-      const payload = await postTweetWithRetry(text, previousId, request.accessToken)
-      previousId = payload.data.id
-      firstId = firstId ?? payload.data.id
+    for (let index = 0; index < tweets.length; index += 1) {
+      const text = tweets[index]
+      try {
+        const payload = await postTweetWithRetry(text, previousId, request.accessToken)
+        previousId = payload.data.id
+        firstId = firstId ?? payload.data.id
+      } catch (cause) {
+        // A thread is a sequence of separate external side effects. Once even
+        // one tweet exists on X, treating a later failure as normally retryable
+        // would start again at tweet 1 and duplicate the already-published
+        // prefix. The DB publish-job guard recognizes this marker and refuses
+        // failed → scheduled; the human can inspect X, cancel the job, and make
+        // a fresh Revision for any deliberate repair.
+        if (firstId) {
+          const detail = cause instanceof Error ? cause.message : 'unknown X error'
+          const knownUrl = username ? ` https://x.com/${username}/status/${firstId}` : ''
+          throw new Error(
+            `PARTIAL_EXTERNAL_SUCCESS: X posted ${index} of ${tweets.length} thread tweets before a later step failed.${knownUrl} Automatic retry is blocked to prevent duplicate tweets. Original error: ${detail}`,
+          )
+        }
+        throw cause
+      }
     }
 
     if (!username) {
