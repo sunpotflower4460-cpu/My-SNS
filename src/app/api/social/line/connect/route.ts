@@ -1,7 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createServiceClient } from '@/lib/supabase/service'
-import { finalizeSocialAccountConnection, upsertPendingSocialAccount } from '@/lib/repositories/supabase/social-accounts'
+import {
+  deletePendingSocialAccount,
+  finalizeSocialAccountConnection,
+  upsertPendingSocialAccount,
+} from '@/lib/repositories/supabase/social-accounts'
 import { deleteSocialCredentials, saveSocialCredentials } from '@/lib/repositories/supabase/social-credentials'
 import { getConnectorAdapter, isLineConfigured } from '@/lib/services/connectors'
 import { finalizeSocialConnectionWithCleanup } from '@/lib/services/social-connection-finalization'
@@ -54,6 +58,8 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'LINE_CHANNEL_ACCESS_TOKENが未設定です。デプロイの環境変数を設定してください。' }, { status: 400 })
   }
 
+  let pendingAccountId: string | null = null
+
   try {
     const adapter = getConnectorAdapter('line')
     // LINE ignores authCode/redirectUri — it reads the channel token from env
@@ -66,6 +72,7 @@ export async function POST(request: NextRequest) {
       handle: connected.handle,
       externalAccountId: connected.externalAccountId,
     })
+    pendingAccountId = account.id
 
     const serviceClient = createServiceClient()
     await saveSocialCredentials(serviceClient, account.id, {
@@ -94,6 +101,12 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json({ account })
   } catch (cause) {
+    if (pendingAccountId) {
+      await deletePendingSocialAccount(supabase, pendingAccountId).catch((cleanupCause) => {
+        console.error('Failed to remove pending LINE account after connection failure:', cleanupCause)
+      })
+    }
+
     const message = cause instanceof Error ? cause.message : 'LINEの接続を完了できませんでした。'
     return NextResponse.json({ error: message }, { status: 502 })
   }
