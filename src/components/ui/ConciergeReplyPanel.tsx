@@ -81,6 +81,9 @@ export default function ConciergeReplyPanel({ item }: { item: InboxItem }) {
   const isInstagram = item.platform === 'instagram'
 
   const canManageCalendar = Boolean(currentMember && hasPermission(currentMember.role, 'manage_calendar'))
+  const replyResultUnknown = Boolean(
+    replyJob?.status === 'failed' && replyJob.errorMessage?.startsWith('EXTERNAL_RESULT_UNKNOWN:'),
+  )
 
   // Seed the editor when a newer suggestion arrives (e.g. right after generate).
   if (suggestion && suggestion.id !== seededFrom) {
@@ -153,7 +156,7 @@ export default function ConciergeReplyPanel({ item }: { item: InboxItem }) {
     setBusy('cancel')
     try {
       await cancelReplyJob(replyJob.id)
-      setNotice('返信予約を取り消しました。')
+      setNotice(replyJob.status === 'failed' ? '失敗した返信ジョブを閉じました。' : '返信予約を取り消しました。')
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : '取り消せませんでした。')
     } finally {
@@ -380,14 +383,26 @@ export default function ConciergeReplyPanel({ item }: { item: InboxItem }) {
               <span className="text-green-700">✓ 送信済み{replyJob.sentAt ? `（${formatJst(replyJob.sentAt)}）` : ''}</span>
             )}
             {replyJob.status === 'failed' && (
-              <div className="flex flex-wrap items-center gap-2">
-                <span className="text-rose-700">✗ 送信失敗{replyJob.errorMessage ? `: ${replyJob.errorMessage}` : ''}</span>
-                {/* Retry re-sends this same job's approved text — the single,
-                    unambiguous "send again" path for a failed reply. */}
-                {canReply && sendSupported && (
-                  <button onClick={handleTrigger} disabled={busy === 'trigger'} className="ml-auto rounded-full border border-stone-200 px-3 py-1 text-xs text-gray-600 hover:bg-stone-50 disabled:opacity-50">
-                    再送
-                  </button>
+              <div className="space-y-2">
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="text-rose-700">✗ 送信失敗{replyJob.errorMessage ? `: ${replyJob.errorMessage}` : ''}</span>
+                  {canReply && sendSupported && (
+                    <div className="ml-auto flex items-center gap-2">
+                      {!replyResultUnknown && (
+                        <button onClick={handleTrigger} disabled={busy === 'trigger'} className="rounded-full border border-stone-200 px-3 py-1 text-xs text-gray-600 hover:bg-stone-50 disabled:opacity-50">
+                          再送
+                        </button>
+                      )}
+                      <button onClick={handleCancel} disabled={busy === 'cancel'} className="rounded-full border border-stone-200 px-3 py-1 text-xs text-gray-600 hover:bg-stone-50 disabled:opacity-50">
+                        {replyResultUnknown ? '確認後、このジョブを閉じる' : '取り消し'}
+                      </button>
+                    </div>
+                  )}
+                </div>
+                {replyResultUnknown && (
+                  <p className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs leading-5 text-amber-800">
+                    LINE側では送信済みの可能性があります。二重送信を防ぐため自動再送は停止しています。まずLINEの会話を確認し、届いていなければこのジョブを閉じてから新しい返信として作成してください。
+                  </p>
                 )}
               </div>
             )}
