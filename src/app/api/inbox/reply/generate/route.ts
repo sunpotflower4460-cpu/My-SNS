@@ -35,12 +35,6 @@ interface ExistingSuggestionRow {
   ai_generation_id: string | null
 }
 
-/**
- * Writes one suggestion with a caller-owned UUID. If the INSERT commits but
- * its HTTP response is lost, re-reading/retrying the SAME id cannot create a
- * second suggestion. This is important because the model call has already been
- * paid for by the time this function runs.
- */
 async function persistReplyArtifacts(
   serviceClient: SupabaseClient,
   params: {
@@ -82,9 +76,6 @@ async function persistReplyArtifacts(
       data = existing
       error = null
     } else {
-      // If the first write definitively did not commit and the database has
-      // recovered, one same-id retry is safe. A late/duplicate commit can only
-      // conflict with this exact UUID, never create a second suggestion.
       const retry = await serviceClient
         .from('ai_reply_suggestions')
         .insert(row)
@@ -171,7 +162,17 @@ export async function POST(request: NextRequest) {
   const status = await getMyCreatorStatus(supabase, workspaceId, user.id).catch(() => null)
   const creatorStatus = status?.shareWithContacts ? { mood: status.mood, note: status.note } : undefined
 
-  const serviceClient = createServiceClient()
+  let serviceClient: SupabaseClient
+  try {
+    serviceClient = createServiceClient()
+  } catch (cause) {
+    console.error('Reply generation service client is unavailable:', cause)
+    return NextResponse.json(
+      { error: '返信案の生成に必要なサーバー設定を確認できませんでした。管理者に設定確認を依頼してください。' },
+      { status: 503 },
+    )
+  }
+
   let replyClaimToken: string | null
   try {
     replyClaimToken = await claimInboxReplyGeneration(serviceClient, workspaceId, inboxItemId)
@@ -184,9 +185,34 @@ export async function POST(request: NextRequest) {
   }
 
   try {
-    // HTTP response loss after a successful suggestion INSERT must not cause a
-    // second paid model call. Once the message claim is ours, treat a durable
-    // suggestion as the idempotent result of the earlier request.
+    // After the message-level claim, re-check the outbound side as well. An
+    // auto-reply sweep may have completed its transaction just before this
+    // manual request acquired the claim. Do not create/reuse a competing manual
+    // suggestion while an auto job for the same inbound message still exists.
+    const { data: autoJob, error: autoJobError } = await serviceClient
+      .from('reply_jobs')
+      .select('id, status')
+      .eq('workspace_id', workspaceId)
+      .eq('inbox_item_id', inboxItemId)
+      .eq('reply_mode', 'auto')
+      .neq('status', 'cancelled')
+      .limit(1)
+      .maybeSingle()
+
+    if (autoJobError) {
+      console.error('Failed to check active auto reply before manual generation:', autoJobError)
+      return NextResponse.json({ error: '自動返信の状態を確認できないため、安全のため返信案の生成を開始しませんでした。' }, { status: 503 })
+    }
+    if (autoJob) {
+      return NextResponse.json(
+        { error: 'このメッセージには自動返信ジョブがすでにあります。受信箱でその返信を確認・取り消してから、新しい返信案を作成してください。' },
+        { status: 409 },
+      )
+    }
+
+    // A lost HTTP response after a committed suggestion INSERT must not cause a
+    // second paid model call. Once the message claim is ours, a durable existing
+    // suggestion is the idempotent result of that earlier request.
     const { data: existingRaw, error: existingError } = await serviceClient
       .from('ai_reply_suggestions')
       .select('id, suggested_text, tone, source, assumptions, ai_generation_id')
@@ -237,7 +263,8 @@ export async function POST(request: NextRequest) {
           suggestionId,
         })
       } catch (cause) {
-        return NextResponse.json({ error: cause instanceof Error ? cause.message : '返信案を保存できませんでした。' }, { status: 502 })
+        console.error('Failed to persist template reply suggestion:', cause)
+        return NextResponse.json({ error: '返信案を保存できませんでした。少し待ってから再試行してください。' }, { status: 502 })
       }
     }
 
