@@ -86,7 +86,10 @@ export async function POST(request: NextRequest) {
     const finalizedAccount = await finalizeSocialConnectionWithCleanup({
       finalize: async () => finalizeSocialAccountConnection(supabase, account.id),
       verifyFinalized: async () => {
-        const current = await getSocialAccountById(supabase, account.id)
+        // Use service-role verification so a simultaneous membership/RLS change
+        // cannot hide a successfully committed row and trick cleanup into
+        // deleting the credential of the live LINE connection.
+        const current = await getSocialAccountById(serviceClient, account.id)
         return current?.connected ? current : null
       },
       cleanup: async () => { await deleteSocialCredentials(serviceClient, account.id) },
