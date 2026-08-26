@@ -80,7 +80,11 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
     await finalizeSocialConnectionWithCleanup({
       finalize: async () => finalizeSocialAccountConnection(supabase, account.id),
       verifyFinalized: async () => {
-        const current = await getSocialAccountById(supabase, account.id)
+        // Verification is deliberately service-role: if membership/RLS changes
+        // immediately after the RPC committed, a session-scoped read could look
+        // like "row missing" and cause us to delete credentials from a live
+        // connection. We are checking one account id created by this request.
+        const current = await getSocialAccountById(serviceClient, account.id)
         return current?.connected ? current : null
       },
       cleanup: async () => { await deleteSocialCredentials(serviceClient, account.id) },
