@@ -19,6 +19,12 @@ import { createNotifications } from '@/lib/repositories/supabase/notifications'
 
 const BATCH_SIZE = 20
 const LOOKBACK_HOURS = 24
+// Background generation has no human watching the response. If one paid call
+// succeeds but its usage row cannot be saved, pause further automatic AI calls
+// for this workspace long enough for the owner/admin to see the notification and
+// for a transient database incident to recover. Manual AI flows surface their
+// own warning directly in the UI.
+const AI_USAGE_INCIDENT_COOLDOWN_HOURS = 1
 
 interface CandidateContact {
   id: string
@@ -71,20 +77,50 @@ interface WorkspaceContext {
   lineConnected: boolean
   brandProfile: BrandProfile | null
   creatorStatus?: { mood: string; note?: string }
+  autoAiUsageBlocked: boolean
 }
 
-async function loadWorkspaceContext(supabase: SupabaseClient, workspaceId: string): Promise<WorkspaceContext> {
-  const [{ data: owner }, { data: account }, brandProfile] = await Promise.all([
+async function loadWorkspaceContext(
+  supabase: SupabaseClient,
+  workspaceId: string,
+  now: Date,
+): Promise<WorkspaceContext> {
+  const usageIncidentSince = new Date(now.getTime() - AI_USAGE_INCIDENT_COOLDOWN_HOURS * 60 * 60 * 1000).toISOString()
+  const [
+    { data: owner },
+    { data: account },
+    brandProfile,
+    { data: usageIncident, error: usageIncidentError },
+  ] = await Promise.all([
     supabase.from('workspace_members').select('user_id').eq('workspace_id', workspaceId).eq('role', 'owner').limit(1).maybeSingle(),
     supabase.from('social_accounts').select('id').eq('workspace_id', workspaceId).eq('platform', 'line').eq('connected', true).limit(1).maybeSingle(),
     getDefaultBrandProfileForClient(supabase, workspaceId).catch(() => null),
+    supabase
+      .from('audit_logs')
+      .select('id')
+      .eq('workspace_id', workspaceId)
+      .eq('action', 'inbox_reply_ai_generated')
+      .contains('metadata', { auto: true, usageRecorded: false })
+      .gte('created_at', usageIncidentSince)
+      .limit(1)
+      .maybeSingle(),
   ])
+
+  if (usageIncidentError) {
+    throw new Error(`Could not verify automatic AI usage-ledger safety state: ${usageIncidentError.message}`)
+  }
 
   const ownerId = (owner?.user_id as string | undefined) ?? null
   const status = ownerId ? await getMyCreatorStatus(supabase, workspaceId, ownerId).catch(() => null) : null
   const creatorStatus = status?.shareWithContacts ? { mood: status.mood, note: status.note } : undefined
 
-  return { ownerId, lineConnected: Boolean(account), brandProfile, creatorStatus }
+  return {
+    ownerId,
+    lineConnected: Boolean(account),
+    brandProfile,
+    creatorStatus,
+    autoAiUsageBlocked: Boolean(usageIncident),
+  }
 }
 
 async function isAlreadyHandledNow(supabase: SupabaseClient, inboxItemId: string): Promise<boolean> {
@@ -214,12 +250,12 @@ export async function runAutoReplySweep(supabase: SupabaseClient, now: Date = ne
 
     let context = workspaceContexts.get(row.workspace_id)
     if (!context) {
-      context = await loadWorkspaceContext(supabase, row.workspace_id)
+      context = await loadWorkspaceContext(supabase, row.workspace_id, now)
       workspaceContexts.set(row.workspace_id, context)
     }
 
     const ownerId = context.ownerId
-    if (!context.lineConnected || !ownerId) {
+    if (!context.lineConnected || !ownerId || context.autoAiUsageBlocked) {
       skipped += 1
       continue
     }
@@ -288,6 +324,24 @@ export async function runAutoReplySweep(supabase: SupabaseClient, now: Date = ne
         recordedGenerationId = generation.id
       } catch (recordError) {
         console.error(`Auto reply generated for ${row.id}, but AI usage could not be recorded:`, recordError)
+        context.autoAiUsageBlocked = true
+        const { error: incidentAuditError } = await supabase.from('audit_logs').insert({
+          workspace_id: row.workspace_id,
+          actor_id: ownerId,
+          action: 'inbox_reply_ai_generated',
+          target_type: 'inbox_item',
+          target_id: row.id,
+          metadata: {
+            platform: 'line',
+            auto: true,
+            model: result.model,
+            aiGenerationId: null,
+            usageRecorded: false,
+          },
+        })
+        if (incidentAuditError) {
+          console.error(`Failed to persist AI usage-ledger incident for auto reply ${row.id}:`, incidentAuditError)
+        }
       }
 
       const recipientTime = computeRecipientSendTime(now, {
@@ -316,6 +370,7 @@ export async function runAutoReplySweep(supabase: SupabaseClient, now: Date = ne
         createdBy: ownerId,
       })
 
+      const usageRecorded = Boolean(recordedGenerationId)
       const { error: auditError } = await supabase.from('audit_logs').insert({
         workspace_id: row.workspace_id,
         actor_id: ownerId,
@@ -328,7 +383,7 @@ export async function runAutoReplySweep(supabase: SupabaseClient, now: Date = ne
           scheduledAt,
           auto: true,
           aiGenerationId: recordedGenerationId,
-          usageRecorded: Boolean(recordedGenerationId),
+          usageRecorded,
         },
       })
       if (auditError) console.error(`Failed to audit auto reply ${replyJobId}:`, auditError)
@@ -338,8 +393,10 @@ export async function runAutoReplySweep(supabase: SupabaseClient, now: Date = ne
           workspaceId: row.workspace_id,
           userId: ownerId,
           type: 'auto_reply_scheduled',
-          title: '自動返信を予約しました',
-          body: `${contact.display_name ?? '相手'}さんへの返信を${new Date(scheduledAt).toLocaleString('ja-JP', { timeZone: 'Asia/Tokyo' })}に送信予定です。内容の確認・取り消しができます。`,
+          title: usageRecorded ? '自動返信を予約しました' : '自動返信を予約しました（AI使用量の記録を確認してください）',
+          body: usageRecorded
+            ? `${contact.display_name ?? '相手'}さんへの返信を${new Date(scheduledAt).toLocaleString('ja-JP', { timeZone: 'Asia/Tokyo' })}に送信予定です。内容の確認・取り消しができます。`
+            : `${contact.display_name ?? '相手'}さんへの返信を${new Date(scheduledAt).toLocaleString('ja-JP', { timeZone: 'Asia/Tokyo' })}に送信予定です。ただし今回のAI使用量を台帳へ保存できなかったため、このワークスペースの後続自動AI処理を一時停止しています。内容を確認し、必要なら返信を取り消したうえで管理者に台帳確認を依頼してください。`,
           targetType: 'inbox_item',
           targetId: row.id,
         },
