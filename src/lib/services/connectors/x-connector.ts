@@ -10,9 +10,6 @@ import type {
 } from '../interfaces'
 import { deriveCodeChallenge, generateCodeVerifier } from './pkce'
 
-// X (Twitter) API v2, OAuth 2.0 Authorization Code + PKCE.
-// https://developer.x.com/en/docs/authentication/oauth-2-0/authorization-code
-
 const AUTHORIZE_URL = 'https://x.com/i/oauth2/authorize'
 const TOKEN_URL = 'https://api.twitter.com/2/oauth2/token'
 const TWEETS_URL = 'https://api.twitter.com/2/tweets'
@@ -29,7 +26,6 @@ export function isXConfigured(): boolean {
   return Boolean(process.env.X_CLIENT_ID?.trim())
 }
 
-/** PKCE is generated here — the caller persists the returned verifier in oauth_states for the callback to use. */
 export function buildXAuthorizeUrl(state: string, redirectUri: string): { url: string; codeVerifier: string } {
   const clientId = requireEnv('X_CLIENT_ID')
   const codeVerifier = generateCodeVerifier()
@@ -119,11 +115,7 @@ export class XConnectorAdapter implements SocialConnectorAdapter {
     return toConnectedAccount(token, account)
   }
 
-  async disconnect(): Promise<void> {
-    // X does not require an explicit revocation call for this flow; removing
-    // the stored credentials (done by the caller) is sufficient — the app
-    // simply stops using the token, which expires on its own.
-  }
+  async disconnect(): Promise<void> {}
 
   async refreshAccessToken(_platform: SocialPlatform, refreshToken: string): Promise<ConnectedAccount> {
     const token = await requestToken(
@@ -150,12 +142,6 @@ export class XConnectorAdapter implements SocialConnectorAdapter {
         previousId = payload.data.id
         firstId = firstId ?? payload.data.id
       } catch (cause) {
-        // A thread is a sequence of separate external side effects. Once even
-        // one tweet exists on X, treating a later failure as normally retryable
-        // would start again at tweet 1 and duplicate the already-published
-        // prefix. The DB publish-job guard recognizes this marker and refuses
-        // failed → scheduled; the human can inspect X, cancel the job, and make
-        // a fresh Revision for any deliberate repair.
         if (firstId) {
           const detail = cause instanceof Error ? cause.message : 'unknown X error'
           const knownUrl = username ? ` https://x.com/${username}/status/${firstId}` : ''
@@ -167,53 +153,35 @@ export class XConnectorAdapter implements SocialConnectorAdapter {
       }
     }
 
+    // Username lookup is only URL enrichment after the irreversible tweets are
+    // already live. Do not turn an enrichment failure into a retryable publish.
     if (!username) {
-      const account = await fetchAuthenticatedHandle(request.accessToken)
-      username = account.username
+      try {
+        const account = await fetchAuthenticatedHandle(request.accessToken)
+        username = account.username
+      } catch (cause) {
+        console.warn(`X tweet ${firstId ?? 'unknown'} published, but username lookup failed:`, cause)
+      }
     }
 
     return {
       externalPostId: firstId,
-      externalUrl: firstId ? `https://x.com/${username}/status/${firstId}` : undefined,
+      externalUrl: firstId && username ? `https://x.com/${username}/status/${firstId}` : undefined,
     }
   }
 
   async sendMessage(): Promise<SendMessageResult> {
-    // Honest gap: X DM send requires dm.write on a paid Basic-or-higher API
-    // tier; this app only requests free-tier write scopes for publishing.
     throw new Error('X DMの送信は有料APIティア（Basic以上、dm.write）が必要なため未対応です。')
   }
 
-  // Honest gap, not a stub: X has no webhook this app can receive without an
-  // Enterprise-tier Account Activity API subscription, and its v2 mentions/
-  // DM read endpoints require a paid Basic-or-higher API tier — this app
-  // only requests the free-tier write scopes needed to publish (see SCOPES
-  // above). Written once here rather than duplicated per method.
   private readonly readAccessGap =
     'X comment/mention/DM sync requires a paid X API tier (Basic or higher) for read access, or an Enterprise Account Activity API subscription for webhooks — this app only requests the free-tier write scopes needed to publish. Not available.'
 
-  async fetchInbox(): Promise<InboundInboxEvent[]> {
-    throw new Error(this.readAccessGap)
-  }
+  async fetchInbox(): Promise<InboundInboxEvent[]> { throw new Error(this.readAccessGap) }
+  async fetchComments(): Promise<InboundInboxEvent[]> { throw new Error(this.readAccessGap) }
+  async fetchMentions(): Promise<InboundInboxEvent[]> { throw new Error(this.readAccessGap) }
+  async fetchMessages(): Promise<InboundInboxEvent[]> { throw new Error(this.readAccessGap) }
 
-  async fetchComments(): Promise<InboundInboxEvent[]> {
-    throw new Error(this.readAccessGap)
-  }
-
-  async fetchMentions(): Promise<InboundInboxEvent[]> {
-    throw new Error(this.readAccessGap)
-  }
-
-  async fetchMessages(): Promise<InboundInboxEvent[]> {
-    throw new Error(this.readAccessGap)
-  }
-
-  /**
-   * A single-tweet lookup by id, not a timeline/mentions read — this stays
-   * within `tweet.read`'s free-tier allowance even though the timeline/DM
-   * reads above don't (see `readAccessGap`), because looking up one post you
-   * already know the id of is a basic v2 endpoint, not an elevated one.
-   */
   async fetchMetrics(request: InboxFetchRequest & { postId: string }): Promise<PostMetrics> {
     const url = `${TWEETS_URL}/${encodeURIComponent(request.postId)}?tweet.fields=public_metrics`
     const response = await fetch(url, { headers: { Authorization: `Bearer ${request.accessToken}` } })
@@ -240,10 +208,6 @@ export class XConnectorAdapter implements SocialConnectorAdapter {
   }
 }
 
-// Bounded per master-plan §3's "429 → single retry" rule for X. If the
-// provider wants a longer wait than this, don't block the request — throw
-// and let the job fail with reason "ratelimit"; the Queue's own retry
-// (built in PR3) picks it up on its next pass instead.
 const MAX_RATE_LIMIT_WAIT_MS = 5_000
 
 function sleep(ms: number): Promise<void> {
@@ -261,14 +225,22 @@ export async function postTweetWithRetry(text: string, replyToId: string | undef
     const body: Record<string, unknown> = { text }
     if (replyToId) body.reply = { in_reply_to_tweet_id: replyToId }
 
-    const response = await fetch(TWEETS_URL, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${accessToken}`,
-      },
-      body: JSON.stringify(body),
-    })
+    let response: Response
+    try {
+      response = await fetch(TWEETS_URL, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${accessToken}`,
+        },
+        body: JSON.stringify(body),
+      })
+    } catch (cause) {
+      const detail = cause instanceof Error ? cause.message : 'network failure'
+      throw new Error(
+        `EXTERNAL_RESULT_UNKNOWN: X publish request lost its response (${detail}). The tweet may already exist, so automatic retry is blocked.`,
+      )
+    }
 
     if (response.status === 429) {
       if (!retriedOnce) {
@@ -290,15 +262,33 @@ export async function postTweetWithRetry(text: string, replyToId: string | undef
       throw new Error(`X publish failed (${response.status}): ${detail.slice(0, 300)}`)
     }
 
-    return (await response.json()) as TweetPayload
+    let payload: unknown
+    try {
+      payload = await response.json()
+    } catch {
+      throw new Error(
+        'EXTERNAL_RESULT_UNKNOWN: X returned a successful HTTP status but an unreadable response body. The tweet may already exist, so automatic retry is blocked.',
+      )
+    }
+
+    const tweet = (payload as { data?: { id?: unknown; text?: unknown } } | null)?.data
+    if (typeof tweet?.id !== 'string' || !tweet.id) {
+      throw new Error(
+        'EXTERNAL_RESULT_UNKNOWN: X returned success without a tweet id. The tweet may already exist, so automatic retry is blocked.',
+      )
+    }
+
+    return {
+      data: {
+        id: tweet.id,
+        text: typeof tweet.text === 'string' ? tweet.text : text,
+      },
+    }
   }
 }
 
 export function buildFirstTweetText(request: PublishRequest): string {
   const ctaSuffix = request.cta ? ` ${request.cta}` : ''
   const hashtagSuffix = request.hashtags.length > 0 ? ` ${request.hashtags.map((tag) => `#${tag}`).join(' ')}` : ''
-  // No client-side length truncation: if the approved content plus CTA and
-  // hashtags exceeds X's limit, the API rejects it with a clear validation
-  // error rather than this code silently cutting the approved text short.
   return `${request.body}${ctaSuffix}${hashtagSuffix}`.trim()
 }
