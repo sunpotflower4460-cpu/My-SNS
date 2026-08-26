@@ -4,6 +4,8 @@
 // Keep this check close to connectors too: defense in depth protects a future
 // caller that accidentally bypasses publish-worker's normal media resolution.
 
+const LOOPBACK_HOSTS = new Set(['localhost', '127.0.0.1', '::1'])
+
 export function assertTrustedPublishMediaUrl(rawUrl: string): URL {
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL?.trim()
   if (!supabaseUrl) {
@@ -11,16 +13,26 @@ export function assertTrustedPublishMediaUrl(rawUrl: string): URL {
   }
 
   let media: URL
-  let expectedOrigin: string
+  let expected: URL
   try {
     media = new URL(rawUrl)
-    expectedOrigin = new URL(supabaseUrl).origin
+    expected = new URL(supabaseUrl)
   } catch {
     throw new Error('Publish media URL is invalid.')
   }
 
-  if (media.protocol !== 'https:' || media.origin !== expectedOrigin) {
+  if (media.origin !== expected.origin) {
     throw new Error('Publish media URL must come from this workspace Supabase Storage project.')
+  }
+
+  const secureProtocol = media.protocol === 'https:'
+  const trustedLocalDevelopment =
+    media.protocol === 'http:'
+    && expected.protocol === 'http:'
+    && LOOPBACK_HOSTS.has(expected.hostname)
+
+  if (!secureProtocol && !trustedLocalDevelopment) {
+    throw new Error('Publish media URL must use HTTPS outside local loopback development.')
   }
 
   const allowedPathPrefixes = [
