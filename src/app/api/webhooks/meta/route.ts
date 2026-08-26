@@ -53,31 +53,42 @@ export async function POST(request: NextRequest) {
 
   const supabase = createServiceClient()
   let ingested = 0
+  let transientFailures = 0
 
-  // Each entry is processed independently: a single delivery can fan out
-  // events for several workspaces at once, and a failure on one (a transient
-  // DB error, an unexpected payload shape) must never suppress delivery to
-  // every other workspace in the same batch — nor turn into an uncaught 500
-  // that makes Meta retry-storm the whole payload forever.
+  // Each entry is independent. Mapping failures are permanent for that payload
+  // shape, so acknowledge them after logging. Persistence failures are likely
+  // transient and must make the whole delivery retryable; inbox writes are
+  // idempotent on provider event ids, so retrying already-saved siblings is safe.
   for (const entry of payload.entry ?? []) {
-    try {
-      if (!entry.id) continue
+    if (!entry.id) continue
 
+    let events
+    try {
+      events = mapMetaWebhookEntry(entry)
+    } catch (cause) {
+      console.error('Failed to map a Meta webhook entry:', entry.id, cause)
+      continue
+    }
+
+    try {
       // Not a workspace we know about (e.g. a delivery for an unrelated
-      // subscription) — ignore rather than error; Meta fans this app's
-      // webhook out to every subscribed page/account, not just ours.
+      // subscription) — ignore rather than error.
       const workspaceId = await resolveWorkspaceIdByExternalAccount(supabase, 'instagram', entry.id)
       if (!workspaceId) continue
 
-      const events = mapMetaWebhookEntry(entry)
       ingested += await upsertInboxItems(supabase, workspaceId, events)
     } catch (cause) {
-      console.error('Failed to ingest a Meta webhook entry:', entry.id, cause)
+      transientFailures += 1
+      console.error('Transient failure ingesting a Meta webhook entry:', entry.id, cause)
     }
   }
 
-  // Always 200 once the signature is verified and the body parses, even when
-  // 0 events matched — Meta retries aggressively on non-2xx responses, and
-  // "nothing new to ingest" is not a failure.
+  if (transientFailures > 0) {
+    return NextResponse.json(
+      { error: 'Webhook persistence temporarily unavailable.', ingested, transientFailures },
+      { status: 503 },
+    )
+  }
+
   return NextResponse.json({ ingested })
 }
