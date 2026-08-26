@@ -28,16 +28,17 @@ function staleClaimFilter(): string {
 }
 
 /**
- * Atomically marks a job as "being worked on right now". Returns false if
- * another still-active claim already exists — the caller must not attempt
- * to publish in that case (a real platform call could already be in
- * flight for it). This is what makes "Publish now" safe to click twice, and
- * what stops a cancel from racing an in-flight publish undetected.
+ * Atomically marks a job as "being worked on right now". The random token is
+ * ownership, while claimed_at is only liveness/staleness. Returning the token
+ * lets every later state change prove this same request still owns the claim;
+ * an older request that comes back after a stale reclaim cannot clear or
+ * overwrite the newer worker's claim (ABA race).
  */
-async function claimPublishJob(supabase: SupabaseClient, jobId: string): Promise<boolean> {
+async function claimPublishJob(supabase: SupabaseClient, jobId: string): Promise<string | null> {
+  const claimToken = crypto.randomUUID()
   const { data, error } = await supabase
     .from('publish_jobs')
-    .update({ claimed_at: new Date().toISOString() })
+    .update({ claimed_at: new Date().toISOString(), claim_token: claimToken })
     .eq('id', jobId)
     .in('status', ['scheduled', 'draft', 'failed'])
     .or(staleClaimFilter())
@@ -45,15 +46,22 @@ async function claimPublishJob(supabase: SupabaseClient, jobId: string): Promise
     .maybeSingle()
 
   if (error) throw new Error(error.message)
-  return Boolean(data)
+  return data ? claimToken : null
 }
 
-async function releasePublishJobClaim(supabase: SupabaseClient, jobId: string, fields: Record<string, unknown>): Promise<boolean> {
+async function releasePublishJobClaim(
+  supabase: SupabaseClient,
+  jobId: string,
+  claimToken: string,
+  fields: Record<string, unknown>,
+): Promise<boolean> {
   const { data, error } = await supabase
     .from('publish_jobs')
-    .update({ ...fields, claimed_at: null })
+    .update({ ...fields, claimed_at: null, claim_token: null })
     .eq('id', jobId)
-    // Never overwrite a cancellation or an already-reconciled published row.
+    .eq('claim_token', claimToken)
+    // Never overwrite a cancellation, a newer stale-reclaimed Worker, or an
+    // already-reconciled published row.
     .in('status', ['scheduled', 'draft', 'failed'])
     .select('id')
     .maybeSingle()
@@ -269,8 +277,8 @@ async function resolvePublishMediaMetadata(
  * not lost.
  */
 export async function processPublishJob(supabase: SupabaseClient, job: PublishableJob): Promise<ProcessJobResult> {
-  const claimed = await claimPublishJob(supabase, job.id)
-  if (!claimed) {
+  const claimToken = await claimPublishJob(supabase, job.id)
+  if (!claimToken) {
     // Someone else (another admin's "Publish now", or an overlapping Worker
     // tick) is already actively working this job — never attempt a second,
     // possibly duplicate, real platform call.
@@ -284,7 +292,7 @@ export async function processPublishJob(supabase: SupabaseClient, job: Publishab
     // its success attempt, then failed while updating publish_jobs. Reconcile
     // that durable success before ever calling the external platform again.
     if (await hasSuccessfulPublishAttempt(supabase, job.id)) {
-      await releasePublishJobClaim(supabase, job.id, {
+      await releasePublishJobClaim(supabase, job.id, claimToken, {
         status: 'published',
         published_at: new Date().toISOString(),
         error_message: null,
@@ -338,10 +346,15 @@ export async function processPublishJob(supabase: SupabaseClient, job: Publishab
       externalUrl: result.externalUrl,
     })
 
-    // If a human cancelled after the real publish began, this deliberately
-    // leaves the cancellation intact. The success attempt still records what
-    // happened externally, and future workers will not call the platform again.
-    await releasePublishJobClaim(supabase, job.id, { status: 'published', published_at: new Date().toISOString(), error_message: null })
+    // If a human cancelled after the real publish began, or a newer Worker
+    // reclaimed this job after our claim became stale, the token-gated release
+    // deliberately leaves that newer/terminal state intact. The durable success
+    // attempt still records what happened externally.
+    await releasePublishJobClaim(supabase, job.id, claimToken, {
+      status: 'published',
+      published_at: new Date().toISOString(),
+      error_message: null,
+    })
 
     await supabase.from('audit_logs').insert({
       workspace_id: job.workspaceId,
@@ -369,7 +382,7 @@ export async function processPublishJob(supabase: SupabaseClient, job: Publishab
             externalUrl: confirmedPublish.externalUrl,
           })
         }
-        await releasePublishJobClaim(supabase, job.id, {
+        await releasePublishJobClaim(supabase, job.id, claimToken, {
           status: 'published',
           published_at: new Date().toISOString(),
           error_message: null,
@@ -396,7 +409,7 @@ export async function processPublishJob(supabase: SupabaseClient, job: Publishab
         errorMessage: message,
       })
 
-      await releasePublishJobClaim(supabase, job.id, { status: 'failed', error_message: message })
+      await releasePublishJobClaim(supabase, job.id, claimToken, { status: 'failed', error_message: message })
 
       await supabase.from('audit_logs').insert({
         workspace_id: job.workspaceId,
