@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react'
 import { useApp } from '@/lib/app/app-provider'
+import { useAuth } from '@/lib/auth/auth-provider'
 
 /**
  * Prevents stale workspace data from becoming visible when two asynchronous
@@ -13,6 +14,7 @@ import { useApp } from '@/lib/app/app-provider'
  * the currently selected workspace again.
  */
 export default function WorkspaceConsistencyGuard({ children }: { children: React.ReactNode }) {
+  const { currentUserId, isReady: authReady } = useAuth()
   const { currentWorkspace, refreshWorkspaceData } = useApp()
   const [expectedWorkspaceId, setExpectedWorkspaceId] = useState<string | null | undefined>(undefined)
   const refreshingFor = useRef<string | null>(null)
@@ -21,11 +23,16 @@ export default function WorkspaceConsistencyGuard({ children }: { children: Reac
   // workspace changes, so this also observes same-tab localStorage switches
   // (the browser `storage` event alone does not fire in the tab that wrote it).
   useEffect(() => {
+    if (!authReady || !currentUserId) {
+      setExpectedWorkspaceId(null)
+      refreshingFor.current = null
+      return
+    }
     setExpectedWorkspaceId(localStorage.getItem('activeWorkspaceId'))
-  }, [currentWorkspace?.id, refreshWorkspaceData])
+  }, [authReady, currentUserId, currentWorkspace?.id, refreshWorkspaceData])
 
   useEffect(() => {
-    if (!expectedWorkspaceId || currentWorkspace?.id === expectedWorkspaceId) {
+    if (!authReady || !currentUserId || !expectedWorkspaceId || currentWorkspace?.id === expectedWorkspaceId) {
       refreshingFor.current = null
       return
     }
@@ -35,7 +42,11 @@ export default function WorkspaceConsistencyGuard({ children }: { children: Reac
     void refreshWorkspaceData().finally(() => {
       if (refreshingFor.current === expectedWorkspaceId) refreshingFor.current = null
     })
-  }, [currentWorkspace?.id, expectedWorkspaceId, refreshWorkspaceData])
+  }, [authReady, currentUserId, currentWorkspace?.id, expectedWorkspaceId, refreshWorkspaceData])
+
+  // Public/auth pages must never be blocked by a stale workspace id retained
+  // in localStorage from an earlier signed-in session.
+  if (authReady && !currentUserId) return children
 
   if (expectedWorkspaceId === undefined) {
     return <div className="min-h-screen bg-stone-50" aria-busy="true" />
