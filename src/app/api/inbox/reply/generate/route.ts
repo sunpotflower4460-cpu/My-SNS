@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto'
 import { NextRequest, NextResponse } from 'next/server'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { createClient } from '@/lib/supabase/server'
@@ -20,47 +21,100 @@ import {
 } from '@/lib/services/ai-generation-claims'
 import type { ReplyProposal } from '@/lib/services/interfaces'
 
-// Generates an AI (or template-fallback) reply proposal for one inbound DM,
-// mirroring /api/drafts/generate's spine: auth → reply_inbox → best-effort
-// Brand Profile → template when Anthropic unconfigured → monthly budget cap →
-// generate → record cost → persist suggestion + summary → audit; fail-closed
-// (502, still record billed usage) on an AI error. Generation is read-only
-// assistance, so it is allowed for BOTH LINE and Instagram DMs (IG is
-// receive-only for *sending* — that gate lives in the approve/send route).
-
 interface GenerateReplyBody {
   workspaceId?: string
   inboxItemId?: string
 }
 
-/** Writes the suggestion row + the inbox item's summary/priority via the service client (both are service-role-written, like ingestion). */
+interface ExistingSuggestionRow {
+  id: string
+  suggested_text: string
+  tone: string
+  source: 'template' | 'ai'
+  assumptions: string[] | null
+  ai_generation_id: string | null
+}
+
+/**
+ * Writes one suggestion with a caller-owned UUID. If the INSERT commits but
+ * its HTTP response is lost, re-reading/retrying the SAME id cannot create a
+ * second suggestion. This is important because the model call has already been
+ * paid for by the time this function runs.
+ */
 async function persistReplyArtifacts(
   serviceClient: SupabaseClient,
-  params: { workspaceId: string; inboxItemId: string; proposal: ReplyProposal; source: 'template' | 'ai'; aiGenerationId: string | null },
+  params: {
+    suggestionId: string
+    workspaceId: string
+    inboxItemId: string
+    proposal: ReplyProposal
+    source: 'template' | 'ai'
+    aiGenerationId: string | null
+  },
 ): Promise<string> {
-  const { data, error } = await serviceClient
+  const row = {
+    id: params.suggestionId,
+    workspace_id: params.workspaceId,
+    inbox_item_id: params.inboxItemId,
+    suggested_text: params.proposal.reply,
+    tone: params.proposal.tone,
+    source: params.source,
+    assumptions: params.proposal.assumptions,
+    ai_generation_id: params.aiGenerationId,
+  }
+
+  let { data, error } = await serviceClient
     .from('ai_reply_suggestions')
-    .insert({
-      workspace_id: params.workspaceId,
-      inbox_item_id: params.inboxItemId,
-      suggested_text: params.proposal.reply,
-      tone: params.proposal.tone,
-      source: params.source,
-      assumptions: params.proposal.assumptions,
-      ai_generation_id: params.aiGenerationId,
-    })
+    .insert(row)
     .select('id')
     .single()
 
-  if (error) throw new Error(error.message)
+  if (error) {
+    const { data: existing, error: readError } = await serviceClient
+      .from('ai_reply_suggestions')
+      .select('id')
+      .eq('id', params.suggestionId)
+      .maybeSingle()
+
+    if (readError) throw new Error(`${error.message} (suggestion reconciliation failed: ${readError.message})`)
+
+    if (existing) {
+      data = existing
+      error = null
+    } else {
+      // If the first write definitively did not commit and the database has
+      // recovered, one same-id retry is safe. A late/duplicate commit can only
+      // conflict with this exact UUID, never create a second suggestion.
+      const retry = await serviceClient
+        .from('ai_reply_suggestions')
+        .insert(row)
+        .select('id')
+        .single()
+      data = retry.data
+      error = retry.error
+
+      if (error) {
+        const { data: reconciled, error: secondReadError } = await serviceClient
+          .from('ai_reply_suggestions')
+          .select('id')
+          .eq('id', params.suggestionId)
+          .maybeSingle()
+        if (secondReadError) throw new Error(`${error.message} (suggestion reconciliation failed: ${secondReadError.message})`)
+        if (reconciled) {
+          data = reconciled
+          error = null
+        }
+      }
+    }
+  }
+
+  if (error || !data) throw new Error(error?.message ?? '返信案を保存できませんでした。')
 
   const { error: updateError } = await serviceClient
     .from('inbox_items')
     .update({ ai_summary: params.proposal.summary, ai_priority: params.proposal.priority })
     .eq('id', params.inboxItemId)
     .eq('workspace_id', params.workspaceId)
-
-  // A failed summary update is not worth discarding a good suggestion over.
   if (updateError) console.error('Failed to update inbox item summary/priority:', updateError)
 
   return data.id as string
@@ -80,13 +134,10 @@ export async function POST(request: NextRequest) {
   }
 
   const supabase = await createClient()
-
   const {
     data: { user },
   } = await supabase.auth.getUser()
-  if (!user) {
-    return NextResponse.json({ error: 'ログインしていません。' }, { status: 401 })
-  }
+  if (!user) return NextResponse.json({ error: 'ログインしていません。' }, { status: 401 })
 
   const { data: member } = await supabase
     .from('workspace_members')
@@ -94,7 +145,6 @@ export async function POST(request: NextRequest) {
     .eq('workspace_id', workspaceId)
     .eq('user_id', user.id)
     .maybeSingle()
-
   const role = member?.role as WorkspaceRole | undefined
   if (!role || !hasPermission(role, 'reply_inbox')) {
     return NextResponse.json({ error: 'このワークスペースで返信を作成する権限がありません。' }, { status: 403 })
@@ -102,43 +152,26 @@ export async function POST(request: NextRequest) {
 
   const { data: item, error: itemError } = await supabase
     .from('inbox_items')
-    .select('id, text, platform, contact_id')
+    .select('id, text, platform, contact_id, ai_summary, ai_priority')
     .eq('id', inboxItemId)
     .eq('workspace_id', workspaceId)
     .maybeSingle()
+  if (itemError || !item) return NextResponse.json({ error: '受信メッセージが見つかりません。' }, { status: 404 })
 
-  if (itemError || !item) {
-    return NextResponse.json({ error: '受信メッセージが見つかりません。' }, { status: 404 })
-  }
-
-  // Voice source for a DM (no Seed): the workspace default Brand Profile.
-  // Best-effort — a failure here must never block reply generation.
   const brandProfile = await getDefaultBrandProfileForClient(supabase, workspaceId).catch((cause) => {
     console.error('Failed to load Brand Profile for reply generation:', cause)
     return null
   })
-
-  // Per-contact learning (Phase 2): the creator's past approved replies to THIS
-  // contact become few-shot style examples, so the proposal drifts toward how
-  // they actually write to this person. Best-effort — never blocks generation,
-  // and only meaningful once there's approved history (empty otherwise).
   const styleExamples = item.contact_id
     ? await listContactReplyExamples(supabase, workspaceId, item.contact_id).catch((cause) => {
         console.error('Failed to load per-contact reply examples:', cause)
         return []
       })
     : []
-
-  // The creator's current status (Phase 5), conveyed only if they chose to share
-  // it. Best-effort — never blocks generation.
   const status = await getMyCreatorStatus(supabase, workspaceId, user.id).catch(() => null)
   const creatorStatus = status?.shareWithContacts ? { mood: status.mood, note: status.note } : undefined
 
   const serviceClient = createServiceClient()
-
-  // Manual generation and the auto-reply sweep can race on the same inbound
-  // message. Claim before either template or Anthropic work so they cannot both
-  // persist competing suggestions (and, when AI is enabled, bill twice).
   let replyClaimToken: string | null
   try {
     replyClaimToken = await claimInboxReplyGeneration(serviceClient, workspaceId, inboxItemId)
@@ -151,10 +184,48 @@ export async function POST(request: NextRequest) {
   }
 
   try {
+    // HTTP response loss after a successful suggestion INSERT must not cause a
+    // second paid model call. Once the message claim is ours, treat a durable
+    // suggestion as the idempotent result of the earlier request.
+    const { data: existingRaw, error: existingError } = await serviceClient
+      .from('ai_reply_suggestions')
+      .select('id, suggested_text, tone, source, assumptions, ai_generation_id')
+      .eq('workspace_id', workspaceId)
+      .eq('inbox_item_id', inboxItemId)
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle()
+
+    if (existingError) {
+      return NextResponse.json({ error: '既存の返信案を確認できないため、安全のためAI生成を開始しませんでした。' }, { status: 503 })
+    }
+    if (existingRaw) {
+      const existing = existingRaw as ExistingSuggestionRow
+      return NextResponse.json({
+        source: existing.source === 'ai' ? 'ai' : 'template-fallback',
+        reason: existing.source === 'template' ? '保存済みの定型返信案を再利用しました。' : undefined,
+        summary: (item.ai_summary as string | null) ?? '',
+        reply: existing.suggested_text,
+        tone: existing.tone,
+        assumptions: existing.assumptions ?? [],
+        priority: (item.ai_priority as 'high' | 'normal' | 'low' | null) ?? 'normal',
+        suggestionId: existing.id,
+        aiGenerationId: existing.ai_generation_id ?? undefined,
+        reused: true,
+      })
+    }
+
     if (!isAnthropicConfigured()) {
       const proposal = await new TemplateReplyGeneratorService().generateReply(item.text, { brandProfile })
       try {
-        const suggestionId = await persistReplyArtifacts(serviceClient, { workspaceId, inboxItemId, proposal, source: 'template', aiGenerationId: null })
+        const suggestionId = await persistReplyArtifacts(serviceClient, {
+          suggestionId: randomUUID(),
+          workspaceId,
+          inboxItemId,
+          proposal,
+          source: 'template',
+          aiGenerationId: null,
+        })
         return NextResponse.json({
           source: 'template-fallback',
           reason: 'ANTHROPIC_API_KEYが未設定のため、AIではなく定型文を表示しています。',
@@ -170,11 +241,6 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // When a monthly cap is configured, serialize billable calls per workspace.
-    // The budget is re-read only AFTER the mutex is acquired, so two requests
-    // cannot both observe the same pre-call total and simultaneously spend past
-    // the cap. A single call can still cross the remaining few cents because
-    // final token usage is only known from Anthropic's response.
     const monthlyBudgetUsd = configuredMonthlyAiBudgetUsd()
     let budgetClaimToken: string | null = null
     if (monthlyBudgetUsd !== null) {
@@ -200,66 +266,84 @@ export async function POST(request: NextRequest) {
         }
         if (spentUsd >= monthlyBudgetUsd) {
           return NextResponse.json(
-            {
-              error: `このワークスペースの今月のAI予算（$${monthlyBudgetUsd.toFixed(2)}）に達しました（使用額 $${spentUsd.toFixed(2)}）。ANTHROPIC_MONTHLY_BUDGET_USDを引き上げるか、来月まで待ってください。`,
-            },
+            { error: `このワークスペースの今月のAI予算（$${monthlyBudgetUsd.toFixed(2)}）に達しました（使用額 $${spentUsd.toFixed(2)}）。ANTHROPIC_MONTHLY_BUDGET_USDを引き上げるか、来月まで待ってください。` },
             { status: 402 },
           )
         }
       }
 
+      const generationId = randomUUID()
+      const suggestionId = randomUUID()
+
       try {
         const result = await generateReplyWithAnthropic(item.text, { brandProfile, styleExamples, creatorStatus })
         const costUsd = calculateGenerationCost(result.inputTokens, result.outputTokens)
+        let recordedGenerationId: string | null = null
+        let usageWarning: string | undefined
 
-        const generation = await recordAiGeneration(supabase, {
-          workspaceId,
-          inboxItemId,
-          purpose: 'reply',
-          channels: [],
-          model: result.model,
-          inputTokens: result.inputTokens,
-          outputTokens: result.outputTokens,
-          costUsd,
-          createdBy: user.id,
-        })
+        try {
+          const generation = await recordAiGeneration(serviceClient, {
+            id: generationId,
+            workspaceId,
+            inboxItemId,
+            purpose: 'reply',
+            channels: [],
+            model: result.model,
+            inputTokens: result.inputTokens,
+            outputTokens: result.outputTokens,
+            costUsd,
+            createdBy: user.id,
+          })
+          recordedGenerationId = generation.id
+        } catch (recordError) {
+          console.error('Reply generation succeeded but AI usage ledger persistence failed:', recordError)
+          usageWarning = '返信案のAI生成は成功しましたが、使用量の記録だけ保存できませんでした。'
+        }
 
-        const suggestionId = await persistReplyArtifacts(serviceClient, {
+        const durableSuggestionId = await persistReplyArtifacts(serviceClient, {
+          suggestionId,
           workspaceId,
           inboxItemId,
           proposal: result.proposal,
           source: 'ai',
-          aiGenerationId: generation.id,
+          aiGenerationId: recordedGenerationId,
         })
 
-        await supabase.from('audit_logs').insert({
+        const { error: auditError } = await supabase.from('audit_logs').insert({
           workspace_id: workspaceId,
           actor_id: user.id,
           action: 'inbox_reply_ai_generated',
           target_type: 'inbox_item',
           target_id: inboxItemId,
-          metadata: { platform: item.platform, model: result.model, aiGenerationId: generation.id, priority: result.proposal.priority },
+          metadata: {
+            platform: item.platform,
+            model: result.model,
+            aiGenerationId: recordedGenerationId,
+            usageRecorded: Boolean(recordedGenerationId),
+            priority: result.proposal.priority,
+          },
         })
+        if (auditError) console.error('Failed to audit inbox reply AI generation:', auditError)
 
         return NextResponse.json({
           source: 'ai',
           model: result.model,
-          aiGenerationId: generation.id,
+          aiGenerationId: recordedGenerationId ?? undefined,
+          usageRecorded: Boolean(recordedGenerationId),
+          usageWarning,
           summary: result.proposal.summary,
           reply: result.proposal.reply,
           tone: result.proposal.tone,
           assumptions: result.proposal.assumptions,
           priority: result.proposal.priority,
-          suggestionId,
+          suggestionId: durableSuggestionId,
         })
       } catch (cause) {
         const message = cause instanceof Error ? cause.message : 'AIによる返信案の生成に失敗しました。'
-
-        // The Anthropic call may have succeeded (and been billed) even though the
-        // response couldn't be parsed — record the spend so cost isn't under-reported.
         if (cause instanceof AnthropicReplyGenerationError) {
           try {
-            await recordAiGeneration(supabase, {
+            await recordAiGeneration(serviceClient, {
+              id: generationId,
               workspaceId,
               inboxItemId,
               purpose: 'reply',
@@ -274,8 +358,6 @@ export async function POST(request: NextRequest) {
             console.error('Failed to record AI usage after a failed reply generation:', recordError)
           }
         }
-
-        // Fail closed: no silent template substitution for a failed AI call.
         return NextResponse.json({ error: message }, { status: 502 })
       }
     } finally {
