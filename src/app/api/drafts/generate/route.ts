@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto'
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createServiceClient } from '@/lib/supabase/service'
@@ -101,8 +102,6 @@ export async function POST(request: NextRequest) {
   const seed = mapSeed(seedRow as unknown as SeedRow)
   const typedChannels = channels as PublishingChannel[]
   const typedLength = length as 'short' | 'medium' | 'long'
-  // Best-effort: a failure here must never block draft generation itself —
-  // style learning is a quality nudge, not a required input.
   const styleExamples = await listRecentAiRevisionsForStyleLearning(supabase, workspaceId, typedChannels).catch((cause) => {
     console.error('Failed to load style examples for draft generation:', cause)
     return []
@@ -122,11 +121,14 @@ export async function POST(request: NextRequest) {
     })
   }
 
+  // Service role is safe here because auth/workspace/permission/Seed provenance
+  // were already checked above. It makes usage bookkeeping independent of a
+  // session/RLS change occurring after the paid model call.
+  const serviceClient = createServiceClient()
   const monthlyBudgetUsd = configuredMonthlyAiBudgetUsd()
-  const serviceClient = monthlyBudgetUsd !== null ? createServiceClient() : null
   let budgetClaimToken: string | null = null
 
-  if (monthlyBudgetUsd !== null && serviceClient) {
+  if (monthlyBudgetUsd !== null) {
     try {
       budgetClaimToken = await claimWorkspaceAiBudget(serviceClient, workspaceId)
     } catch (cause) {
@@ -139,12 +141,7 @@ export async function POST(request: NextRequest) {
   }
 
   try {
-    // Re-read spend only after the workspace mutex is held. This closes the
-    // old race where many simultaneous requests all saw the same pre-call total
-    // and each proceeded independently. One individual call can still cross a
-    // small remaining balance because its exact token cost is only known after
-    // Anthropic returns usage.
-    if (monthlyBudgetUsd !== null && serviceClient) {
+    if (monthlyBudgetUsd !== null) {
       let spentUsd: number
       try {
         spentUsd = await getWorkspaceMonthlyAiCost(serviceClient, workspaceId)
@@ -162,50 +159,69 @@ export async function POST(request: NextRequest) {
       }
     }
 
+    // Stable before the billable call: if the subsequent ledger INSERT commits
+    // but its HTTP response is lost, recordAiGeneration reconciles this exact id
+    // instead of creating a duplicate cost row.
+    const generationId = randomUUID()
+
     try {
       const result = await generateChannelDraftsWithAnthropic(seed, typedChannels, tone, typedLength, context)
       const costUsd = calculateGenerationCost(result.inputTokens, result.outputTokens)
 
-      const generation = await recordAiGeneration(supabase, {
-        workspaceId,
-        seedId,
-        channels: typedChannels,
-        model: result.model,
-        inputTokens: result.inputTokens,
-        outputTokens: result.outputTokens,
-        costUsd,
-        createdBy: user.id,
-      })
+      let recordedGenerationId: string | undefined
+      let usageWarning: string | undefined
+      try {
+        const generation = await recordAiGeneration(serviceClient, {
+          id: generationId,
+          workspaceId,
+          seedId,
+          channels: typedChannels,
+          model: result.model,
+          inputTokens: result.inputTokens,
+          outputTokens: result.outputTokens,
+          costUsd,
+          createdBy: user.id,
+        })
+        recordedGenerationId = generation.id
+      } catch (recordError) {
+        // The paid result is already here. Returning 502 would encourage the
+        // user to regenerate and pay twice. Preserve the usable output and make
+        // the bookkeeping problem explicit instead.
+        console.error('AI draft generation succeeded but usage ledger persistence failed:', recordError)
+        usageWarning = 'AI生成は成功しましたが、使用量の記録だけ保存できませんでした。生成結果はそのまま利用できます。'
+      }
 
-      await supabase.from('audit_logs').insert({
+      const { error: auditError } = await supabase.from('audit_logs').insert({
         workspace_id: workspaceId,
         actor_id: user.id,
         action: 'draft_ai_generated',
         target_type: 'seed',
         target_id: seedId,
-        // styleExamplesUsed: traceability for PR7's cross-Seed style learning —
-        // this generation's prompt may have included wording a human approved
-        // on a *different* Seed (see listRecentAiRevisionsForStyleLearning),
-        // so the audit log should say when that happened, not just that a
-        // generation occurred.
-        metadata: { channels: typedChannels, model: result.model, aiGenerationId: generation.id, styleExamplesUsed: styleExamples.length },
+        metadata: {
+          channels: typedChannels,
+          model: result.model,
+          aiGenerationId: recordedGenerationId ?? null,
+          usageRecorded: Boolean(recordedGenerationId),
+          styleExamplesUsed: styleExamples.length,
+        },
       })
+      if (auditError) console.error('Failed to audit draft AI generation:', auditError)
 
       return NextResponse.json({
         source: 'ai',
         model: result.model,
-        aiGenerationId: generation.id,
+        aiGenerationId: recordedGenerationId,
+        usageRecorded: Boolean(recordedGenerationId),
+        usageWarning,
         drafts: result.drafts,
       })
     } catch (cause) {
       const message = cause instanceof Error ? cause.message : 'AIによる下書き生成に失敗しました。'
 
-      // The Anthropic call itself may have succeeded (and been billed) even
-      // though the response couldn't be turned into valid drafts. Record what
-      // was actually spent so ai_generations doesn't silently under-report cost.
       if (cause instanceof AnthropicGenerationError) {
         try {
-          await recordAiGeneration(supabase, {
+          await recordAiGeneration(serviceClient, {
+            id: generationId,
             workspaceId,
             seedId,
             channels: typedChannels,
@@ -220,12 +236,12 @@ export async function POST(request: NextRequest) {
         }
       }
 
-      // Fail closed: no fallback here. Silently substituting templates for a
-      // failed AI call would misrepresent them as intentional, reviewed output.
+      // The response itself was unusable, so unlike a successful proposal there
+      // is no safe output to return. Do not silently substitute a template.
       return NextResponse.json({ error: message }, { status: 502 })
     }
   } finally {
-    if (budgetClaimToken && serviceClient) {
+    if (budgetClaimToken) {
       await releaseWorkspaceAiBudget(serviceClient, workspaceId, budgetClaimToken).catch((cause) =>
         console.error('Failed to release AI budget claim:', cause),
       )
