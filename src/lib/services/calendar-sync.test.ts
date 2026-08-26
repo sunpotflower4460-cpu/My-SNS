@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { configuredCalendarSyncProviders, syncEventToProviders } from './calendar-sync'
+import { CALENDAR_SYNC_PROVIDERS, configuredCalendarSyncProviders, syncEventToProviders } from './calendar-sync'
 import { isNotionCalendarConfigured } from './connectors/notion-calendar'
 import { isTimeTreeCalendarConfigured } from './connectors/timetree-calendar'
 import type { CalendarSyncEvent } from './connectors/calendar-sync-types'
@@ -36,6 +36,10 @@ describe('calendar sync — fail-closed when unconfigured', () => {
     }
   })
 
+  it('keeps the provider ordering stable for durable claim/result mapping', () => {
+    expect(CALENDAR_SYNC_PROVIDERS).toEqual(['notion', 'timetree'])
+  })
+
   it('reports no configured providers when env is unset', () => {
     expect(isNotionCalendarConfigured()).toBe(false)
     expect(isTimeTreeCalendarConfigured()).toBe(false)
@@ -49,6 +53,11 @@ describe('calendar sync — fail-closed when unconfigured', () => {
     expect(outcomes.map((o) => o.provider).sort()).toEqual(['notion', 'timetree'])
     // No external ids are invented when nothing actually synced.
     expect(outcomes.every((o) => o.externalId === undefined)).toBe(true)
+  })
+
+  it('only evaluates providers explicitly claimed by the caller', async () => {
+    const outcomes = await syncEventToProviders(EVENT, ['notion'])
+    expect(outcomes).toEqual([{ provider: 'notion', status: 'unavailable' }])
   })
 
   it('detects a provider as configured only when BOTH of its env vars are set', () => {
