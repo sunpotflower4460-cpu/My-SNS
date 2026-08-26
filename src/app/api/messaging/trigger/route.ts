@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createServiceClient } from '@/lib/supabase/service'
 import { processReplyJob } from '@/lib/services/reply-worker'
+import { isLineResultUnknownError } from '@/lib/services/connectors/line-connector'
 import { hasPermission } from '@/lib/permissions'
 import type { WorkspaceRole } from '@/lib/domain/types'
 
@@ -53,7 +54,7 @@ export async function POST(request: NextRequest) {
   // service-role client (needed for credentials + append-only attempt writes).
   const { data: job, error: jobError } = await supabase
     .from('reply_jobs')
-    .select('id, workspace_id, platform, inbox_item_id, send_target, reply_text, created_by, status')
+    .select('id, workspace_id, platform, inbox_item_id, send_target, reply_text, created_by, status, error_message')
     .eq('id', jobId)
     .eq('workspace_id', workspaceId)
     .single()
@@ -66,6 +67,16 @@ export async function POST(request: NextRequest) {
   }
   if (job.status !== 'scheduled' && job.status !== 'failed') {
     return NextResponse.json({ error: `この返信はすでに${job.status}の状態です。` }, { status: 400 })
+  }
+
+  if (job.status === 'failed' && isLineResultUnknownError(job.error_message)) {
+    return NextResponse.json(
+      {
+        error:
+          '前回のLINE送信は「相手に届いたか判定できない」状態です。二重送信を防ぐため自動再送は停止しています。LINE側・相手との会話を確認してから、必要なら新しい返信として明示的に作成してください。',
+      },
+      { status: 409 },
+    )
   }
 
   const serviceClient = createServiceClient()
