@@ -69,15 +69,25 @@ export async function POST(request: NextRequest) {
   }
 
   const serviceClient = createServiceClient()
-  const result = await processReplyJob(serviceClient, {
-    id: job.id,
-    workspaceId: job.workspace_id,
-    platform: 'line',
-    inboxItemId: job.inbox_item_id,
-    sendTarget: job.send_target,
-    replyText: job.reply_text,
-    createdBy: job.created_by,
-  })
+
+  let result
+  try {
+    result = await processReplyJob(serviceClient, {
+      id: job.id,
+      workspaceId: job.workspace_id,
+      platform: 'line',
+      inboxItemId: job.inbox_item_id,
+      sendTarget: job.send_target,
+      replyText: job.reply_text,
+      createdBy: job.created_by,
+    })
+  } catch (cause) {
+    console.error(`Unhandled reply trigger error for job ${job.id}:`, cause)
+    return NextResponse.json(
+      { error: '返信処理を開始できませんでした。データベース接続を確認してから再試行してください。' },
+      { status: 503 },
+    )
+  }
 
   if (result.skipped) {
     return NextResponse.json(

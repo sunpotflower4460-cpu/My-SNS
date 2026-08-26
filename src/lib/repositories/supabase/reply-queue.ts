@@ -141,14 +141,15 @@ export async function createReplyJob(supabase: SupabaseClient, input: CreateRepl
 /**
  * Cancels a still-pending reply. Refuses while the job is actively being sent
  * (a real LINE push could be in flight) — a stale/abandoned claim doesn't
- * block this, exactly like cancelPublishJob.
+ * block this, exactly like cancelPublishJob. A stale claim is cleared when the
+ * cancellation succeeds so terminal rows do not keep misleading claim state.
  */
 export async function cancelReplyJob(workspaceId: string, jobId: string): Promise<ReplyJob> {
   const supabase = createClient()
 
   const { data, error } = await supabase
     .from('reply_jobs')
-    .update({ status: 'cancelled' })
+    .update({ status: 'cancelled', claimed_at: null })
     .eq('id', jobId)
     .eq('workspace_id', workspaceId)
     .eq('status', 'scheduled')

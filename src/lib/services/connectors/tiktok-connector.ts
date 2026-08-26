@@ -29,6 +29,17 @@ const SCOPES = ['user.info.basic', 'video.publish']
 const STATUS_POLL_ATTEMPTS = 5
 const STATUS_POLL_INTERVAL_MS = 2_000
 
+// processPublishJob persists thrown error messages on publish_jobs. Encoding the
+// provider operation id in that durable message lets the next manual retry
+// reconcile the existing TikTok operation before it is ever allowed to create
+// another post. Keep this prefix stable; /api/publish/trigger parses it.
+export const TIKTOK_PENDING_ERROR_PREFIX = 'TIKTOK_PENDING:'
+
+export type TikTokPublishCheck =
+  | { state: 'processing' }
+  | { state: 'complete'; postId?: string }
+  | { state: 'failed'; reason: string }
+
 function requireEnv(name: string): string {
   const value = process.env[name]?.trim()
   if (!value) throw new Error(`${name} is not configured.`)
@@ -120,6 +131,34 @@ function toConnectedAccount(token: TokenResponse, nickname: string): ConnectedAc
   }
 }
 
+interface TikTokPublishStatusResponse {
+  status: string
+  fail_reason?: string
+  publicaly_available_post_id?: string[]
+}
+
+/** Durable publish id embedded by publish() when its bounded polling times out. */
+export function parseTikTokPendingPublishId(message: string | null | undefined): string | null {
+  if (!message?.startsWith(TIKTOK_PENDING_ERROR_PREFIX)) return null
+  const remainder = message.slice(TIKTOK_PENDING_ERROR_PREFIX.length)
+  const separator = remainder.indexOf(':')
+  const publishId = (separator === -1 ? remainder : remainder.slice(0, separator)).trim()
+  return publishId || null
+}
+
+/** Checks an already-started TikTok publish without creating another post. */
+export async function checkTikTokPublishStatus(accessToken: string, publishId: string): Promise<TikTokPublishCheck> {
+  const status = await tiktokApi<TikTokPublishStatusResponse>(POST_STATUS_URL, accessToken, { publish_id: publishId })
+
+  if (status.status === 'PUBLISH_COMPLETE') {
+    return { state: 'complete', postId: status.publicaly_available_post_id?.[0] }
+  }
+  if (status.status === 'FAILED') {
+    return { state: 'failed', reason: status.fail_reason ?? 'unknown reason' }
+  }
+  return { state: 'processing' }
+}
+
 export class TikTokConnectorAdapter implements SocialConnectorAdapter {
   async connect(_platform: SocialPlatform, authCode: string, options: ConnectOptions): Promise<ConnectedAccount> {
     if (!options.codeVerifier) throw new Error('TikTok requires a PKCE code_verifier to complete the OAuth exchange.')
@@ -195,29 +234,20 @@ export class TikTokConnectorAdapter implements SocialConnectorAdapter {
     for (let attempt = 0; attempt < STATUS_POLL_ATTEMPTS; attempt += 1) {
       await sleep(STATUS_POLL_INTERVAL_MS)
 
-      const status = await tiktokApi<{ status: string; fail_reason?: string; publicaly_available_post_id?: string[] }>(
-        POST_STATUS_URL,
-        request.accessToken,
-        { publish_id: init.publish_id },
-      )
-
-      if (status.status === 'PUBLISH_COMPLETE') {
-        const postId = status.publicaly_available_post_id?.[0]
-        return { externalPostId: postId ?? init.publish_id, externalUrl: undefined }
+      const status = await checkTikTokPublishStatus(request.accessToken, init.publish_id)
+      if (status.state === 'complete') {
+        return { externalPostId: status.postId ?? init.publish_id, externalUrl: undefined }
       }
-      if (status.status === 'FAILED') {
-        throw new Error(`TikTok post failed: ${status.fail_reason ?? 'unknown reason'}`)
+      if (status.state === 'failed') {
+        throw new Error(`TikTok post failed: ${status.reason}`)
       }
-      // PROCESSING_DOWNLOAD / PROCESSING_UPLOAD / SEND_TO_USER_INBOX: keep polling.
     }
 
-    // Still processing after the poll budget. This app only ever records
-    // success when TikTok has actually confirmed PUBLISH_COMPLETE — never
-    // claim success just because polling gave up. The post keeps processing
-    // on TikTok's side regardless; a human can check the TikTok app and use
-    // "Mark as posted" from the Queue if it did complete.
+    // The operation may still complete after this request ends. Persist the
+    // publish_id inside the durable failure message so a later retry first
+    // checks this same operation instead of creating a second real post.
     throw new Error(
-      `TikTok is still processing this post after ${STATUS_POLL_ATTEMPTS * (STATUS_POLL_INTERVAL_MS / 1000)}s (timed out waiting). Check the TikTok app — if it completed, use "Mark as posted" from the Queue.`,
+      `${TIKTOK_PENDING_ERROR_PREFIX}${init.publish_id}:TikTok is still processing this post after ${STATUS_POLL_ATTEMPTS * (STATUS_POLL_INTERVAL_MS / 1000)}s. Retry will check this existing publish before starting a new one.`,
     )
   }
 

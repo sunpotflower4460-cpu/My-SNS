@@ -42,23 +42,30 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ ingested: 0 })
   }
 
+  let events
+  try {
+    events = mapLineWebhookBody(payload)
+  } catch (cause) {
+    // Retrying an unsupported/malformed provider payload will never repair it.
+    // Log it and acknowledge the delivery so LINE does not retry forever.
+    console.error('Failed to map a LINE webhook delivery:', destination, cause)
+    return NextResponse.json({ ingested: 0 })
+  }
+
   const supabase = createServiceClient()
-  let ingested = 0
 
   try {
     const workspaceId = await resolveWorkspaceIdByExternalAccount(supabase, 'line', destination)
-    if (workspaceId) {
-      const events = mapLineWebhookBody(payload)
-      const contactIds = await upsertMessagingContacts(supabase, workspaceId, events)
-      ingested = await upsertInboxItems(supabase, workspaceId, events, contactIds)
-    }
-  } catch (cause) {
-    // A transient DB error or an unexpected payload shape must never turn into
-    // a 500 that makes LINE retry-storm the delivery forever.
-    console.error('Failed to ingest a LINE webhook delivery:', destination, cause)
-  }
+    if (!workspaceId) return NextResponse.json({ ingested: 0 })
 
-  // Always 200 once the signature verifies and the body parses — LINE retries
-  // on non-2xx, and "nothing new to ingest" is not a failure.
-  return NextResponse.json({ ingested })
+    const contactIds = await upsertMessagingContacts(supabase, workspaceId, events)
+    const ingested = await upsertInboxItems(supabase, workspaceId, events, contactIds)
+    return NextResponse.json({ ingested })
+  } catch (cause) {
+    // Database/network failures are transient. Return non-2xx so LINE retries;
+    // inbox upserts are idempotent on the provider event id, so a retry after a
+    // partial commit cannot create duplicate messages.
+    console.error('Transient failure ingesting a LINE webhook delivery:', destination, cause)
+    return NextResponse.json({ error: 'Webhook persistence temporarily unavailable.' }, { status: 503 })
+  }
 }
