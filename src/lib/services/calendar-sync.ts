@@ -10,6 +10,8 @@ import { TimeTreeCalendarConnector } from './connectors/timetree-calendar'
 
 const CONNECTORS: CalendarSyncConnector[] = [new NotionCalendarConnector(), new TimeTreeCalendarConnector()]
 
+export const CALENDAR_SYNC_PROVIDERS = CONNECTORS.map((connector) => connector.provider)
+
 export interface ProviderSyncOutcome {
   provider: CalendarSyncProvider
   status: 'synced' | 'unavailable' | 'failed'
@@ -24,14 +26,20 @@ export function configuredCalendarSyncProviders(): CalendarSyncProvider[] {
 }
 
 /**
- * Attempts to sync one event to each configured provider. Never throws — each
+ * Attempts to sync one event to the requested providers. Never throws — each
  * provider's outcome is reported independently, so one failing provider doesn't
- * hide another's success. If nothing is configured, returns an unavailable
- * outcome per provider so the caller can tell the human what to set up.
+ * hide another's success. When providers is omitted, preserves the original
+ * all-provider behaviour including explicit unavailable outcomes.
  */
-export async function syncEventToProviders(event: CalendarSyncEvent): Promise<ProviderSyncOutcome[]> {
+export async function syncEventToProviders(
+  event: CalendarSyncEvent,
+  providers?: CalendarSyncProvider[],
+): Promise<ProviderSyncOutcome[]> {
+  const requested = providers ? new Set(providers) : null
+  const connectors = requested ? CONNECTORS.filter((connector) => requested.has(connector.provider)) : CONNECTORS
+
   return Promise.all(
-    CONNECTORS.map(async (connector): Promise<ProviderSyncOutcome> => {
+    connectors.map(async (connector): Promise<ProviderSyncOutcome> => {
       if (!connector.isConfigured()) {
         return { provider: connector.provider, status: 'unavailable' }
       }
