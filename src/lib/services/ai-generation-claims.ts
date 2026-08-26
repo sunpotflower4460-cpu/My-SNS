@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto'
 import type { SupabaseClient } from '@supabase/supabase-js'
 
 const STALE_CLAIM_MINUTES = 10
@@ -7,7 +8,7 @@ function staleBeforeIso(): string {
 }
 
 function newClaimToken(): string {
-  return crypto.randomUUID()
+  return randomUUID()
 }
 
 export function configuredMonthlyAiBudgetUsd(): number | null {
