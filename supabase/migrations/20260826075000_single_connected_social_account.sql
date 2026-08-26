@@ -51,11 +51,38 @@ AS $$
 DECLARE
   v_account public.social_accounts%ROWTYPE;
   v_previous_connected_ids UUID[];
+  v_lock_key BIGINT;
 BEGIN
   IF auth.uid() IS NULL THEN
     RAISE EXCEPTION 'Not authenticated.' USING ERRCODE = '42501';
   END IF;
 
+  -- Read identity first WITHOUT taking a row lock. Locking each callback's own
+  -- pending row before later locking every row in the platform can deadlock:
+  -- callback A holds row A and waits for B while callback B holds row B and
+  -- waits for A. A workspace/platform advisory lock gives all finalizers one
+  -- canonical lock to acquire before any row lock.
+  SELECT *
+  INTO v_account
+  FROM public.social_accounts
+  WHERE id = p_account_id;
+
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'Social account not found.' USING ERRCODE = 'P0002';
+  END IF;
+
+  IF public.get_workspace_role(v_account.workspace_id) NOT IN ('owner', 'admin') THEN
+    RAISE EXCEPTION 'Not allowed to connect social accounts for this workspace.' USING ERRCODE = '42501';
+  END IF;
+
+  v_lock_key := pg_catalog.hashtextextended(
+    v_account.workspace_id::TEXT || ':' || v_account.platform::TEXT,
+    0
+  );
+  PERFORM pg_catalog.pg_advisory_xact_lock(v_lock_key);
+
+  -- Re-read under the serialization lock and lock the pending row itself. It
+  -- may have been removed while this transaction waited for another callback.
   SELECT *
   INTO v_account
   FROM public.social_accounts
@@ -69,15 +96,6 @@ BEGIN
   IF public.get_workspace_role(v_account.workspace_id) NOT IN ('owner', 'admin') THEN
     RAISE EXCEPTION 'Not allowed to connect social accounts for this workspace.' USING ERRCODE = '42501';
   END IF;
-
-  -- Serialize competing callbacks for the same workspace/platform. A second
-  -- callback waits here, then deliberately becomes the last successful winner.
-  PERFORM 1
-  FROM public.social_accounts
-  WHERE workspace_id = v_account.workspace_id
-    AND platform = v_account.platform
-  ORDER BY id
-  FOR UPDATE;
 
   -- The application stores the encrypted credential BEFORE calling this RPC.
   -- Never advertise a row as connected unless that credential is durable.
@@ -106,7 +124,7 @@ BEGIN
 
   -- Retired accounts must not retain refresh/access credentials. Do not touch
   -- other pending rows: another concurrent OAuth callback may have just stored
-  -- its credential and be waiting on the row lock above.
+  -- its credential and be waiting on the advisory lock above.
   IF v_previous_connected_ids IS NOT NULL THEN
     DELETE FROM public.social_account_credentials
     WHERE social_account_id = ANY(v_previous_connected_ids);
@@ -126,6 +144,6 @@ REVOKE ALL ON FUNCTION public.finalize_social_account_connection(UUID) FROM PUBL
 GRANT EXECUTE ON FUNCTION public.finalize_social_account_connection(UUID) TO authenticated;
 
 COMMENT ON FUNCTION public.finalize_social_account_connection(UUID) IS
-  'Owner/admin only. Atomically activates a credential-backed pending social account, disconnects the previously active account for that platform, and removes the retired credential.';
+  'Owner/admin only. Serializes per workspace/platform without row-lock inversion, atomically activates a credential-backed pending social account, disconnects the previously active account, and removes the retired credential.';
 
 COMMIT;
