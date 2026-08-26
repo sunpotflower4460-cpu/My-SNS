@@ -102,6 +102,7 @@ export async function createPublishJob(input: CreatePublishJobInput): Promise<Pu
   // until a human completes the zero-cost platform handoff. Everything else
   // starts "scheduled" for the opt-in API-first Worker path.
   const status = input.publishMode === 'manual' ? 'draft' : 'scheduled'
+  const requestedScheduledAt = input.scheduledAt ?? null
 
   const { data, error } = await supabase
     .from('publish_jobs')
@@ -113,14 +114,43 @@ export async function createPublishJob(input: CreatePublishJobInput): Promise<Pu
       channel: input.channel,
       publish_mode: input.publishMode,
       status,
-      scheduled_at: input.scheduledAt ?? null,
+      scheduled_at: requestedScheduledAt,
       created_by: input.createdBy,
     })
     .select()
     .single()
 
-  if (error) throw new Error(error.message)
-  return mapJob(data as PublishJobRow)
+  if (!error) return mapJob(data as PublishJobRow)
+
+  // The database insert guard serializes scheduling by immutable Revision. If
+  // this was an HTTP retry after the first request committed (or the losing
+  // half of an identical double click), return that durable row rather than
+  // claiming scheduling failed. A genuinely different schedule/job remains an
+  // error and must be reconciled by the user instead of silently changing it.
+  const { data: existing, error: existingError } = await supabase
+    .from('publish_jobs')
+    .select('*')
+    .eq('workspace_id', input.workspaceId)
+    .eq('revision_id', input.revisionId)
+    .neq('status', 'cancelled')
+    .order('created_at', { ascending: false })
+    .limit(1)
+    .maybeSingle()
+
+  if (!existingError && existing) {
+    const row = existing as PublishJobRow
+    const identicalRequest =
+      row.seed_id === input.seedId
+      && row.draft_id === input.draftId
+      && row.channel === input.channel
+      && row.publish_mode === input.publishMode
+      && (row.scheduled_at ?? null) === requestedScheduledAt
+      && row.created_by === input.createdBy
+
+    if (identicalRequest) return mapJob(row)
+  }
+
+  throw new Error(error.message)
 }
 
 export async function retryPublishJob(
@@ -138,14 +168,18 @@ export async function retryPublishJob(
       status: 'scheduled',
       scheduled_at: scheduledAt.toISOString(),
       error_message: null,
+      claimed_at: null,
     })
     .eq('id', jobId)
     .eq('workspace_id', workspaceId)
+    .eq('status', 'failed')
+    .or(notActivelyClaimedFilter())
     .select()
-    .single()
+    .maybeSingle()
 
-  if (error) {
-    throw new Error(error.message)
+  if (error) throw new Error(error.message)
+  if (!data) {
+    throw new Error('この公開予定は再試行できません（失敗状態ではないか、現在公開処理中です）。')
   }
 
   return mapJob(data as PublishJobRow)
@@ -157,24 +191,26 @@ export async function cancelPublishJob(
 ): Promise<PublishJob> {
   const supabase = createClient()
 
-  // Refuses to cancel a job that's actively being published right now. A
-  // stale/abandoned claim (see notActivelyClaimedFilter) doesn't block this.
+  // Only mutable, not-yet-terminal states may be cancelled. This protects a
+  // published job from being rewritten to cancelled (which could otherwise
+  // make the same Revision look eligible for a fresh schedule and re-publish).
+  // Active claims remain protected; a stale/abandoned claim does not block.
   const { data, error } = await supabase
     .from('publish_jobs')
     .update({
       status: 'cancelled',
+      claimed_at: null,
     })
     .eq('id', jobId)
     .eq('workspace_id', workspaceId)
+    .in('status', ['draft', 'scheduled', 'failed'])
     .or(notActivelyClaimedFilter())
     .select()
     .maybeSingle()
 
-  if (error) {
-    throw new Error(error.message)
-  }
+  if (error) throw new Error(error.message)
   if (!data) {
-    throw new Error('This job is currently being published — try cancelling again in a moment.')
+    throw new Error('この公開予定はキャンセルできません（すでに完了済み・キャンセル済み、または現在公開処理中です）。')
   }
 
   return mapJob(data as PublishJobRow)
