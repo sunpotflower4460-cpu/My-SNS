@@ -22,6 +22,15 @@ describe('assertTrustedPublishMediaUrl', () => {
     expect(url.pathname).toBe('/storage/v1/object/sign/assets/workspace/video.mp4')
   })
 
+  it('accepts HTTP only when the configured Supabase origin itself is local loopback', () => {
+    process.env.NEXT_PUBLIC_SUPABASE_URL = 'http://127.0.0.1:54321'
+    const url = assertTrustedPublishMediaUrl(
+      'http://127.0.0.1:54321/storage/v1/object/sign/assets/workspace/video.mp4?token=abc',
+    )
+
+    expect(url.origin).toBe('http://127.0.0.1:54321')
+  })
+
   it('rejects another origin even when its path looks like Supabase Storage', () => {
     expect(() =>
       assertTrustedPublishMediaUrl('https://attacker.example/storage/v1/object/sign/assets/video.mp4?token=x'),
@@ -32,7 +41,8 @@ describe('assertTrustedPublishMediaUrl', () => {
     expect(() => assertTrustedPublishMediaUrl('https://project.supabase.co/rest/v1/secrets')).toThrow(/assets-bucket/)
   })
 
-  it('rejects non-https URLs', () => {
-    expect(() => assertTrustedPublishMediaUrl('http://project.supabase.co/storage/v1/object/sign/assets/video.mp4')).toThrow()
+  it('rejects plain HTTP for a non-loopback configured project', () => {
+    process.env.NEXT_PUBLIC_SUPABASE_URL = 'http://project.supabase.co'
+    expect(() => assertTrustedPublishMediaUrl('http://project.supabase.co/storage/v1/object/sign/assets/video.mp4')).toThrow(/HTTPS/)
   })
 })
