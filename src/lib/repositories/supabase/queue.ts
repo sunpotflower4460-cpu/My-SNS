@@ -125,8 +125,10 @@ export async function createPublishJob(input: CreatePublishJobInput): Promise<Pu
   // The database insert guard serializes scheduling by immutable Revision. If
   // this was an HTTP retry after the first request committed (or the losing
   // half of an identical double click), return that durable row rather than
-  // claiming scheduling failed. A genuinely different schedule/job remains an
-  // error and must be reconciled by the user instead of silently changing it.
+  // claiming scheduling failed. Only a row still in the exact initial state is
+  // recoverable this way: a published/failed job is a terminal or materially
+  // changed outcome and must never be reported to the caller as a fresh
+  // successful schedule.
   const { data: existing, error: existingError } = await supabase
     .from('publish_jobs')
     .select('*')
@@ -140,7 +142,8 @@ export async function createPublishJob(input: CreatePublishJobInput): Promise<Pu
   if (!existingError && existing) {
     const row = existing as PublishJobRow
     const identicalRequest =
-      row.seed_id === input.seedId
+      row.status === status
+      && row.seed_id === input.seedId
       && row.draft_id === input.draftId
       && row.channel === input.channel
       && row.publish_mode === input.publishMode
