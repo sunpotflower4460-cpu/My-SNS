@@ -139,10 +139,13 @@ export async function createReplyJob(supabase: SupabaseClient, input: CreateRepl
 }
 
 /**
- * Cancels a still-pending reply. Refuses while the job is actively being sent
- * (a real LINE push could be in flight) — a stale/abandoned claim doesn't
- * block this, exactly like cancelPublishJob. A stale claim is cleared when the
- * cancellation succeeds so terminal rows do not keep misleading claim state.
+ * Retires a reply that has not been confirmed sent. Scheduled jobs can be
+ * cancelled normally; failed jobs can also be retired after a human decides
+ * not to retry (especially EXTERNAL_RESULT_UNKNOWN, where blind retry is
+ * intentionally blocked because LINE may already have delivered it).
+ *
+ * Active claims remain protected; only an unclaimed or stale-claimed row can
+ * move to cancelled. Clearing the claim fields keeps terminal state coherent.
  */
 export async function cancelReplyJob(workspaceId: string, jobId: string): Promise<ReplyJob> {
   const supabase = createClient()
@@ -152,14 +155,14 @@ export async function cancelReplyJob(workspaceId: string, jobId: string): Promis
     .update({ status: 'cancelled', claimed_at: null, claim_token: null })
     .eq('id', jobId)
     .eq('workspace_id', workspaceId)
-    .eq('status', 'scheduled')
+    .in('status', ['scheduled', 'failed'])
     .or(notActivelyClaimedFilter())
     .select()
     .maybeSingle()
 
   if (error) throw new Error(error.message)
   if (!data) {
-    throw new Error('この返信は取り消せません（すでに送信済み・取り消し済み、または送信処理中です）。')
+    throw new Error('この返信は取り消せません（すでに送信済み・取り消し済み、または現在送信処理中です）。')
   }
 
   return mapReplyJob(data as ReplyJobRow)
