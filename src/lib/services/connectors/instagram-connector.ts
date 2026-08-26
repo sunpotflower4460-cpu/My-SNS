@@ -7,6 +7,7 @@ import type {
   SendMessageResult,
   SocialConnectorAdapter,
 } from '../interfaces'
+import { assertTrustedPublishMediaUrl } from '@/lib/security/trusted-publish-media-url'
 
 // Instagram via the Meta Graph API. Publishing requires an Instagram
 // Business or Creator account linked to a Facebook Page — there is no
@@ -170,6 +171,7 @@ export class InstagramConnectorAdapter implements SocialConnectorAdapter {
       // clear reason rather than attempting a request Instagram will reject.
       throw new Error('Instagram requires a media URL. Attach one to this draft before scheduling (not yet built).')
     }
+    const trustedMediaUrl = assertTrustedPublishMediaUrl(mediaUrl).toString()
 
     await this.assertWithinPublishingLimit(igUserId, request.accessToken)
 
@@ -180,8 +182,8 @@ export class InstagramConnectorAdapter implements SocialConnectorAdapter {
       access_token: request.accessToken,
       caption,
       ...(isVideo
-        ? { video_url: mediaUrl, media_type: 'REELS' }
-        : { image_url: mediaUrl }),
+        ? { video_url: trustedMediaUrl, media_type: 'REELS' }
+        : { image_url: trustedMediaUrl }),
     })
 
     const published = await graphPost<{ id: string }>(`/${igUserId}/media_publish`, {
@@ -189,12 +191,21 @@ export class InstagramConnectorAdapter implements SocialConnectorAdapter {
       creation_id: creation.id,
     })
 
-    const permalink = await graphGet<{ permalink?: string }>(`/${published.id}`, {
-      fields: 'permalink',
-      access_token: request.accessToken,
-    })
+    // media_publish is the irreversible side effect. A later permalink lookup
+    // is only enrichment; if it fails, the post still exists. Never throw here
+    // and turn a confirmed real publish into a retryable failed job.
+    let externalUrl: string | undefined
+    try {
+      const permalink = await graphGet<{ permalink?: string }>(`/${published.id}`, {
+        fields: 'permalink',
+        access_token: request.accessToken,
+      })
+      externalUrl = permalink.permalink
+    } catch (cause) {
+      console.warn(`Instagram post ${published.id} published, but permalink lookup failed:`, cause)
+    }
 
-    return { externalPostId: published.id, externalUrl: permalink.permalink }
+    return { externalPostId: published.id, externalUrl }
   }
 
   private async assertWithinPublishingLimit(igUserId: string, accessToken: string): Promise<void> {
