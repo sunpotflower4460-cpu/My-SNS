@@ -5,6 +5,7 @@ import type {
   InboxFetchRequest,
   PublishRequest,
   PublishResult,
+  RefreshedCredentials,
   SendMessageResult,
   SocialConnectorAdapter,
 } from '../interfaces'
@@ -15,6 +16,7 @@ const TOKEN_URL = 'https://api.twitter.com/2/oauth2/token'
 const TWEETS_URL = 'https://api.twitter.com/2/tweets'
 const ME_URL = 'https://api.twitter.com/2/users/me'
 const SCOPES = ['tweet.read', 'tweet.write', 'users.read', 'offline.access']
+const X_REQUEST_TIMEOUT_MS = 30_000
 
 function requireEnv(name: string): string {
   const value = process.env[name]?.trim()
@@ -64,6 +66,7 @@ async function requestToken(body: URLSearchParams): Promise<TokenResponse> {
       Authorization: `Basic ${basicAuth}`,
     },
     body: body.toString(),
+    signal: AbortSignal.timeout(X_REQUEST_TIMEOUT_MS),
   })
 
   if (!response.ok) {
@@ -77,6 +80,7 @@ async function requestToken(body: URLSearchParams): Promise<TokenResponse> {
 async function fetchAuthenticatedHandle(accessToken: string): Promise<{ id: string; username: string }> {
   const response = await fetch(`${ME_URL}?user.fields=username`, {
     headers: { Authorization: `Bearer ${accessToken}` },
+    signal: AbortSignal.timeout(X_REQUEST_TIMEOUT_MS),
   })
 
   if (!response.ok) {
@@ -88,12 +92,18 @@ async function fetchAuthenticatedHandle(accessToken: string): Promise<{ id: stri
   return payload.data
 }
 
-function toConnectedAccount(token: TokenResponse, account: { id: string; username: string }): ConnectedAccount {
+function toRefreshedCredentials(token: TokenResponse): RefreshedCredentials {
   return {
     accessToken: token.access_token,
     refreshToken: token.refresh_token,
     expiresAt: new Date(Date.now() + token.expires_in * 1000).toISOString(),
     scopes: token.scope.split(' ').filter(Boolean),
+  }
+}
+
+function toConnectedAccount(token: TokenResponse, account: { id: string; username: string }): ConnectedAccount {
+  return {
+    ...toRefreshedCredentials(token),
     externalAccountId: account.id,
     handle: account.username,
   }
@@ -117,12 +127,14 @@ export class XConnectorAdapter implements SocialConnectorAdapter {
 
   async disconnect(): Promise<void> {}
 
-  async refreshAccessToken(_platform: SocialPlatform, refreshToken: string): Promise<ConnectedAccount> {
+  async refreshAccessToken(_platform: SocialPlatform, refreshToken: string): Promise<RefreshedCredentials> {
+    // X can rotate the refresh token at this exact call. Return/persist the new
+    // credential immediately; a later profile lookup is optional enrichment and
+    // must never be allowed to discard a newly rotated refresh token.
     const token = await requestToken(
       new URLSearchParams({ grant_type: 'refresh_token', refresh_token: refreshToken }),
     )
-    const account = await fetchAuthenticatedHandle(token.access_token)
-    return toConnectedAccount(token, account)
+    return toRefreshedCredentials(token)
   }
 
   async publish(request: PublishRequest): Promise<PublishResult> {
@@ -184,7 +196,10 @@ export class XConnectorAdapter implements SocialConnectorAdapter {
 
   async fetchMetrics(request: InboxFetchRequest & { postId: string }): Promise<PostMetrics> {
     const url = `${TWEETS_URL}/${encodeURIComponent(request.postId)}?tweet.fields=public_metrics`
-    const response = await fetch(url, { headers: { Authorization: `Bearer ${request.accessToken}` } })
+    const response = await fetch(url, {
+      headers: { Authorization: `Bearer ${request.accessToken}` },
+      signal: AbortSignal.timeout(X_REQUEST_TIMEOUT_MS),
+    })
 
     if (!response.ok) {
       const detail = await response.text().catch(() => '')
@@ -234,6 +249,7 @@ export async function postTweetWithRetry(text: string, replyToId: string | undef
           Authorization: `Bearer ${accessToken}`,
         },
         body: JSON.stringify(body),
+        signal: AbortSignal.timeout(X_REQUEST_TIMEOUT_MS),
       })
     } catch (cause) {
       const detail = cause instanceof Error ? cause.message : 'network failure'
@@ -259,6 +275,11 @@ export async function postTweetWithRetry(text: string, replyToId: string | undef
 
     if (!response.ok) {
       const detail = await response.text().catch(() => '')
+      if (response.status >= 500) {
+        throw new Error(
+          `EXTERNAL_RESULT_UNKNOWN: X publish returned ${response.status} after the create request. The tweet may already exist, so automatic retry is blocked. Detail: ${detail.slice(0, 200)}`,
+        )
+      }
       throw new Error(`X publish failed (${response.status}): ${detail.slice(0, 300)}`)
     }
 
