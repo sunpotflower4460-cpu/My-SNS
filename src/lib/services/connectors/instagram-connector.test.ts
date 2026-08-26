@@ -19,6 +19,7 @@ describe('InstagramConnectorAdapter.publish', () => {
 
   afterEach(() => {
     vi.unstubAllGlobals()
+    vi.useRealTimers()
     if (previousSupabaseUrl === undefined) delete process.env.NEXT_PUBLIC_SUPABASE_URL
     else process.env.NEXT_PUBLIC_SUPABASE_URL = previousSupabaseUrl
   })
@@ -52,5 +53,38 @@ describe('InstagramConnectorAdapter.publish', () => {
 
     expect(result).toEqual({ externalPostId: 'post-1', externalUrl: undefined })
     expect(fetchMock).toHaveBeenCalledTimes(4)
+  })
+
+  it('waits for a Reel container to become FINISHED before media_publish', async () => {
+    vi.useFakeTimers()
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(response(true, 200, { data: [{ quota_usage: 1, config: { quota_total: 25 } }] }))
+      .mockResolvedValueOnce(response(true, 200, { id: 'reel-container' }))
+      .mockResolvedValueOnce(response(true, 200, { status_code: 'IN_PROGRESS', status: 'processing' }))
+      .mockResolvedValueOnce(response(true, 200, { status_code: 'FINISHED', status: 'ready' }))
+      .mockResolvedValueOnce(response(true, 200, { id: 'reel-post' }))
+      .mockResolvedValueOnce(response(true, 200, { permalink: 'https://instagram.com/reel/example' }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    const publishPromise = new InstagramConnectorAdapter().publish({
+      platform: 'instagram',
+      accessToken: 'token',
+      externalAccountId: 'ig-user',
+      body: 'reel caption',
+      hashtags: [],
+      metadata: {
+        mediaUrl: 'https://project.supabase.co/storage/v1/object/sign/assets/workspace/video.mp4?token=abc',
+        mediaType: 'video',
+      },
+    })
+
+    await vi.runAllTimersAsync()
+    const result = await publishPromise
+
+    expect(result.externalPostId).toBe('reel-post')
+    expect(fetchMock).toHaveBeenCalledTimes(6)
+    const publishCallUrl = fetchMock.mock.calls[4][0] as string
+    expect(publishCallUrl).toContain('/media_publish')
   })
 })
