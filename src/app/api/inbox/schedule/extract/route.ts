@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto'
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createServiceClient } from '@/lib/supabase/service'
@@ -13,12 +14,7 @@ import {
 } from '@/lib/services/ai-generation-claims'
 
 // Extracts proposed calendar events from one inbound DM. Proposal-only: it
-// returns events for the human to approve — it never writes to the calendar
-// (that happens through the normal manage_calendar create path once approved).
-// Mirrors /api/inbox/reply/generate's spine: auth → manage_calendar → load item
-// → fail-closed when Anthropic unconfigured (no template guessing of dates) →
-// monthly budget cap → extract → record cost → return; 502 (still records billed
-// usage) on an AI error.
+// returns events for the human to approve — it never writes to the calendar.
 
 interface ExtractScheduleBody {
   workspaceId?: string
@@ -39,13 +35,10 @@ export async function POST(request: NextRequest) {
   }
 
   const supabase = await createClient()
-
   const {
     data: { user },
   } = await supabase.auth.getUser()
-  if (!user) {
-    return NextResponse.json({ error: 'ログインしていません。' }, { status: 401 })
-  }
+  if (!user) return NextResponse.json({ error: 'ログインしていません。' }, { status: 401 })
 
   const { data: member } = await supabase
     .from('workspace_members')
@@ -53,7 +46,6 @@ export async function POST(request: NextRequest) {
     .eq('workspace_id', workspaceId)
     .eq('user_id', user.id)
     .maybeSingle()
-
   const role = member?.role as WorkspaceRole | undefined
   if (!role || !hasPermission(role, 'manage_calendar')) {
     return NextResponse.json({ error: 'このワークスペースでカレンダーを編集する権限がありません。' }, { status: 403 })
@@ -65,14 +57,8 @@ export async function POST(request: NextRequest) {
     .eq('id', inboxItemId)
     .eq('workspace_id', workspaceId)
     .maybeSingle()
+  if (itemError || !item) return NextResponse.json({ error: '受信メッセージが見つかりません。' }, { status: 404 })
 
-  if (itemError || !item) {
-    return NextResponse.json({ error: '受信メッセージが見つかりません。' }, { status: 404 })
-  }
-
-  // Fail-closed: without AI there is no safe way to resolve relative dates
-  // ("来週火曜") into calendar entries — there is deliberately no template
-  // fallback here (a wrong auto-guessed date is worse than none).
   if (!isAnthropicConfigured()) {
     return NextResponse.json(
       { source: 'unavailable', reason: 'ANTHROPIC_API_KEYが未設定のため、会話からの予定抽出は利用できません。', proposals: [] },
@@ -80,11 +66,11 @@ export async function POST(request: NextRequest) {
     )
   }
 
+  const serviceClient = createServiceClient()
   const monthlyBudgetUsd = configuredMonthlyAiBudgetUsd()
-  const serviceClient = monthlyBudgetUsd !== null ? createServiceClient() : null
   let budgetClaimToken: string | null = null
 
-  if (monthlyBudgetUsd !== null && serviceClient) {
+  if (monthlyBudgetUsd !== null) {
     try {
       budgetClaimToken = await claimWorkspaceAiBudget(serviceClient, workspaceId)
     } catch (cause) {
@@ -97,7 +83,7 @@ export async function POST(request: NextRequest) {
   }
 
   try {
-    if (monthlyBudgetUsd !== null && serviceClient) {
+    if (monthlyBudgetUsd !== null) {
       let spentUsd: number
       try {
         spentUsd = await getWorkspaceMonthlyAiCost(serviceClient, workspaceId)
@@ -107,18 +93,13 @@ export async function POST(request: NextRequest) {
       }
       if (spentUsd >= monthlyBudgetUsd) {
         return NextResponse.json(
-          {
-            error: `このワークスペースの今月のAI予算（$${monthlyBudgetUsd.toFixed(2)}）に達しました（使用額 $${spentUsd.toFixed(2)}）。`,
-          },
+          { error: `このワークスペースの今月のAI予算（$${monthlyBudgetUsd.toFixed(2)}）に達しました（使用額 $${spentUsd.toFixed(2)}）。` },
           { status: 402 },
         )
       }
     }
 
-    // The model resolves relative dates against "now" in JST (the sole user's tz).
     const nowJst = new Date().toLocaleString('sv-SE', { timeZone: 'Asia/Tokyo' }).replace(' ', 'T')
-
-    // Look up the contact's display name (best-effort) for nicer event titles.
     let contactDisplayName: string | undefined
     if (item.contact_id) {
       const { data: contact } = await supabase
@@ -130,29 +111,49 @@ export async function POST(request: NextRequest) {
       contactDisplayName = (contact?.display_name as string | null) ?? undefined
     }
 
+    const generationId = randomUUID()
+
     try {
       const result = await extractScheduleWithAnthropic(item.text, { nowJst, contactDisplayName })
       const costUsd = calculateGenerationCost(result.inputTokens, result.outputTokens)
+      let usageRecorded = false
+      let usageWarning: string | undefined
 
-      await recordAiGeneration(supabase, {
-        workspaceId,
-        inboxItemId,
-        purpose: 'schedule',
-        channels: [],
+      try {
+        await recordAiGeneration(serviceClient, {
+          id: generationId,
+          workspaceId,
+          inboxItemId,
+          purpose: 'schedule',
+          channels: [],
+          model: result.model,
+          inputTokens: result.inputTokens,
+          outputTokens: result.outputTokens,
+          costUsd,
+          createdBy: user.id,
+        })
+        usageRecorded = true
+      } catch (recordError) {
+        // The model already produced valid proposals and has already been paid.
+        // Do not turn a bookkeeping-only failure into a 502 that encourages a
+        // second billable extraction.
+        console.error('Schedule extraction succeeded but AI usage ledger persistence failed:', recordError)
+        usageWarning = '予定抽出は成功しましたが、AI使用量の記録だけ保存できませんでした。抽出結果はそのまま利用できます。'
+      }
+
+      return NextResponse.json({
+        source: 'ai',
         model: result.model,
-        inputTokens: result.inputTokens,
-        outputTokens: result.outputTokens,
-        costUsd,
-        createdBy: user.id,
+        proposals: result.proposals,
+        usageRecorded,
+        usageWarning,
       })
-
-      return NextResponse.json({ source: 'ai', model: result.model, proposals: result.proposals })
     } catch (cause) {
       const message = cause instanceof Error ? cause.message : '予定の抽出に失敗しました。'
-
       if (cause instanceof AnthropicScheduleGenerationError) {
         try {
-          await recordAiGeneration(supabase, {
+          await recordAiGeneration(serviceClient, {
+            id: generationId,
             workspaceId,
             inboxItemId,
             purpose: 'schedule',
@@ -167,11 +168,10 @@ export async function POST(request: NextRequest) {
           console.error('Failed to record AI usage after a failed schedule extraction:', recordError)
         }
       }
-
       return NextResponse.json({ error: message }, { status: 502 })
     }
   } finally {
-    if (budgetClaimToken && serviceClient) {
+    if (budgetClaimToken) {
       await releaseWorkspaceAiBudget(serviceClient, workspaceId, budgetClaimToken).catch((cause) =>
         console.error('Failed to release AI budget claim:', cause),
       )
