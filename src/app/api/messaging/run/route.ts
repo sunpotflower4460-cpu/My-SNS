@@ -41,6 +41,10 @@ export async function GET(request: NextRequest) {
     .eq('status', 'scheduled')
     .in('reply_mode', ['scheduled', 'auto'])
     .lte('scheduled_at', new Date().toISOString())
+    // Deterministic FIFO among due replies. Without this, a busy table can
+    // repeatedly surface newer rows in the 20-row window and starve older DMs.
+    .order('scheduled_at', { ascending: true })
+    .order('created_at', { ascending: true })
     .limit(BATCH_SIZE)
 
   if (dueJobsError) {
