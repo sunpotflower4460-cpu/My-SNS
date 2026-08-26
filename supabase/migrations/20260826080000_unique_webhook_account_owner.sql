@@ -120,7 +120,7 @@ BEGIN
          AND connected = TRUE
          AND workspace_id <> v_account.workspace_id
      ) THEN
-    RAISE EXCEPTION 'This webhook-capable social account is already connected to another workspace. Disconnect it there before connecting it here.' USING ERRCODE = '23505';
+    RAISE EXCEPTION 'このLINE / Instagramアカウントは他のワークスペースで接続済みです。先にそちらで接続を解除してください。' USING ERRCODE = '23505';
   END IF;
 
   SELECT ARRAY_AGG(id)
