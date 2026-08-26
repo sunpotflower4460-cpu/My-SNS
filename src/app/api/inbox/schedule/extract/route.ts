@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto'
+import type { SupabaseClient } from '@supabase/supabase-js'
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createServiceClient } from '@/lib/supabase/service'
@@ -66,7 +67,17 @@ export async function POST(request: NextRequest) {
     )
   }
 
-  const serviceClient = createServiceClient()
+  let serviceClient: SupabaseClient
+  try {
+    serviceClient = createServiceClient()
+  } catch (cause) {
+    console.error('Schedule extraction service client is unavailable:', cause)
+    return NextResponse.json(
+      { error: '予定抽出に必要なサーバー設定を確認できませんでした。管理者に設定確認を依頼してください。' },
+      { status: 503 },
+    )
+  }
+
   const monthlyBudgetUsd = configuredMonthlyAiBudgetUsd()
   let budgetClaimToken: string | null = null
 
@@ -134,9 +145,6 @@ export async function POST(request: NextRequest) {
         })
         usageRecorded = true
       } catch (recordError) {
-        // The model already produced valid proposals and has already been paid.
-        // Do not turn a bookkeeping-only failure into a 502 that encourages a
-        // second billable extraction.
         console.error('Schedule extraction succeeded but AI usage ledger persistence failed:', recordError)
         usageWarning = '予定抽出は成功しましたが、AI使用量の記録だけ保存できませんでした。抽出結果はそのまま利用できます。'
       }
