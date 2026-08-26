@@ -78,14 +78,27 @@ export async function POST(request: NextRequest) {
 
   const serviceClient = createServiceClient()
   const revision = job.draft_revisions as unknown as PublishableJob['revision']
-  const result = await processPublishJob(serviceClient, {
-    id: job.id,
-    workspaceId: job.workspace_id,
-    channel: job.channel,
-    createdBy: job.created_by,
-    seedId: (job as unknown as { seed_id: string | null }).seed_id ?? undefined,
-    revision,
-  })
+
+  let result
+  try {
+    result = await processPublishJob(serviceClient, {
+      id: job.id,
+      workspaceId: job.workspace_id,
+      channel: job.channel,
+      createdBy: job.created_by,
+      seedId: (job as unknown as { seed_id: string | null }).seed_id ?? undefined,
+      revision,
+    })
+  } catch (cause) {
+    // The worker normally contains job failures, but a transient database
+    // failure while acquiring the initial claim can still escape. Surface it
+    // as retryable infrastructure failure instead of an opaque route 500.
+    console.error(`Unhandled publish trigger error for job ${job.id}:`, cause)
+    return NextResponse.json(
+      { error: '公開処理を開始できませんでした。データベース接続を確認してから再試行してください。' },
+      { status: 503 },
+    )
+  }
 
   if (result.skipped) {
     return NextResponse.json(
