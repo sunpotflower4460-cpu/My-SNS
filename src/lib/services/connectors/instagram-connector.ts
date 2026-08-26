@@ -18,6 +18,7 @@ const GRAPH_VERSION = 'v21.0'
 const GRAPH_URL = `https://graph.facebook.com/${GRAPH_VERSION}`
 const AUTHORIZE_URL = 'https://www.facebook.com/v21.0/dialog/oauth'
 const SCOPES = ['instagram_basic', 'instagram_content_publish', 'pages_show_list', 'pages_read_engagement', 'business_management']
+const GRAPH_REQUEST_TIMEOUT_MS = 30_000
 
 // Instagram enforces a rolling publish quota per account surfaced via this
 // endpoint. We read the provider's current quota rather than hard-coding one.
@@ -68,7 +69,10 @@ async function graphPost<T>(path: string, params: Record<string, string>): Promi
 }
 
 async function graphFetch(url: string, init?: RequestInit): Promise<unknown> {
-  const response = await fetch(url, init)
+  const response = await fetch(url, {
+    ...init,
+    signal: init?.signal ?? AbortSignal.timeout(GRAPH_REQUEST_TIMEOUT_MS),
+  })
   const payload = await response.json().catch(() => null)
 
   if (!response.ok) {
@@ -77,6 +81,52 @@ async function graphFetch(url: string, init?: RequestInit): Promise<unknown> {
   }
 
   return payload
+}
+
+/**
+ * media_publish is the irreversible public side effect. A network exception,
+ * 5xx, unreadable success body, or success body without an id cannot prove the
+ * post was rejected; classify those as EXTERNAL_RESULT_UNKNOWN so callers block
+ * automatic/manual retry instead of potentially publishing the same media twice.
+ */
+async function publishInstagramContainer(
+  igUserId: string,
+  creationId: string,
+  accessToken: string,
+): Promise<{ id: string }> {
+  let response: Response
+  try {
+    response = await fetch(`${GRAPH_URL}/${igUserId}/media_publish`, {
+      method: 'POST',
+      body: new URLSearchParams({ access_token: accessToken, creation_id: creationId }),
+      signal: AbortSignal.timeout(GRAPH_REQUEST_TIMEOUT_MS),
+    })
+  } catch (cause) {
+    const detail = cause instanceof Error ? cause.message : 'network error'
+    throw new Error(
+      `EXTERNAL_RESULT_UNKNOWN: Instagram media_publish lost its response (${detail}). The post may already be live, so automatic retry is blocked.`,
+    )
+  }
+
+  const payload = await response.json().catch(() => null)
+  if (!response.ok) {
+    const message = (payload as { error?: { message?: string } } | null)?.error?.message ?? 'unknown error'
+    if (response.status >= 500) {
+      throw new Error(
+        `EXTERNAL_RESULT_UNKNOWN: Instagram media_publish returned ${response.status} after the publish request. Delivery cannot be proven either way, so automatic retry is blocked. Detail: ${message}`,
+      )
+    }
+    throw new Error(`Instagram Graph API error (${response.status}): ${message}`)
+  }
+
+  const id = (payload as { id?: unknown } | null)?.id
+  if (typeof id !== 'string' || !id) {
+    throw new Error(
+      'EXTERNAL_RESULT_UNKNOWN: Instagram media_publish returned success without a post id. The post may already be live, so automatic retry is blocked.',
+    )
+  }
+
+  return { id }
 }
 
 async function waitForReelContainerReady(containerId: string, accessToken: string): Promise<void> {
@@ -166,8 +216,6 @@ export class InstagramConnectorAdapter implements SocialConnectorAdapter {
     const { pageAccessToken, igUserId, igUsername } = await resolveLinkedInstagramAccount(longLived.access_token)
 
     return {
-      // The page access token is what actually publishes to the linked IG
-      // account, so that — not the short-lived user token — is what we keep.
       accessToken: pageAccessToken,
       expiresAt: new Date(Date.now() + longLived.expires_in * 1000).toISOString(),
       scopes: SCOPES,
@@ -182,9 +230,6 @@ export class InstagramConnectorAdapter implements SocialConnectorAdapter {
   }
 
   async refreshAccessToken(): Promise<ConnectedAccount> {
-    // Meta long-lived Page access tokens do not expire as long as the
-    // linked user token stays valid, and Meta has no refresh_token grant —
-    // re-connecting (a fresh OAuth round trip) is the only renewal path.
     throw new Error('Instagram tokens cannot be silently refreshed. Reconnect the account from Settings.')
   }
 
@@ -217,10 +262,7 @@ export class InstagramConnectorAdapter implements SocialConnectorAdapter {
       await waitForReelContainerReady(creation.id, request.accessToken)
     }
 
-    const published = await graphPost<{ id: string }>(`/${igUserId}/media_publish`, {
-      access_token: request.accessToken,
-      creation_id: creation.id,
-    })
+    const published = await publishInstagramContainer(igUserId, creation.id, request.accessToken)
 
     // media_publish is the irreversible side effect. A later permalink lookup
     // is only enrichment; if it fails, the post still exists. Never throw here
