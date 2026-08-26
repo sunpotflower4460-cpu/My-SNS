@@ -57,7 +57,13 @@ async function reconcilePendingTikTokPublish(
     const publishedAt = new Date().toISOString()
     const { data: completed, error } = await serviceClient
       .from('publish_jobs')
-      .update({ status: 'published', published_at: publishedAt, error_message: null, claimed_at: null })
+      .update({
+        status: 'published',
+        published_at: publishedAt,
+        error_message: null,
+        claimed_at: null,
+        claim_token: null,
+      })
       .eq('id', job.id)
       .eq('workspace_id', job.workspace_id)
       .eq('status', 'failed')
@@ -201,22 +207,17 @@ export async function POST(request: NextRequest) {
       revision,
     })
   } catch (cause) {
-    // The worker normally contains job failures, but a transient database
-    // failure while acquiring the initial claim can still escape. Surface it
-    // as retryable infrastructure failure instead of an opaque route 500.
-    console.error(`Unhandled publish trigger error for job ${typedJob.id}:`, cause)
+    // claimPublishJob can throw on a transient DB failure before
+    // processPublishJob enters its normal per-job error handling.
     return NextResponse.json(
-      { error: '公開処理を開始できませんでした。データベース接続を確認してから再試行してください。' },
+      { error: cause instanceof Error ? cause.message : '公開処理を開始できませんでした。' },
       { status: 503 },
     )
   }
 
   if (result.skipped) {
-    return NextResponse.json(
-      { ...result, error: 'ちょうど別の管理者またはWorkerによって公開処理中です。しばらくしてからもう一度お試しください。' },
-      { status: 409 },
-    )
+    return NextResponse.json({ error: 'このジョブは現在別の処理で公開中です。少し待ってから状態を再読み込みしてください。' }, { status: 409 })
   }
 
-  return NextResponse.json(result)
+  return NextResponse.json({ success: result.success }, { status: result.success ? 200 : 502 })
 }
