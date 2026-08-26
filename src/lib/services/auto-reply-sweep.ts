@@ -38,6 +38,23 @@ interface CandidateRow {
   messaging_contacts: CandidateContact | CandidateContact[] | null
 }
 
+interface AutoReplyArtifactInput {
+  workspaceId: string
+  inboxItemId: string
+  contactId: string
+  suggestionId: string
+  replyJobId: string
+  aiGenerationId: string | null
+  replyText: string
+  tone: string
+  assumptions: string[]
+  summary: string
+  priority: 'high' | 'normal' | 'low'
+  sendTarget: string
+  scheduledAt: string
+  createdBy: string
+}
+
 function firstContact(value: CandidateRow['messaging_contacts']): CandidateContact | null {
   if (!value) return null
   return Array.isArray(value) ? (value[0] ?? null) : value
@@ -72,13 +89,80 @@ async function loadWorkspaceContext(supabase: SupabaseClient, workspaceId: strin
 
 async function isAlreadyHandledNow(supabase: SupabaseClient, inboxItemId: string): Promise<boolean> {
   const [{ data: job, error: jobError }, { data: suggestion, error: suggestionError }] = await Promise.all([
-    supabase.from('reply_jobs').select('id').eq('inbox_item_id', inboxItemId).neq('status', 'cancelled').limit(1).maybeSingle(),
+    // Any job means a human/system already made a decision about this inbound
+    // message. In particular, cancellation is an explicit human veto and must
+    // not be ignored by a sweep racing immediately afterwards.
+    supabase.from('reply_jobs').select('id').eq('inbox_item_id', inboxItemId).limit(1).maybeSingle(),
     supabase.from('ai_reply_suggestions').select('id').eq('inbox_item_id', inboxItemId).limit(1).maybeSingle(),
   ])
 
   if (jobError) throw new Error(jobError.message)
   if (suggestionError) throw new Error(suggestionError.message)
   return Boolean(job || suggestion)
+}
+
+async function reconcileAutoReplyJob(
+  supabase: SupabaseClient,
+  workspaceId: string,
+  replyJobId: string,
+): Promise<boolean> {
+  const { data, error } = await supabase
+    .from('reply_jobs')
+    .select('id')
+    .eq('id', replyJobId)
+    .eq('workspace_id', workspaceId)
+    .maybeSingle()
+  if (error) throw new Error(error.message)
+  return Boolean(data)
+}
+
+/**
+ * The model has already been billed when this runs. The RPC is atomic, and the
+ * caller owns stable suggestion/job UUIDs, so one same-id retry is safe: a late
+ * first commit can only collide with the exact same ids, never create a second
+ * outbound job. Reconcile after each ambiguous response before giving up.
+ */
+async function persistAutoReplyArtifacts(
+  supabase: SupabaseClient,
+  input: AutoReplyArtifactInput,
+): Promise<void> {
+  const rpcArgs = {
+    p_workspace_id: input.workspaceId,
+    p_inbox_item_id: input.inboxItemId,
+    p_contact_id: input.contactId,
+    p_suggestion_id: input.suggestionId,
+    p_reply_job_id: input.replyJobId,
+    p_ai_generation_id: input.aiGenerationId,
+    p_reply_text: input.replyText,
+    p_tone: input.tone,
+    p_assumptions: input.assumptions,
+    p_summary: input.summary,
+    p_priority: input.priority,
+    p_send_target: input.sendTarget,
+    p_scheduled_at: input.scheduledAt,
+    p_created_by: input.createdBy,
+  }
+
+  let lastError = '自動返信の保存に失敗しました。'
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    const { error } = await supabase.rpc('create_auto_reply_artifacts', rpcArgs)
+    if (!error) return
+    lastError = error.message
+
+    try {
+      if (await reconcileAutoReplyJob(supabase, input.workspaceId, input.replyJobId)) return
+    } catch (cause) {
+      // The read may be failing for the same transient reason as the RPC. One
+      // same-id retry below is still safe and may recover once DB connectivity
+      // returns; after the final attempt, surface the combined error to logs.
+      lastError = `${lastError} (reconciliation failed: ${cause instanceof Error ? cause.message : 'unknown error'})`
+    }
+  }
+
+  // A second RPC may have returned duplicate-key after a late first commit; one
+  // final authoritative read converts that ambiguous response into success.
+  if (await reconcileAutoReplyJob(supabase, input.workspaceId, input.replyJobId)) return
+  throw new Error(lastError)
 }
 
 export async function runAutoReplySweep(supabase: SupabaseClient, now: Date = new Date()): Promise<AutoReplySweepResult> {
@@ -203,9 +287,6 @@ export async function runAutoReplySweep(supabase: SupabaseClient, now: Date = ne
         })
         recordedGenerationId = generation.id
       } catch (recordError) {
-        // The model has already been billed. Do not abandon the output and let
-        // the next sweep pay to generate it again. Persist the suggestion/job
-        // without the optional ledger FK and log the bookkeeping gap loudly.
         console.error(`Auto reply generated for ${row.id}, but AI usage could not be recorded:`, recordError)
       }
 
@@ -218,38 +299,22 @@ export async function runAutoReplySweep(supabase: SupabaseClient, now: Date = ne
       const suggestionId = randomUUID()
       const replyJobId = randomUUID()
 
-      const { error: artifactError } = await supabase.rpc('create_auto_reply_artifacts', {
-        p_workspace_id: row.workspace_id,
-        p_inbox_item_id: row.id,
-        p_contact_id: contact.id,
-        p_suggestion_id: suggestionId,
-        p_reply_job_id: replyJobId,
-        p_ai_generation_id: recordedGenerationId,
-        p_reply_text: result.proposal.reply,
-        p_tone: result.proposal.tone,
-        p_assumptions: result.proposal.assumptions,
-        p_summary: result.proposal.summary,
-        p_priority: result.proposal.priority,
-        p_send_target: contact.external_contact_id,
-        p_scheduled_at: scheduledAt,
-        p_created_by: ownerId,
+      await persistAutoReplyArtifacts(supabase, {
+        workspaceId: row.workspace_id,
+        inboxItemId: row.id,
+        contactId: contact.id,
+        suggestionId,
+        replyJobId,
+        aiGenerationId: recordedGenerationId,
+        replyText: result.proposal.reply,
+        tone: result.proposal.tone,
+        assumptions: result.proposal.assumptions,
+        summary: result.proposal.summary,
+        priority: result.proposal.priority,
+        sendTarget: contact.external_contact_id,
+        scheduledAt,
+        createdBy: ownerId,
       })
-
-      if (artifactError) {
-        // The transaction may have committed but its RPC response may have been
-        // lost. Reconcile the stable job id before treating this as a failure.
-        const { data: reconciledJob, error: reconcileError } = await supabase
-          .from('reply_jobs')
-          .select('id')
-          .eq('id', replyJobId)
-          .eq('workspace_id', row.workspace_id)
-          .maybeSingle()
-
-        if (reconcileError) {
-          throw new Error(`${artifactError.message} (auto-reply reconciliation failed: ${reconcileError.message})`)
-        }
-        if (!reconciledJob) throw new Error(artifactError.message)
-      }
 
       const { error: auditError } = await supabase.from('audit_logs').insert({
         workspace_id: row.workspace_id,
