@@ -11,6 +11,13 @@ import type { WorkspaceRole } from '@/lib/domain/types'
 import { TemplateReplyGeneratorService } from '@/lib/services/ai-reply'
 import { AnthropicReplyGenerationError, generateReplyWithAnthropic } from '@/lib/services/anthropic-reply'
 import { calculateGenerationCost, isAnthropicConfigured } from '@/lib/services/anthropic-draft'
+import {
+  claimInboxReplyGeneration,
+  claimWorkspaceAiBudget,
+  configuredMonthlyAiBudgetUsd,
+  releaseInboxReplyGeneration,
+  releaseWorkspaceAiBudget,
+} from '@/lib/services/ai-generation-claims'
 import type { ReplyProposal } from '@/lib/services/interfaces'
 
 // Generates an AI (or template-fallback) reply proposal for one inbound DM,
@@ -129,108 +136,158 @@ export async function POST(request: NextRequest) {
 
   const serviceClient = createServiceClient()
 
-  if (!isAnthropicConfigured()) {
-    const proposal = await new TemplateReplyGeneratorService().generateReply(item.text, { brandProfile })
-    try {
-      const suggestionId = await persistReplyArtifacts(serviceClient, { workspaceId, inboxItemId, proposal, source: 'template', aiGenerationId: null })
-      return NextResponse.json({
-        source: 'template-fallback',
-        reason: 'ANTHROPIC_API_KEYが未設定のため、AIではなく定型文を表示しています。',
-        summary: proposal.summary,
-        reply: proposal.reply,
-        tone: proposal.tone,
-        assumptions: proposal.assumptions,
-        priority: proposal.priority,
-        suggestionId,
-      })
-    } catch (cause) {
-      return NextResponse.json({ error: cause instanceof Error ? cause.message : '返信案を保存できませんでした。' }, { status: 502 })
-    }
+  // Manual generation and the auto-reply sweep can race on the same inbound
+  // message. Claim before either template or Anthropic work so they cannot both
+  // persist competing suggestions (and, when AI is enabled, bill twice).
+  let replyClaimToken: string | null
+  try {
+    replyClaimToken = await claimInboxReplyGeneration(serviceClient, workspaceId, inboxItemId)
+  } catch (cause) {
+    console.error('Failed to claim reply generation:', cause)
+    return NextResponse.json({ error: '返信案の生成ロックを取得できませんでした。少し待ってから再試行してください。' }, { status: 503 })
   }
-
-  // Same opt-in monthly budget cap as draft generation — reply spend counts
-  // toward the same ledger (see getWorkspaceMonthlyAiCost).
-  const monthlyBudgetUsd = Number(process.env.ANTHROPIC_MONTHLY_BUDGET_USD)
-  if (Number.isFinite(monthlyBudgetUsd) && monthlyBudgetUsd > 0) {
-    const spentUsd = await getWorkspaceMonthlyAiCost(supabase, workspaceId)
-    if (spentUsd >= monthlyBudgetUsd) {
-      return NextResponse.json(
-        {
-          error: `このワークスペースの今月のAI予算（$${monthlyBudgetUsd.toFixed(2)}）に達しました（使用額 $${spentUsd.toFixed(2)}）。ANTHROPIC_MONTHLY_BUDGET_USDを引き上げるか、来月まで待ってください。`,
-        },
-        { status: 402 },
-      )
-    }
+  if (!replyClaimToken) {
+    return NextResponse.json({ error: 'このメッセージの返信案は現在別の処理で生成中です。' }, { status: 409 })
   }
 
   try {
-    const result = await generateReplyWithAnthropic(item.text, { brandProfile, styleExamples, creatorStatus })
-    const costUsd = calculateGenerationCost(result.inputTokens, result.outputTokens)
-
-    const generation = await recordAiGeneration(supabase, {
-      workspaceId,
-      inboxItemId,
-      purpose: 'reply',
-      channels: [],
-      model: result.model,
-      inputTokens: result.inputTokens,
-      outputTokens: result.outputTokens,
-      costUsd,
-      createdBy: user.id,
-    })
-
-    const suggestionId = await persistReplyArtifacts(serviceClient, {
-      workspaceId,
-      inboxItemId,
-      proposal: result.proposal,
-      source: 'ai',
-      aiGenerationId: generation.id,
-    })
-
-    await supabase.from('audit_logs').insert({
-      workspace_id: workspaceId,
-      actor_id: user.id,
-      action: 'inbox_reply_ai_generated',
-      target_type: 'inbox_item',
-      target_id: inboxItemId,
-      metadata: { platform: item.platform, model: result.model, aiGenerationId: generation.id, priority: result.proposal.priority },
-    })
-
-    return NextResponse.json({
-      source: 'ai',
-      model: result.model,
-      aiGenerationId: generation.id,
-      summary: result.proposal.summary,
-      reply: result.proposal.reply,
-      tone: result.proposal.tone,
-      assumptions: result.proposal.assumptions,
-      priority: result.proposal.priority,
-      suggestionId,
-    })
-  } catch (cause) {
-    const message = cause instanceof Error ? cause.message : 'AIによる返信案の生成に失敗しました。'
-
-    // The Anthropic call may have succeeded (and been billed) even though the
-    // response couldn't be parsed — record the spend so cost isn't under-reported.
-    if (cause instanceof AnthropicReplyGenerationError) {
+    if (!isAnthropicConfigured()) {
+      const proposal = await new TemplateReplyGeneratorService().generateReply(item.text, { brandProfile })
       try {
-        await recordAiGeneration(supabase, {
+        const suggestionId = await persistReplyArtifacts(serviceClient, { workspaceId, inboxItemId, proposal, source: 'template', aiGenerationId: null })
+        return NextResponse.json({
+          source: 'template-fallback',
+          reason: 'ANTHROPIC_API_KEYが未設定のため、AIではなく定型文を表示しています。',
+          summary: proposal.summary,
+          reply: proposal.reply,
+          tone: proposal.tone,
+          assumptions: proposal.assumptions,
+          priority: proposal.priority,
+          suggestionId,
+        })
+      } catch (cause) {
+        return NextResponse.json({ error: cause instanceof Error ? cause.message : '返信案を保存できませんでした。' }, { status: 502 })
+      }
+    }
+
+    // When a monthly cap is configured, serialize billable calls per workspace.
+    // The budget is re-read only AFTER the mutex is acquired, so two requests
+    // cannot both observe the same pre-call total and simultaneously spend past
+    // the cap. A single call can still cross the remaining few cents because
+    // final token usage is only known from Anthropic's response.
+    const monthlyBudgetUsd = configuredMonthlyAiBudgetUsd()
+    let budgetClaimToken: string | null = null
+    if (monthlyBudgetUsd !== null) {
+      try {
+        budgetClaimToken = await claimWorkspaceAiBudget(serviceClient, workspaceId)
+      } catch (cause) {
+        console.error('Failed to claim AI budget slot:', cause)
+        return NextResponse.json({ error: 'AI予算の確認を開始できませんでした。少し待ってから再試行してください。' }, { status: 503 })
+      }
+      if (!budgetClaimToken) {
+        return NextResponse.json({ error: 'このワークスペースでは別のAI処理が実行中です。完了後に再試行してください。' }, { status: 409 })
+      }
+    }
+
+    try {
+      if (monthlyBudgetUsd !== null) {
+        let spentUsd: number
+        try {
+          spentUsd = await getWorkspaceMonthlyAiCost(serviceClient, workspaceId)
+        } catch (cause) {
+          console.error('Failed to read AI budget usage:', cause)
+          return NextResponse.json({ error: 'AI予算の使用額を確認できないため、安全のため生成を停止しました。' }, { status: 503 })
+        }
+        if (spentUsd >= monthlyBudgetUsd) {
+          return NextResponse.json(
+            {
+              error: `このワークスペースの今月のAI予算（$${monthlyBudgetUsd.toFixed(2)}）に達しました（使用額 $${spentUsd.toFixed(2)}）。ANTHROPIC_MONTHLY_BUDGET_USDを引き上げるか、来月まで待ってください。`,
+            },
+            { status: 402 },
+          )
+        }
+      }
+
+      try {
+        const result = await generateReplyWithAnthropic(item.text, { brandProfile, styleExamples, creatorStatus })
+        const costUsd = calculateGenerationCost(result.inputTokens, result.outputTokens)
+
+        const generation = await recordAiGeneration(supabase, {
           workspaceId,
           inboxItemId,
           purpose: 'reply',
           channels: [],
-          model: cause.usage.model,
-          inputTokens: cause.usage.inputTokens,
-          outputTokens: cause.usage.outputTokens,
-          costUsd: calculateGenerationCost(cause.usage.inputTokens, cause.usage.outputTokens),
+          model: result.model,
+          inputTokens: result.inputTokens,
+          outputTokens: result.outputTokens,
+          costUsd,
           createdBy: user.id,
         })
-      } catch (recordError) {
-        console.error('Failed to record AI usage after a failed reply generation:', recordError)
+
+        const suggestionId = await persistReplyArtifacts(serviceClient, {
+          workspaceId,
+          inboxItemId,
+          proposal: result.proposal,
+          source: 'ai',
+          aiGenerationId: generation.id,
+        })
+
+        await supabase.from('audit_logs').insert({
+          workspace_id: workspaceId,
+          actor_id: user.id,
+          action: 'inbox_reply_ai_generated',
+          target_type: 'inbox_item',
+          target_id: inboxItemId,
+          metadata: { platform: item.platform, model: result.model, aiGenerationId: generation.id, priority: result.proposal.priority },
+        })
+
+        return NextResponse.json({
+          source: 'ai',
+          model: result.model,
+          aiGenerationId: generation.id,
+          summary: result.proposal.summary,
+          reply: result.proposal.reply,
+          tone: result.proposal.tone,
+          assumptions: result.proposal.assumptions,
+          priority: result.proposal.priority,
+          suggestionId,
+        })
+      } catch (cause) {
+        const message = cause instanceof Error ? cause.message : 'AIによる返信案の生成に失敗しました。'
+
+        // The Anthropic call may have succeeded (and been billed) even though the
+        // response couldn't be parsed — record the spend so cost isn't under-reported.
+        if (cause instanceof AnthropicReplyGenerationError) {
+          try {
+            await recordAiGeneration(supabase, {
+              workspaceId,
+              inboxItemId,
+              purpose: 'reply',
+              channels: [],
+              model: cause.usage.model,
+              inputTokens: cause.usage.inputTokens,
+              outputTokens: cause.usage.outputTokens,
+              costUsd: calculateGenerationCost(cause.usage.inputTokens, cause.usage.outputTokens),
+              createdBy: user.id,
+            })
+          } catch (recordError) {
+            console.error('Failed to record AI usage after a failed reply generation:', recordError)
+          }
+        }
+
+        // Fail closed: no silent template substitution for a failed AI call.
+        return NextResponse.json({ error: message }, { status: 502 })
+      }
+    } finally {
+      if (budgetClaimToken) {
+        await releaseWorkspaceAiBudget(serviceClient, workspaceId, budgetClaimToken).catch((cause) =>
+          console.error('Failed to release AI budget claim:', cause),
+        )
       }
     }
-
-    // Fail closed: no silent template substitution for a failed AI call.
-    return NextResponse.json({ error: message }, { status: 502 })
+  } finally {
+    await releaseInboxReplyGeneration(serviceClient, workspaceId, inboxItemId, replyClaimToken).catch((cause) =>
+      console.error('Failed to release reply generation claim:', cause),
+    )
   }
 }
