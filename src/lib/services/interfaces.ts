@@ -172,6 +172,12 @@ export interface SendMessageRequest {
   target: string
   text: string
   externalAccountId?: string
+  /**
+   * Stable caller-owned UUID for provider-side idempotency when supported.
+   * LINE push messages use this as X-Line-Retry-Key from the very first request,
+   * so a retry after an ambiguous network/DB failure cannot deliver twice.
+   */
+  retryKey?: string
 }
 
 export interface SendMessageResult {
