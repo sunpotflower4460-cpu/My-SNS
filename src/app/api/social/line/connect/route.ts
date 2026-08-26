@@ -4,6 +4,7 @@ import { createServiceClient } from '@/lib/supabase/service'
 import {
   deletePendingSocialAccount,
   finalizeSocialAccountConnection,
+  getSocialAccountById,
   upsertPendingSocialAccount,
 } from '@/lib/repositories/supabase/social-accounts'
 import { deleteSocialCredentials, saveSocialCredentials } from '@/lib/repositories/supabase/social-credentials'
@@ -82,15 +83,24 @@ export async function POST(request: NextRequest) {
       scopes: connected.scopes,
     })
 
-    await finalizeSocialConnectionWithCleanup({
-      finalize: async () => { await finalizeSocialAccountConnection(supabase, account.id) },
+    const finalizedAccount = await finalizeSocialConnectionWithCleanup({
+      finalize: async () => finalizeSocialAccountConnection(supabase, account.id),
+      verifyFinalized: async () => {
+        const current = await getSocialAccountById(supabase, account.id)
+        return current?.connected ? current : null
+      },
       cleanup: async () => { await deleteSocialCredentials(serviceClient, account.id) },
+      onVerificationError: (verificationCause) => {
+        console.error('Could not verify whether LINE connection finalization committed:', verificationCause)
+      },
       onCleanupError: (cleanupCause) => {
         console.error('Failed to clean credentials after LINE connection finalization failed:', cleanupCause)
       },
     })
 
-    await supabase.from('audit_logs').insert({
+    pendingAccountId = null
+
+    const { error: auditError } = await supabase.from('audit_logs').insert({
       workspace_id: workspaceId,
       actor_id: user.id,
       action: 'line_account_connected',
@@ -98,8 +108,14 @@ export async function POST(request: NextRequest) {
       target_id: account.id,
       metadata: { platform: 'line', handle: connected.handle },
     })
+    if (auditError) {
+      console.error('Failed to audit LINE social account connection:', auditError)
+    }
 
-    return NextResponse.json({ account })
+    // Return the finalized row, not the disconnected staging snapshot created
+    // before the credential write. This keeps client state immediately aligned
+    // with the durable DB connection without requiring a page reload.
+    return NextResponse.json({ account: finalizedAccount })
   } catch (cause) {
     if (pendingAccountId) {
       await deletePendingSocialAccount(supabase, pendingAccountId).catch((cleanupCause) => {
