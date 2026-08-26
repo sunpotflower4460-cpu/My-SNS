@@ -8,6 +8,7 @@ import type {
   SendMessageResult,
   SocialConnectorAdapter,
 } from '../interfaces'
+import { assertTrustedPublishMediaUrl } from '@/lib/security/trusted-publish-media-url'
 
 // YouTube Data API v3, Google OAuth 2.0, resumable upload.
 // https://developers.google.com/youtube/v3/guides/uploading_a_video
@@ -228,6 +229,11 @@ export class YouTubeConnectorAdapter implements SocialConnectorAdapter {
       )
     }
 
+    // Defense in depth: publish-worker normally supplies a freshly signed URL
+    // from this app's private `assets` bucket. Never let arbitrary Revision
+    // metadata turn the YouTube connector into a server-side URL fetcher.
+    const trustedMediaUrl = assertTrustedPublishMediaUrl(mediaUrl)
+
     const isShort = request.metadata.isShort === true
     const description = [request.body, request.cta].filter(Boolean).join('\n\n')
     const tags = request.hashtags.slice(0, 500) // YouTube's own tag list cap
@@ -259,7 +265,7 @@ export class YouTubeConnectorAdapter implements SocialConnectorAdapter {
     const uploadUrl = initResponse.headers.get('location')
     if (!uploadUrl) throw new Error('YouTube did not return a resumable upload URL.')
 
-    const videoResponse = await fetch(mediaUrl, { signal: AbortSignal.timeout(FETCH_MEDIA_TIMEOUT_MS) })
+    const videoResponse = await fetch(trustedMediaUrl, { signal: AbortSignal.timeout(FETCH_MEDIA_TIMEOUT_MS) })
     if (!videoResponse.ok || !videoResponse.body) {
       throw new Error(`Could not read the video from its source URL (${videoResponse.status}).`)
     }
