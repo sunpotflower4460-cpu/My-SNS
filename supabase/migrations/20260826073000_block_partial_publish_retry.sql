@@ -1,7 +1,9 @@
--- A multi-step connector can partially succeed externally before a later step
--- fails (notably an X thread where tweet 1 exists but tweet 2 fails). Such a
--- job must not transition failed -> scheduled: retrying from the beginning
--- would duplicate the already-published prefix.
+-- Some connector failures are unsafe to retry from the beginning:
+-- 1) PARTIAL_EXTERNAL_SUCCESS: at least one irreversible external side effect
+--    definitely happened (for example tweet 1 of an X thread exists).
+-- 2) EXTERNAL_RESULT_UNKNOWN: the request crossed the external side-effect
+--    boundary but the client lost/received an unusable response, so success is
+--    uncertain. Retrying blindly can duplicate a real post.
 
 BEGIN;
 
@@ -10,9 +12,9 @@ RETURNS TRIGGER
 LANGUAGE plpgsql
 SET search_path = ''
 AS $$
+DECLARE
+  v_error TEXT := COALESCE(OLD.error_message, '');
 BEGIN
-  -- These fields identify exactly what was approved and where it belongs. A
-  -- queued job may change execution state/timestamps/errors, never provenance.
   IF NEW.workspace_id IS DISTINCT FROM OLD.workspace_id
      OR NEW.seed_id IS DISTINCT FROM OLD.seed_id
      OR NEW.draft_id IS DISTINCT FROM OLD.draft_id
@@ -34,14 +36,13 @@ BEGIN
     RAISE EXCEPTION 'A cancelled job cannot be reactivated.' USING ERRCODE = '23514';
   END IF;
 
-  -- Known partial external success is qualitatively different from an ordinary
-  -- failed attempt. The connector has already created at least one real post;
-  -- restarting would duplicate it. Cancellation is still allowed so a human
-  -- can inspect the platform and deliberately create a fresh Revision if needed.
   IF OLD.status = 'failed'::public.publish_job_status
-     AND COALESCE(OLD.error_message, '') LIKE 'PARTIAL_EXTERNAL_SUCCESS:%'
-     AND NEW.status = 'scheduled'::public.publish_job_status THEN
-    RAISE EXCEPTION 'This publish partially succeeded externally and cannot be retried automatically. Inspect the platform, cancel this job, and create a fresh Revision if repair is needed.' USING ERRCODE = '23514';
+     AND NEW.status = 'scheduled'::public.publish_job_status
+     AND (
+       v_error LIKE 'PARTIAL_EXTERNAL_SUCCESS:%'
+       OR v_error LIKE 'EXTERNAL_RESULT_UNKNOWN:%'
+     ) THEN
+    RAISE EXCEPTION 'This publish may already exist externally and cannot be retried automatically. Inspect the platform, cancel this job, and create a fresh Revision if repair is needed.' USING ERRCODE = '23514';
   END IF;
 
   IF OLD.status = 'draft'::public.publish_job_status
@@ -68,6 +69,6 @@ END;
 $$;
 
 COMMENT ON FUNCTION public.guard_publish_job_update() IS
-  'Keeps publish provenance immutable, prevents terminal reactivation, and blocks automatic retry after a connector reports known partial external success.';
+  'Keeps publish provenance immutable, prevents terminal reactivation, and blocks automatic retry when a connector reports partial success or an uncertain external result.';
 
 COMMIT;
