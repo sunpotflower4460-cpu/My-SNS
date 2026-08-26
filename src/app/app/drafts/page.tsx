@@ -34,6 +34,7 @@ export default function DraftsPage() {
   const [generatedDrafts, setGeneratedDrafts] = useState<SocialDraft[]>([])
   const [loading, setLoading] = useState(false)
   const [feedback, setFeedback] = useState('')
+  const [warning, setWarning] = useState('')
   const [error, setError] = useState('')
 
   const selectedSeed = useMemo(() => seeds.find((seed) => seed.id === seedId) ?? null, [seedId, seeds])
@@ -66,9 +67,12 @@ export default function DraftsPage() {
     if (!selectedSeed) return
     setLoading(true)
     setError('')
+    setWarning('')
     try {
       const result = await generateChannelDrafts(selectedSeed.id, selectedChannels, tone, length)
+      const usageWarning = (result as typeof result & { usageWarning?: string }).usageWarning
       setGeneratedDrafts(result.drafts)
+      setWarning(usageWarning ?? '')
       setFeedback(
         result.source === 'ai'
           ? `AIが${result.drafts.length}件の提案を作成しました。承認する前に仮定を確認してください。`
@@ -77,6 +81,7 @@ export default function DraftsPage() {
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : '下書きを作成できませんでした。')
       setFeedback('')
+      setWarning('')
     } finally {
       setLoading(false)
     }
@@ -118,6 +123,7 @@ export default function DraftsPage() {
       <PageHeader title="下書きスタジオ" description="1つのシードから媒体ごとの提案を作成します。AIの下書きには必ず仮定（AIの推測）が示され、あなたが確認するまで何も承認されません。" />
 
       {(feedback || error) && <div className={`mb-5 rounded-2xl border px-4 py-3 text-sm ${error ? 'border-red-200 bg-red-50 text-red-700' : 'border-green-200 bg-green-50 text-green-700'}`}>{error || feedback}</div>}
+      {warning && !error && <div className="mb-5 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">{warning} 続けて大量生成する前に、管理者へ使用量台帳の確認を依頼してください。</div>}
 
       {seeds.length === 0 ? (
         <EmptyState title="下書きを作成できるシードがありません" description="まず情報源を1つ記録してから、媒体ごとの下書きを準備してください。" action={<Link href="/app/seeds/new" className="rounded-2xl bg-violet-600 px-4 py-2 text-sm font-medium text-white">シードを記録する</Link>} icon="✍️" />
