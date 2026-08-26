@@ -104,6 +104,29 @@ describe('postTweetWithRetry', () => {
   })
 })
 
+describe('XConnectorAdapter.publish thread safety', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  it('marks a later thread failure as partial external success after the first tweet exists', async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(mockResponse({ ok: true, status: 200, body: { data: { id: 'first', text: 'first' } } }))
+      .mockResolvedValueOnce(mockResponse({ ok: false, status: 500, body: { error: 'server error' } }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    const request: PublishRequest = {
+      ...baseRequest,
+      handle: 'artist',
+      metadata: { thread: ['second tweet'] },
+    }
+
+    await expect(new XConnectorAdapter().publish(request)).rejects.toThrow(/PARTIAL_EXTERNAL_SUCCESS/)
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+  })
+})
+
 describe('XConnectorAdapter.fetchMetrics (PR7)', () => {
   afterEach(() => {
     vi.unstubAllGlobals()
