@@ -405,18 +405,52 @@ export async function runAutoReplySweep(supabase: SupabaseClient, now: Date = ne
       scheduled += 1
     } catch (cause) {
       if (cause instanceof AnthropicReplyGenerationError && generationId) {
-        await recordAiGeneration(supabase, {
-          id: generationId,
-          workspaceId: row.workspace_id,
-          inboxItemId: row.id,
-          purpose: 'reply',
-          channels: [],
-          model: cause.usage.model,
-          inputTokens: cause.usage.inputTokens,
-          outputTokens: cause.usage.outputTokens,
-          costUsd: calculateGenerationCost(cause.usage.inputTokens, cause.usage.outputTokens),
-          createdBy: ownerId,
-        }).catch((recordError) => console.error('Failed to record AI usage after a failed auto reply:', recordError))
+        try {
+          await recordAiGeneration(supabase, {
+            id: generationId,
+            workspaceId: row.workspace_id,
+            inboxItemId: row.id,
+            purpose: 'reply',
+            channels: [],
+            model: cause.usage.model,
+            inputTokens: cause.usage.inputTokens,
+            outputTokens: cause.usage.outputTokens,
+            costUsd: calculateGenerationCost(cause.usage.inputTokens, cause.usage.outputTokens),
+            createdBy: ownerId,
+          })
+        } catch (recordError) {
+          console.error('Failed to record AI usage after a failed auto reply:', recordError)
+          context.autoAiUsageBlocked = true
+          const { error: incidentAuditError } = await supabase.from('audit_logs').insert({
+            workspace_id: row.workspace_id,
+            actor_id: ownerId,
+            action: 'inbox_reply_ai_generated',
+            target_type: 'inbox_item',
+            target_id: row.id,
+            metadata: {
+              platform: 'line',
+              auto: true,
+              generationFailed: true,
+              model: cause.usage.model,
+              aiGenerationId: null,
+              usageRecorded: false,
+            },
+          })
+          if (incidentAuditError) {
+            console.error(`Failed to persist failed-generation usage incident for auto reply ${row.id}:`, incidentAuditError)
+          }
+          await createNotifications(supabase, [
+            {
+              workspaceId: row.workspace_id,
+              userId: ownerId,
+              type: 'reply_failed',
+              title: '自動返信AIを一時停止しました',
+              body: '自動返信のAI処理に失敗し、その処理で発生したAI使用量も台帳へ保存できませんでした。安全のため、このワークスペースの後続自動AI処理を一時停止しています。管理者に使用量台帳の確認を依頼してください。',
+              targetType: 'inbox_item',
+              targetId: row.id,
+            },
+          ]).catch((notificationError) => console.error('Failed to notify about an automatic AI usage incident:', notificationError))
+        }
       }
       console.error(`Auto-reply generation failed for inbox item ${row.id}:`, cause)
       skipped += 1
