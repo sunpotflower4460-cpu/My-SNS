@@ -90,11 +90,14 @@ export class LineConnectorAdapter implements SocialConnectorAdapter {
   }
 
   async sendMessage(request: SendMessageRequest): Promise<SendMessageResult> {
-    // Push message (not a reply-token reply): reply tokens expire ~1 minute
-    // after the inbound event and are single-use, but our sends are scheduled
-    // (possibly hours later) and always flow through the reply Worker — so we
-    // push to the recipient's userId instead. See docs and the webhook mapper,
-    // which deliberately never persists the replyToken.
+    // LINE explicitly recommends sending X-Line-Retry-Key on the FIRST push,
+    // not only after an error. The reply job UUID is stable across Worker
+    // retries, so provider-side idempotency closes the otherwise unavoidable
+    // gap where LINE accepted a push but every DB bookkeeping write failed.
+    if (!request.retryKey) {
+      throw new Error('LINE push retry key is required for duplicate-safe delivery.')
+    }
+
     let response: Response
     try {
       response = await fetch(PUSH_URL, {
@@ -102,6 +105,7 @@ export class LineConnectorAdapter implements SocialConnectorAdapter {
         headers: {
           'Content-Type': 'application/json',
           Authorization: `Bearer ${request.accessToken}`,
+          'X-Line-Retry-Key': request.retryKey,
         },
         body: JSON.stringify({
           to: request.target,
@@ -112,7 +116,21 @@ export class LineConnectorAdapter implements SocialConnectorAdapter {
     } catch (cause) {
       const detail = cause instanceof Error ? cause.message : 'network error'
       throw new Error(
-        `${LINE_RESULT_UNKNOWN_PREFIX}: the request may have reached LINE but no response was received (${detail}). Automatic retry is blocked to prevent a duplicate message.`,
+        `${LINE_RESULT_UNKNOWN_PREFIX}: the request may have reached LINE but no response was received (${detail}). The same retry key must be reused to reconcile safely.`,
+      )
+    }
+
+    // LINE returns 409 when this retry key was already accepted by an earlier
+    // successful push. That is a positive idempotency reconciliation, not a
+    // send failure: use the accepted request id as the durable external id.
+    if (response.status === 409) {
+      const acceptedRequestId = response.headers.get('x-line-accepted-request-id')
+      if (acceptedRequestId) {
+        return { externalMessageId: acceptedRequestId }
+      }
+      const detail = await response.text().catch(() => '')
+      throw new Error(
+        `${LINE_RESULT_UNKNOWN_PREFIX}: LINE returned 409 without x-line-accepted-request-id, so the previous delivery cannot be reconciled safely. Detail: ${detail.slice(0, 200)}`,
       )
     }
 
@@ -123,7 +141,7 @@ export class LineConnectorAdapter implements SocialConnectorAdapter {
       // request rejection and remain ordinarily retryable after correction.
       if (response.status >= 500) {
         throw new Error(
-          `${LINE_RESULT_UNKNOWN_PREFIX}: LINE returned ${response.status} after the push request, so delivery cannot be proven either way. Automatic retry is blocked to prevent a duplicate message. Detail: ${detail.slice(0, 200)}`,
+          `${LINE_RESULT_UNKNOWN_PREFIX}: LINE returned ${response.status} after the push request, so delivery cannot be proven either way. The same retry key must be reused to reconcile safely. Detail: ${detail.slice(0, 200)}`,
         )
       }
       throw new Error(`LINE push failed (${response.status}): ${detail.slice(0, 300)}`)
