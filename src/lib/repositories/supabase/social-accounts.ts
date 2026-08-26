@@ -42,6 +42,21 @@ export async function listWorkspaceSocialAccounts(workspaceId: string): Promise<
   return (data ?? []).map((row) => mapAccount(row as SocialAccountRow))
 }
 
+/** Server/session-side durable read used to reconcile an RPC whose response may have been lost after commit. */
+export async function getSocialAccountById(
+  supabase: SupabaseClient,
+  accountId: string,
+): Promise<SocialAccount | null> {
+  const { data, error } = await supabase
+    .from('social_accounts')
+    .select('*')
+    .eq('id', accountId)
+    .maybeSingle()
+
+  if (error) throw new Error(error.message)
+  return data ? mapAccount(data as SocialAccountRow) : null
+}
+
 export interface UpsertPendingAccountInput {
   workspaceId: string
   platform: SocialPlatform
