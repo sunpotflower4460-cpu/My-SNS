@@ -16,7 +16,7 @@ export const maxDuration = 60
 interface DueReplyRow {
   id: string
   workspace_id: string
-  platform: 'line'
+  platform: string
   inbox_item_id: string
   send_target: string
   reply_text: string
@@ -60,6 +60,25 @@ export async function GET(request: NextRequest) {
   let skipped = 0
 
   for (const rawJob of (dueJobs ?? []) as unknown as DueReplyRow[]) {
+    // Current DB guards only permit LINE sends, but service-role code must also
+    // defend against legacy rows created before those guards existed. Never
+    // reinterpret another platform's recipient id as a LINE user id.
+    if (rawJob.platform !== 'line') {
+      failed += 1
+      const errorMessage = `Unsupported reply platform in worker: ${rawJob.platform}`
+      const { error: quarantineError } = await supabase
+        .from('reply_jobs')
+        .update({ status: 'failed', error_message: errorMessage, claimed_at: null, claim_token: null })
+        .eq('id', rawJob.id)
+        .eq('status', 'scheduled')
+      if (quarantineError) {
+        console.error(`Failed to quarantine legacy reply job ${rawJob.id}:`, quarantineError)
+      } else {
+        console.error(`Quarantined legacy non-LINE reply job ${rawJob.id}: ${rawJob.platform}`)
+      }
+      continue
+    }
+
     try {
       const result = await processReplyJob(supabase, {
         id: rawJob.id,
