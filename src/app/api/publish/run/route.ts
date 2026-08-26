@@ -64,20 +64,32 @@ export async function GET(request: NextRequest) {
   let skipped = 0
 
   for (const rawJob of (dueJobs ?? []) as unknown as DueJobRow[]) {
-    if (!rawJob.draft_revisions) continue
+    if (!rawJob.draft_revisions) {
+      failed += 1
+      console.error(`publish_job ${rawJob.id} has no linked draft revision; skipping.`)
+      continue
+    }
 
-    const result = await processPublishJob(supabase, {
-      id: rawJob.id,
-      workspaceId: rawJob.workspace_id,
-      channel: rawJob.channel,
-      createdBy: rawJob.created_by,
-      seedId: rawJob.seed_id ?? undefined,
-      revision: rawJob.draft_revisions,
-    })
+    try {
+      const result = await processPublishJob(supabase, {
+        id: rawJob.id,
+        workspaceId: rawJob.workspace_id,
+        channel: rawJob.channel,
+        createdBy: rawJob.created_by,
+        seedId: rawJob.seed_id ?? undefined,
+        revision: rawJob.draft_revisions,
+      })
 
-    if (result.skipped) skipped += 1
-    else if (result.success) succeeded += 1
-    else failed += 1
+      if (result.skipped) skipped += 1
+      else if (result.success) succeeded += 1
+      else failed += 1
+    } catch (cause) {
+      // processPublishJob is designed to contain per-job failures, but its
+      // initial claim itself can still fail on a transient database error.
+      // Never let one such failure abort the remaining due jobs in this tick.
+      failed += 1
+      console.error(`Unhandled publish worker error for job ${rawJob.id}:`, cause)
+    }
   }
 
   return NextResponse.json({ mode: 'api-first', processed: succeeded + failed, succeeded, failed, skipped })

@@ -52,19 +52,26 @@ export async function GET(request: NextRequest) {
   let skipped = 0
 
   for (const rawJob of (dueJobs ?? []) as unknown as DueReplyRow[]) {
-    const result = await processReplyJob(supabase, {
-      id: rawJob.id,
-      workspaceId: rawJob.workspace_id,
-      platform: 'line',
-      inboxItemId: rawJob.inbox_item_id,
-      sendTarget: rawJob.send_target,
-      replyText: rawJob.reply_text,
-      createdBy: rawJob.created_by,
-    })
+    try {
+      const result = await processReplyJob(supabase, {
+        id: rawJob.id,
+        workspaceId: rawJob.workspace_id,
+        platform: 'line',
+        inboxItemId: rawJob.inbox_item_id,
+        sendTarget: rawJob.send_target,
+        replyText: rawJob.reply_text,
+        createdBy: rawJob.created_by,
+      })
 
-    if (result.skipped) skipped += 1
-    else if (result.success) succeeded += 1
-    else failed += 1
+      if (result.skipped) skipped += 1
+      else if (result.success) succeeded += 1
+      else failed += 1
+    } catch (cause) {
+      // Keep the cron batch progressing even if claiming this one row fails
+      // because of a transient database error. Later jobs are independent.
+      failed += 1
+      console.error(`Unhandled reply worker error for job ${rawJob.id}:`, cause)
+    }
   }
 
   return NextResponse.json({ processed: succeeded + failed, succeeded, failed, skipped })
