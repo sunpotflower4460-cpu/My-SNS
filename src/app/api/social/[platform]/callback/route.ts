@@ -26,7 +26,11 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
   const providerError = request.nextUrl.searchParams.get('error_description') ?? request.nextUrl.searchParams.get('error')
 
   if (providerError) {
-    settingsUrl.searchParams.set('error', providerError)
+    // Provider error strings are external input and can contain implementation
+    // details. Keep the raw value in server logs, but never reflect it into the
+    // Settings URL/browser history.
+    console.error(`${platform} OAuth provider rejected the connection:`, providerError)
+    settingsUrl.searchParams.set('error', 'SNS側で接続が完了しませんでした。もう一度接続をお試しください。')
     return NextResponse.redirect(settingsUrl)
   }
   if (!isConnectablePlatform(platform) || !code || !state) {
@@ -127,8 +131,10 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
       })
     }
 
-    const message = cause instanceof Error ? cause.message : '接続を完了できませんでした。'
-    settingsUrl.searchParams.set('error', message)
+    // Do not reflect raw provider/Supabase error text into a URL query string.
+    // That can leak implementation details into browser history or screenshots.
+    console.error(`Failed to complete ${platform} social account connection:`, cause)
+    settingsUrl.searchParams.set('error', 'SNSアカウントの接続を完了できませんでした。設定を確認して、もう一度お試しください。')
     return NextResponse.redirect(settingsUrl)
   }
 }
