@@ -5,6 +5,7 @@ import type {
   InboxFetchRequest,
   PublishRequest,
   PublishResult,
+  RefreshedCredentials,
   SendMessageResult,
   SocialConnectorAdapter,
 } from '../interfaces'
@@ -22,9 +23,8 @@ const VIDEOS_URL = 'https://www.googleapis.com/youtube/v3/videos'
 const STUDIO_URL = 'https://studio.youtube.com'
 const SCOPES = ['https://www.googleapis.com/auth/youtube.upload', 'https://www.googleapis.com/auth/youtube.readonly']
 
-// commentThreads.list is covered by the already-granted youtube.readonly
-// scope — no extra OAuth consent is needed for this on top of PR5's upload flow.
 const COMMENT_PAGE_SIZE = 50
+const YOUTUBE_API_TIMEOUT_MS = 30_000
 
 // Deliberately shorter than the calling route's `maxDuration` (300s — see
 // api/publish/run and api/publish/trigger). A platform hard-kill on timeout
@@ -54,8 +54,6 @@ export function buildYouTubeAuthorizeUrl(state: string, redirectUri: string): st
     scope: SCOPES.join(' '),
     state,
     access_type: 'offline',
-    // Forces Google to always return a refresh_token, even on a
-    // previously-authorized reconnect — without this it's only returned once.
     prompt: 'consent',
   })
   return `${AUTHORIZE_URL}?${params.toString()}`
@@ -79,6 +77,7 @@ async function requestToken(body: URLSearchParams): Promise<TokenResponse> {
     method: 'POST',
     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
     body: body.toString(),
+    signal: AbortSignal.timeout(YOUTUBE_API_TIMEOUT_MS),
   })
 
   if (!response.ok) {
@@ -91,7 +90,10 @@ async function requestToken(body: URLSearchParams): Promise<TokenResponse> {
 
 async function fetchOwnChannel(accessToken: string): Promise<{ id: string; title: string }> {
   const url = `${CHANNELS_URL}?part=snippet&mine=true`
-  const response = await fetch(url, { headers: { Authorization: `Bearer ${accessToken}` } })
+  const response = await fetch(url, {
+    headers: { Authorization: `Bearer ${accessToken}` },
+    signal: AbortSignal.timeout(YOUTUBE_API_TIMEOUT_MS),
+  })
 
   if (!response.ok) {
     const detail = await response.text().catch(() => '')
@@ -143,12 +145,13 @@ async function fetchCommentThreads(accessToken: string, params: Record<string, s
     maxResults: String(COMMENT_PAGE_SIZE),
     ...params,
   }).toString()}`
-  const response = await fetch(url, { headers: { Authorization: `Bearer ${accessToken}` } })
+  const response = await fetch(url, {
+    headers: { Authorization: `Bearer ${accessToken}` },
+    signal: AbortSignal.timeout(YOUTUBE_API_TIMEOUT_MS),
+  })
 
   if (!response.ok) {
     const detail = await response.text().catch(() => '')
-    // A 403 here commonly means comments are disabled on the video/channel —
-    // a real, expected outcome surfaced as-is, not retried or swallowed.
     throw new Error(`YouTube comment fetch failed (${response.status}): ${detail.slice(0, 300)}`)
   }
 
@@ -163,7 +166,10 @@ interface VideoStatisticsResponse {
 
 async function fetchVideoStatistics(accessToken: string, videoId: string): Promise<PostMetrics> {
   const url = `${VIDEOS_URL}?${new URLSearchParams({ part: 'statistics', id: videoId }).toString()}`
-  const response = await fetch(url, { headers: { Authorization: `Bearer ${accessToken}` } })
+  const response = await fetch(url, {
+    headers: { Authorization: `Bearer ${accessToken}` },
+    signal: AbortSignal.timeout(YOUTUBE_API_TIMEOUT_MS),
+  })
 
   if (!response.ok) {
     const detail = await response.text().catch(() => '')
@@ -181,12 +187,18 @@ async function fetchVideoStatistics(accessToken: string, videoId: string): Promi
   }
 }
 
-function toConnectedAccount(token: TokenResponse, channel: { id: string; title: string }): ConnectedAccount {
+function toRefreshedCredentials(token: TokenResponse): RefreshedCredentials {
   return {
     accessToken: token.access_token,
     refreshToken: token.refresh_token,
     expiresAt: new Date(Date.now() + token.expires_in * 1000).toISOString(),
     scopes: token.scope.split(' ').filter(Boolean),
+  }
+}
+
+function toConnectedAccount(token: TokenResponse, channel: { id: string; title: string }): ConnectedAccount {
+  return {
+    ...toRefreshedCredentials(token),
     externalAccountId: channel.id,
     handle: channel.title,
   }
@@ -210,33 +222,27 @@ export class YouTubeConnectorAdapter implements SocialConnectorAdapter {
     // the caller) is sufficient — Google tokens simply stop being used.
   }
 
-  async refreshAccessToken(_platform: SocialPlatform, refreshToken: string): Promise<ConnectedAccount> {
+  async refreshAccessToken(_platform: SocialPlatform, refreshToken: string): Promise<RefreshedCredentials> {
+    // Account identity is already durable in social_accounts. Refresh only the
+    // credential; a later channel/profile lookup must not turn a successful
+    // token refresh into a failure before the new access token is persisted.
     const token = await requestToken(new URLSearchParams({ grant_type: 'refresh_token', refresh_token: refreshToken }))
-    // Google does not re-issue a refresh_token on refresh; keep the caller's.
-    const channel = await fetchOwnChannel(token.access_token)
-    return { ...toConnectedAccount(token, channel), refreshToken: undefined }
+    return { ...toRefreshedCredentials(token), refreshToken: undefined }
   }
 
   async publish(request: PublishRequest): Promise<PublishResult> {
     const mediaUrl = request.metadata.mediaUrl
     if (typeof mediaUrl !== 'string' || !mediaUrl) {
-      // Honest gap: no PR has built Seed-asset-to-Revision media attachment
-      // yet, and YouTube's API requires this app to stream actual video
-      // bytes (there is no "just give me a URL" upload path). Fail closed
-      // rather than attempting a request that can only fail.
       throw new Error(
         `YouTube requires a video file. Attach one to this draft before scheduling (not yet built) — or upload directly at ${STUDIO_URL}.`,
       )
     }
 
-    // Defense in depth: publish-worker normally supplies a freshly signed URL
-    // from this app's private `assets` bucket. Never let arbitrary Revision
-    // metadata turn the YouTube connector into a server-side URL fetcher.
     const trustedMediaUrl = assertTrustedPublishMediaUrl(mediaUrl)
 
     const isShort = request.metadata.isShort === true
     const description = [request.body, request.cta].filter(Boolean).join('\n\n')
-    const tags = request.hashtags.slice(0, 500) // YouTube's own tag list cap
+    const tags = request.hashtags.slice(0, 500)
 
     const initResponse = await fetch(`${UPLOAD_URL}?uploadType=resumable&part=snippet,status`, {
       method: 'POST',
@@ -253,6 +259,7 @@ export class YouTubeConnectorAdapter implements SocialConnectorAdapter {
         },
         status: { privacyStatus: 'private', selfDeclaredMadeForKids: false },
       }),
+      signal: AbortSignal.timeout(YOUTUBE_API_TIMEOUT_MS),
     })
 
     if (!initResponse.ok) {
@@ -270,40 +277,64 @@ export class YouTubeConnectorAdapter implements SocialConnectorAdapter {
       throw new Error(`Could not read the video from its source URL (${videoResponse.status}).`)
     }
 
-    const uploadResponse = await fetch(uploadUrl, {
-      method: 'PUT',
-      headers: { 'Content-Type': videoResponse.headers.get('content-type') ?? 'video/*' },
-      body: videoResponse.body,
-      signal: AbortSignal.timeout(UPLOAD_TIMEOUT_MS),
-      // @ts-expect-error Node's fetch requires this for streaming request bodies.
-      duplex: 'half',
-    })
+    let uploadResponse: Response
+    try {
+      uploadResponse = await fetch(uploadUrl, {
+        method: 'PUT',
+        headers: { 'Content-Type': videoResponse.headers.get('content-type') ?? 'video/*' },
+        body: videoResponse.body,
+        signal: AbortSignal.timeout(UPLOAD_TIMEOUT_MS),
+        // @ts-expect-error Node's fetch requires this for streaming request bodies.
+        duplex: 'half',
+      })
+    } catch (cause) {
+      const detail = cause instanceof Error ? cause.message : 'network error'
+      throw new Error(
+        `EXTERNAL_RESULT_UNKNOWN: YouTube upload lost its final response (${detail}). The video may already have been created, so automatic retry is blocked.`,
+      )
+    }
 
     if (!uploadResponse.ok) {
       const detail = await uploadResponse.text().catch(() => '')
+      if (uploadResponse.status >= 500) {
+        throw new Error(
+          `EXTERNAL_RESULT_UNKNOWN: YouTube upload returned ${uploadResponse.status} after video bytes were sent. The video may already exist, so automatic retry is blocked. Detail: ${detail.slice(0, 200)}`,
+        )
+      }
       throw new Error(
         `YouTube upload failed (${uploadResponse.status}): ${detail.slice(0, 300)} — try uploading directly at ${STUDIO_URL}.`,
       )
     }
 
-    const video = (await uploadResponse.json()) as { id: string }
-    return { externalPostId: video.id, externalUrl: `https://youtube.com/watch?v=${video.id}` }
+    let payload: unknown
+    try {
+      payload = await uploadResponse.json()
+    } catch {
+      throw new Error(
+        'EXTERNAL_RESULT_UNKNOWN: YouTube accepted the upload but returned an unreadable response. The video may already exist, so automatic retry is blocked.',
+      )
+    }
+
+    const videoId = (payload as { id?: unknown } | null)?.id
+    if (typeof videoId !== 'string' || !videoId) {
+      throw new Error(
+        'EXTERNAL_RESULT_UNKNOWN: YouTube accepted the upload but returned no video id. The video may already exist, so automatic retry is blocked.',
+      )
+    }
+
+    return { externalPostId: videoId, externalUrl: `https://youtube.com/watch?v=${videoId}` }
   }
 
-  /** Channel-wide: every comment thread across all of the channel's videos, newest first. */
   async fetchInbox(request: InboxFetchRequest): Promise<InboundInboxEvent[]> {
     if (!request.externalAccountId) throw new Error('YouTube inbox sync requires the connected channel id.')
     return fetchCommentThreads(request.accessToken, { allThreadsRelatedToChannelId: request.externalAccountId })
   }
 
-  /** One video's comment threads — `postId` is the YouTube video id. */
   async fetchComments(request: InboxFetchRequest & { postId: string }): Promise<InboundInboxEvent[]> {
     return fetchCommentThreads(request.accessToken, { videoId: request.postId })
   }
 
   async fetchMentions(): Promise<InboundInboxEvent[]> {
-    // Honest gap: the YouTube Data API has no mentions concept — it only
-    // exposes comments on videos/channels this account owns.
     throw new Error('YouTube has no mentions API — the Data API only exposes comments on your own videos/channel.')
   }
 
@@ -315,7 +346,6 @@ export class YouTubeConnectorAdapter implements SocialConnectorAdapter {
     throw new Error('YouTube has no direct-message API for creators — sending replies is not possible.')
   }
 
-  /** `videos.list?part=statistics` — covered by the already-granted youtube.readonly scope, no new consent needed. */
   async fetchMetrics(request: InboxFetchRequest & { postId: string }): Promise<PostMetrics> {
     return fetchVideoStatistics(request.accessToken, request.postId)
   }
