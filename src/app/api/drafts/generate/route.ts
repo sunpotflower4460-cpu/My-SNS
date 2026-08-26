@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto'
+import type { SupabaseClient } from '@supabase/supabase-js'
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createServiceClient } from '@/lib/supabase/service'
@@ -121,10 +122,20 @@ export async function POST(request: NextRequest) {
     })
   }
 
-  // Service role is safe here because auth/workspace/permission/Seed provenance
-  // were already checked above. It makes usage bookkeeping independent of a
-  // session/RLS change occurring after the paid model call.
-  const serviceClient = createServiceClient()
+  // Once Anthropic is configured, every paid call must be able to use the
+  // service-role ledger/claim path. Do not let a missing server credential turn
+  // into an unhandled 500 or a paid generation whose usage cannot be tracked.
+  let serviceClient: SupabaseClient
+  try {
+    serviceClient = createServiceClient()
+  } catch (cause) {
+    console.error('AI draft service client is unavailable:', cause)
+    return NextResponse.json(
+      { error: 'AI生成に必要なサーバー設定を確認できませんでした。管理者に設定確認を依頼してください。' },
+      { status: 503 },
+    )
+  }
+
   const monthlyBudgetUsd = configuredMonthlyAiBudgetUsd()
   let budgetClaimToken: string | null = null
 
@@ -159,9 +170,6 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // Stable before the billable call: if the subsequent ledger INSERT commits
-    // but its HTTP response is lost, recordAiGeneration reconciles this exact id
-    // instead of creating a duplicate cost row.
     const generationId = randomUUID()
 
     try {
@@ -184,9 +192,6 @@ export async function POST(request: NextRequest) {
         })
         recordedGenerationId = generation.id
       } catch (recordError) {
-        // The paid result is already here. Returning 502 would encourage the
-        // user to regenerate and pay twice. Preserve the usable output and make
-        // the bookkeeping problem explicit instead.
         console.error('AI draft generation succeeded but usage ledger persistence failed:', recordError)
         usageWarning = 'AI生成は成功しましたが、使用量の記録だけ保存できませんでした。生成結果はそのまま利用できます。'
       }
@@ -236,8 +241,6 @@ export async function POST(request: NextRequest) {
         }
       }
 
-      // The response itself was unusable, so unlike a successful proposal there
-      // is no safe output to return. Do not silently substitute a template.
       return NextResponse.json({ error: message }, { status: 502 })
     }
   } finally {
