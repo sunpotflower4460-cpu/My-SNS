@@ -149,7 +149,7 @@ export async function cancelReplyJob(workspaceId: string, jobId: string): Promis
 
   const { data, error } = await supabase
     .from('reply_jobs')
-    .update({ status: 'cancelled', claimed_at: null })
+    .update({ status: 'cancelled', claimed_at: null, claim_token: null })
     .eq('id', jobId)
     .eq('workspace_id', workspaceId)
     .eq('status', 'scheduled')
