@@ -95,11 +95,50 @@ describe('postTweetWithRetry', () => {
     expect(fetchMock).toHaveBeenCalledTimes(1)
   })
 
-  it('surfaces a non-429 failure without retrying', async () => {
+  it('treats a provider 5xx after the create POST as externally unknown', async () => {
     const fetchMock = vi.fn().mockResolvedValue(mockResponse({ ok: false, status: 500, body: { error: 'server error' } }))
     vi.stubGlobal('fetch', fetchMock)
 
-    await expect(postTweetWithRetry('hi', undefined, 'token')).rejects.toThrow(/500/)
+    await expect(postTweetWithRetry('hi', undefined, 'token')).rejects.toThrow(/EXTERNAL_RESULT_UNKNOWN/)
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+  })
+
+  it('treats a lost network response as externally unknown', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new TypeError('fetch failed')))
+
+    await expect(postTweetWithRetry('hi', undefined, 'token')).rejects.toThrow(/EXTERNAL_RESULT_UNKNOWN/)
+  })
+})
+
+describe('XConnectorAdapter credential refresh', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals()
+    delete process.env.X_CLIENT_ID
+    delete process.env.X_CLIENT_SECRET
+  })
+
+  it('returns the rotated token immediately without a profile lookup', async () => {
+    process.env.X_CLIENT_ID = 'client'
+    process.env.X_CLIENT_SECRET = 'secret'
+    const fetchMock = vi.fn().mockResolvedValue(
+      mockResponse({
+        ok: true,
+        status: 200,
+        body: {
+          token_type: 'bearer',
+          expires_in: 7200,
+          access_token: 'new-access',
+          refresh_token: 'new-refresh',
+          scope: 'tweet.read tweet.write offline.access',
+        },
+      }),
+    )
+    vi.stubGlobal('fetch', fetchMock)
+
+    const refreshed = await new XConnectorAdapter().refreshAccessToken('x', 'old-refresh')
+
+    expect(refreshed.accessToken).toBe('new-access')
+    expect(refreshed.refreshToken).toBe('new-refresh')
     expect(fetchMock).toHaveBeenCalledTimes(1)
   })
 })
