@@ -32,6 +32,13 @@ interface TriggerJob {
   draft_revisions: PublishableJob['revision']
 }
 
+function isUnsafeExternalRetry(errorMessage: string | null): boolean {
+  return Boolean(
+    errorMessage?.startsWith('PARTIAL_EXTERNAL_SUCCESS:')
+      || errorMessage?.startsWith('EXTERNAL_RESULT_UNKNOWN:'),
+  )
+}
+
 async function reconcilePendingTikTokPublish(
   serviceClient: SupabaseClient,
   job: TriggerJob,
@@ -74,12 +81,13 @@ async function reconcilePendingTikTokPublish(
     if (!completed) {
       // Another reconciliation may have completed it between the read above
       // and this update. Do not create a new TikTok post in that case.
-      const { data: current } = await serviceClient
+      const { data: current, error: currentError } = await serviceClient
         .from('publish_jobs')
         .select('status')
         .eq('id', job.id)
         .eq('workspace_id', job.workspace_id)
         .maybeSingle()
+      if (currentError) throw new Error(currentError.message)
       if (current?.status === 'published') return NextResponse.json({ success: true, reconciled: true })
       return NextResponse.json({ error: 'この投稿の状態が変更されました。公開予定を再読み込みしてください。' }, { status: 409 })
     }
@@ -174,6 +182,19 @@ export async function POST(request: NextRequest) {
 
   const serviceClient = createServiceClient()
   const typedJob = job as unknown as TriggerJob
+
+  // DB transition guards stop failed→scheduled for these states, but this
+  // endpoint executes failed jobs directly. Gate here too so the manual
+  // "Publish now" path cannot bypass the duplicate-post protection.
+  if (typedJob.status === 'failed' && isUnsafeExternalRetry(typedJob.error_message)) {
+    return NextResponse.json(
+      {
+        error:
+          '前回の投稿は外部サービス上で一部成功したか、成功したかどうか判定できない状態です。二重投稿を防ぐため再実行を停止しています。媒体側を確認し、このジョブをキャンセルして、必要なら新しいRevisionから明示的に公開してください。',
+      },
+      { status: 409 },
+    )
+  }
 
   // A timed-out TikTok operation keeps running at TikTok. Before a failed job
   // can start another publish, reconcile that durable publish_id first.
