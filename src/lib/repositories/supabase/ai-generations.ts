@@ -35,6 +35,13 @@ function mapGeneration(row: AiGenerationRow): AiGeneration {
 }
 
 export interface RecordAiGenerationInput {
+  /**
+   * Optional caller-owned idempotency key. AI routes generate this UUID before
+   * the billable model call. If the INSERT commits but its HTTP response is
+   * lost, recordAiGeneration can re-read the same durable row instead of
+   * treating a paid generation as failed (or inserting a second ledger row).
+   */
+  id?: string
   workspaceId: string
   /** Set for draft generations; a reply generation passes inboxItemId + purpose:'reply' instead. */
   seedId?: string
@@ -48,12 +55,25 @@ export interface RecordAiGenerationInput {
   createdBy: string
 }
 
+async function findGenerationById(supabase: SupabaseClient, id: string): Promise<AiGeneration | null> {
+  const { data, error } = await supabase
+    .from('ai_generations')
+    .select('*')
+    .eq('id', id)
+    .maybeSingle()
+
+  if (error) throw new Error(error.message)
+  return data ? mapGeneration(data as AiGenerationRow) : null
+}
+
 /**
  * Records one real AI generation call for cost/usage tracking — drafts (keyed
  * by seedId) and DM replies (keyed by inboxItemId, purpose:'reply') share one
- * ledger and one monthly budget sum. Requires a caller-provided Supabase client
- * (the API route's authenticated server client); never called for template
- * fallbacks, which cost nothing.
+ * ledger and one monthly budget sum. Never called for template fallbacks.
+ *
+ * With `input.id`, a failed INSERT response is reconciled by reading that same
+ * UUID. This handles the distributed-systems case where PostgreSQL committed
+ * the row but the HTTP response was lost, without duplicating usage/cost.
  */
 export async function recordAiGeneration(
   supabase: SupabaseClient,
@@ -62,6 +82,7 @@ export async function recordAiGeneration(
   const { data, error } = await supabase
     .from('ai_generations')
     .insert({
+      ...(input.id ? { id: input.id } : {}),
       workspace_id: input.workspaceId,
       seed_id: input.seedId ?? null,
       inbox_item_id: input.inboxItemId ?? null,
@@ -76,8 +97,22 @@ export async function recordAiGeneration(
     .select()
     .single()
 
-  if (error) throw new Error(error.message)
-  return mapGeneration(data as AiGenerationRow)
+  if (!error) return mapGeneration(data as AiGenerationRow)
+
+  if (input.id) {
+    // The write may have committed even though PostgREST/network returned an
+    // error to this request. Reconcile the exact caller-owned id before ever
+    // reporting that a paid model call has no ledger row.
+    try {
+      const reconciled = await findGenerationById(supabase, input.id)
+      if (reconciled) return reconciled
+    } catch (reconcileCause) {
+      const detail = reconcileCause instanceof Error ? reconcileCause.message : 'unknown reconciliation error'
+      throw new Error(`${error.message} (AI usage reconciliation also failed: ${detail})`)
+    }
+  }
+
+  throw new Error(error.message)
 }
 
 // See WORKSPACE_PUBLISH_ATTEMPTS_LIMIT's comment in publish-attempts.ts —
@@ -96,7 +131,7 @@ export async function listWorkspaceAiGenerations(workspaceId: string, limit = WO
     .limit(limit)
 
   if (error) {
-    console.error('Error fetching AI generations:', error)
+    console.error('Error fetching workspace AI generations:', error)
     return []
   }
 
@@ -104,18 +139,10 @@ export async function listWorkspaceAiGenerations(workspaceId: string, limit = WO
 }
 
 /**
- * Sum of `cost_usd` for this workspace since the start of the current
- * calendar month in UTC (not server local time — `created_at` is a
- * TIMESTAMPTZ, an instant, so UTC is the only unambiguous boundary; do not
- * "fix" this to use local getFullYear()/getMonth(), which would make the
- * budget boundary silently depend on the deploying server's timezone) — the
- * basis for PR9's optional
- * `ANTHROPIC_MONTHLY_BUDGET_USD` cap. Takes an explicit client because it's
- * called from /api/drafts/generate's request-scoped server client, before
- * the Anthropic call itself, not the browser client the rest of this file
- * uses. Only sums rows already recorded — cannot know this-call's cost in
- * advance, so it can only block the *next* call once the cap is already met,
- * not predict whether one specific call will cross it mid-flight.
+ * Sum of `cost_usd` for this workspace since the start of the current calendar
+ * month in UTC. Only sums rows already recorded — exact call cost is known only
+ * after Anthropic returns usage, so the configured cap can prevent the next
+ * call after the limit is reached but cannot predict a single call's final cost.
  */
 export async function getWorkspaceMonthlyAiCost(supabase: SupabaseClient, workspaceId: string): Promise<number> {
   const now = new Date()
