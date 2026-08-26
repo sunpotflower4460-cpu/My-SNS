@@ -5,8 +5,26 @@
 -- automatically: if the server dies after the provider accepted the create but
 -- before the DB can record success, the external result is unknown. Blocking a
 -- retry is safer than creating a duplicate calendar entry.
+--
+-- Notion/TimeTree credentials currently come from one app-wide env pair per
+-- provider. Until credentials become workspace-scoped, the first workspace to
+-- use a provider owns that configured destination so another workspace cannot
+-- accidentally mix its events into the same external calendar.
 
 BEGIN;
+
+CREATE TABLE public.calendar_provider_bindings (
+  provider TEXT PRIMARY KEY CHECK (provider IN ('notion', 'timetree')),
+  workspace_id UUID NOT NULL REFERENCES public.workspaces(id) ON DELETE CASCADE,
+  created_by UUID NOT NULL REFERENCES public.profiles(id) ON DELETE CASCADE,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+ALTER TABLE public.calendar_provider_bindings ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "Members can read their calendar provider bindings"
+  ON public.calendar_provider_bindings FOR SELECT
+  USING (public.is_workspace_member(workspace_id));
 
 CREATE TABLE public.calendar_sync_links (
   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
@@ -68,6 +86,20 @@ BEGIN
     WHERE id = p_calendar_event_id AND workspace_id = p_workspace_id
   ) THEN
     RAISE EXCEPTION 'Calendar event does not belong to this workspace.' USING ERRCODE = '23503';
+  END IF;
+
+  -- App-wide env credentials can only point at one destination per provider.
+  -- First legitimate use binds that destination to its workspace. A concurrent
+  -- claim from another workspace loses the PK race and fails the check below.
+  INSERT INTO public.calendar_provider_bindings (provider, workspace_id, created_by)
+  VALUES (p_provider, p_workspace_id, auth.uid())
+  ON CONFLICT (provider) DO NOTHING;
+
+  IF NOT EXISTS (
+    SELECT 1 FROM public.calendar_provider_bindings
+    WHERE provider = p_provider AND workspace_id = p_workspace_id
+  ) THEN
+    RAISE EXCEPTION 'This configured calendar provider is already bound to another workspace.' USING ERRCODE = '23514';
   END IF;
 
   INSERT INTO public.calendar_sync_links (
@@ -140,6 +172,8 @@ BEGIN
 END;
 $$;
 
+COMMENT ON TABLE public.calendar_provider_bindings IS
+  'Safety binding for app-wide Notion/TimeTree env credentials: one configured provider destination may be used by only one workspace until credentials become workspace-scoped.';
 COMMENT ON TABLE public.calendar_sync_links IS
   'Durable idempotency state for one in-app calendar event per external provider. pending is intentionally sticky when outcome is unknown to prevent duplicate external events.';
 
