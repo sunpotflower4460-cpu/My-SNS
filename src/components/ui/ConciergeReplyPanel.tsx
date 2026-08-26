@@ -145,7 +145,7 @@ export default function ConciergeReplyPanel({ item }: { item: InboxItem }) {
     setBusy('cancel')
     try {
       await cancelReplyJob(replyJob.id)
-      setNotice(replyJob.status === 'failed' ? '失敗した返信ジョブを閉じました。' : '返信予約を取りり消しました。')
+      setNotice(replyJob.status === 'failed' ? '失敗した返信ジョブを閉じました。' : '返信予約を取り消しました。')
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : '取り消せませんでした。')
     } finally {
