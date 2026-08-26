@@ -126,7 +126,12 @@ export async function POST(request: NextRequest) {
       })
     }
 
-    const message = cause instanceof Error ? cause.message : 'LINEの接続を完了できませんでした。'
-    return NextResponse.json({ error: message }, { status: 502 })
+    // Keep provider/database details server-side. Returning raw cause.message can
+    // expose token-endpoint or database implementation details in the UI.
+    console.error('Failed to complete LINE account connection:', cause)
+    return NextResponse.json(
+      { error: 'LINEの接続を完了できませんでした。設定を確認して、もう一度お試しください。' },
+      { status: 502 },
+    )
   }
 }
