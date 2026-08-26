@@ -53,6 +53,11 @@ export async function GET(request: NextRequest) {
     .eq('status', 'scheduled')
     .eq('publish_mode', 'auto')
     .lte('scheduled_at', new Date().toISOString())
+    // Always drain the oldest obligations first. Without an explicit order,
+    // Postgres may return any 20 due rows and a busy/newer subset can starve
+    // older scheduled posts indefinitely across cron ticks.
+    .order('scheduled_at', { ascending: true })
+    .order('created_at', { ascending: true })
     .limit(BATCH_SIZE)
 
   if (dueJobsError) {
