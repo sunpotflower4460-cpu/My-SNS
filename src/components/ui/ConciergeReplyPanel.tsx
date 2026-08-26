@@ -7,20 +7,6 @@ import type { ScheduleProposal } from '@/lib/services/interfaces'
 import { useApp } from '@/lib/app/app-provider'
 import { hasPermission } from '@/lib/permissions'
 
-// The concierge block for one inbound DM: it surfaces the AI's soft summary
-// ("この方はこう仰っています") and priority, the guesses it made (assumptions),
-// an editable "recommended reply", and an approve-and-send control with a
-// recipient-appropriate-time vs. send-now choice. It also reflects the state of
-// any reply job already created for this item (scheduled / sent / failed).
-//
-// Honesty (CLAUDE.md #4 #5 #7):
-// - Generating a summary/suggestion works for any DM, but SENDING is Phase-1
-//   LINE-only. Instagram DMs show a clear "受信のみ" state; sending is deferred
-//   until Meta's messaging permission + review.
-// - When Anthropic is unconfigured the suggestion is a template, shown as such
-//   (the generate call returns source 'template-fallback' with a reason).
-// - Nothing sends without the human pressing 承認して送信.
-
 const PRIORITY_LABELS: Record<'high' | 'normal' | 'low', string> = {
   high: '優先度: 高',
   normal: '優先度: 中',
@@ -35,6 +21,11 @@ const PRIORITY_STYLES: Record<'high' | 'normal' | 'low', string> = {
 
 function formatJst(value: string): string {
   return new Date(value).toLocaleString('ja-JP', { timeZone: 'Asia/Tokyo' })
+}
+
+/** Keep durable machine-readable safety markers in DB/logs, never in creator-facing copy. */
+function creatorFacingReplyError(message: string | undefined): string {
+  return (message ?? '').replace(/^(?:EXTERNAL_RESULT_UNKNOWN|PARTIAL_EXTERNAL_SUCCESS):\s*/u, '')
 }
 
 export default function ConciergeReplyPanel({ item }: { item: InboxItem }) {
@@ -62,12 +53,8 @@ export default function ConciergeReplyPanel({ item }: { item: InboxItem }) {
   const [busy, setBusy] = useState<null | 'generate' | 'send' | 'trigger' | 'cancel' | 'autosend' | 'schedule' | number>(null)
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
-  // Schedule extraction is ephemeral: proposals live in local state until the
-  // human approves one, which is the only thing that writes to the calendar.
   const [scheduleProposals, setScheduleProposals] = useState<ScheduleProposal[] | null>(null)
   const [addedProposals, setAddedProposals] = useState<Set<number>>(new Set())
-  // The suggestion text should seed the editor once, but not clobber the user's
-  // edits on every re-render. Track which suggestion id we've already applied.
   const [seededFrom, setSeededFrom] = useState<string | null>(suggestion?.id ?? null)
 
   const canReply = Boolean(currentMember && hasPermission(currentMember.role, 'reply_inbox'))
@@ -76,16 +63,14 @@ export default function ConciergeReplyPanel({ item }: { item: InboxItem }) {
     [socialAccounts],
   )
 
-  // Phase 1 send matrix: LINE sends; Instagram is receive-only; others unsupported.
   const sendSupported = item.platform === 'line'
   const isInstagram = item.platform === 'instagram'
-
   const canManageCalendar = Boolean(currentMember && hasPermission(currentMember.role, 'manage_calendar'))
   const replyResultUnknown = Boolean(
     replyJob?.status === 'failed' && replyJob.errorMessage?.startsWith('EXTERNAL_RESULT_UNKNOWN:'),
   )
+  const replyErrorText = creatorFacingReplyError(replyJob?.errorMessage)
 
-  // Seed the editor when a newer suggestion arrives (e.g. right after generate).
   if (suggestion && suggestion.id !== seededFrom) {
     setSeededFrom(suggestion.id)
     setReplyText(suggestion.suggestedText)
@@ -225,11 +210,6 @@ export default function ConciergeReplyPanel({ item }: { item: InboxItem }) {
     }
   }
 
-  // The composer is shown only when there's no reply job for this item, or the
-  // last one was cancelled. Once a reply is scheduled, sent, or failed, the
-  // job-status box below owns the next action (send-now / cancel / retry) — this
-  // prevents an armed composer from sitting above an already-sent reply, which
-  // could otherwise be re-approved into a duplicate DM to the recipient.
   const canCompose = !replyJob || replyJob.status === 'cancelled'
 
   return (
@@ -239,7 +219,6 @@ export default function ConciergeReplyPanel({ item }: { item: InboxItem }) {
         <p className="text-sm font-semibold text-violet-800">AIコンシェルジュ</p>
       </div>
 
-      {/* Summary + priority */}
       {item.aiSummary ? (
         <div className="mt-3">
           <p className="text-xs font-semibold text-gray-500">この方はこう仰っています</p>
@@ -252,25 +231,19 @@ export default function ConciergeReplyPanel({ item }: { item: InboxItem }) {
         </div>
       ) : (
         <p className="mt-3 text-sm text-gray-500">
-          {canReply
-            ? 'AIに要約と返信案を作ってもらいましょう。'
-            : 'AIによる要約・返信案はまだありません。'}
+          {canReply ? 'AIに要約と返信案を作ってもらいましょう。' : 'AIによる要約・返信案はまだありません。'}
         </p>
       )}
 
-      {/* Assumptions the AI guessed */}
       {suggestion && suggestion.assumptions.length > 0 && (
         <div className="mt-3 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2">
           <p className="text-xs font-semibold text-amber-700">AIの推測（確認してください）</p>
           <ul className="mt-1 list-disc space-y-0.5 pl-4 text-xs text-amber-700">
-            {suggestion.assumptions.map((assumption, index) => (
-              <li key={index}>{assumption}</li>
-            ))}
+            {suggestion.assumptions.map((assumption, index) => <li key={index}>{assumption}</li>)}
           </ul>
         </div>
       )}
 
-      {/* Generate button (when no suggestion yet) */}
       {!suggestion && canReply && (
         <button
           onClick={handleGenerate}
@@ -281,8 +254,6 @@ export default function ConciergeReplyPanel({ item }: { item: InboxItem }) {
         </button>
       )}
 
-      {/* Recommended reply editor + send controls — only while composing (no
-          active/terminal job, or the last one was cancelled). */}
       {suggestion && canCompose && (
         <div className="mt-4">
           <div className="flex items-center justify-between gap-2">
@@ -342,7 +313,6 @@ export default function ConciergeReplyPanel({ item }: { item: InboxItem }) {
             </>
           )}
 
-          {/* Honest disabled states for sending */}
           {canReply && isInstagram && (
             <p className="mt-3 rounded-xl border border-stone-200 bg-white px-3 py-2 text-xs text-gray-500">
               Instagram DMは現在<strong>受信のみ</strong>対応です（送信はMetaのメッセージ送信権限と審査が必要なため、今後対応予定）。要約と返信案の作成まではご利用いただけます。
@@ -356,11 +326,8 @@ export default function ConciergeReplyPanel({ item }: { item: InboxItem }) {
         </div>
       )}
 
-      {/* Reply job status. A cancelled job shows nothing here — the composer is
-          re-enabled above so the user can write a fresh reply. */}
       {replyJob && replyJob.status !== 'cancelled' && (
         <div className="mt-4 rounded-2xl border border-stone-200 bg-white px-4 py-3 text-sm">
-          {/* The approved reply text this job carries (immutable snapshot). */}
           <p className="whitespace-pre-wrap text-sm leading-6 text-gray-600">{replyJob.replyText}</p>
 
           <div className="mt-3 border-t border-stone-100 pt-3">
@@ -385,7 +352,7 @@ export default function ConciergeReplyPanel({ item }: { item: InboxItem }) {
             {replyJob.status === 'failed' && (
               <div className="space-y-2">
                 <div className="flex flex-wrap items-center gap-2">
-                  <span className="text-rose-700">✗ 送信失敗{replyJob.errorMessage ? `: ${replyJob.errorMessage}` : ''}</span>
+                  <span className="text-rose-700">✗ 送信失敗{replyErrorText ? `: ${replyErrorText}` : ''}</span>
                   {canReply && sendSupported && (
                     <div className="ml-auto flex items-center gap-2">
                       {!replyResultUnknown && (
@@ -410,8 +377,6 @@ export default function ConciergeReplyPanel({ item }: { item: InboxItem }) {
         </div>
       )}
 
-      {/* Schedule extraction (Phase 3). Proposal-only: nothing lands on the
-          calendar until the human taps カレンダーに追加 on a specific proposal. */}
       {canManageCalendar && (
         <div className="mt-4 rounded-2xl border border-stone-200 bg-white px-4 py-3">
           <div className="flex items-center justify-between gap-3">
@@ -458,9 +423,6 @@ export default function ConciergeReplyPanel({ item }: { item: InboxItem }) {
         </div>
       )}
 
-      {/* Per-contact auto-send opt-in (LINE only). Off by default. When on, the
-          concierge drafts and queues replies to THIS contact without per-message
-          approval — always with a cancel window + notification, never instant. */}
       {canReply && sendSupported && contact && (
         <div className="mt-4 flex items-start justify-between gap-3 rounded-2xl border border-stone-200 bg-white px-4 py-3">
           <div className="min-w-0">
