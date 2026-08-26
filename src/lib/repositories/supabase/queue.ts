@@ -172,6 +172,7 @@ export async function retryPublishJob(
       scheduled_at: scheduledAt.toISOString(),
       error_message: null,
       claimed_at: null,
+      claim_token: null,
     })
     .eq('id', jobId)
     .eq('workspace_id', workspaceId)
@@ -203,6 +204,7 @@ export async function cancelPublishJob(
     .update({
       status: 'cancelled',
       claimed_at: null,
+      claim_token: null,
     })
     .eq('id', jobId)
     .eq('workspace_id', workspaceId)
@@ -245,6 +247,8 @@ export async function markPublishJobManuallyCompleted(
       status: 'published',
       published_at: new Date().toISOString(),
       error_message: null,
+      claimed_at: null,
+      claim_token: null,
     })
     .eq('id', jobId)
     .eq('workspace_id', workspaceId)
