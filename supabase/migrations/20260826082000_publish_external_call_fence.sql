@@ -9,8 +9,9 @@
 -- platform. The same Worker clears the fence only when it durably records a
 -- provider rejection that is safe to retry. If the process/database disappears
 -- anywhere after claim acquisition, the fence survives and stale reclaim is
--- suppressed. This intentionally trades rare manual reconciliation for never
--- blindly duplicating a public post.
+-- suppressed. A fenced job may be reclaimed only when an append-only SUCCESS
+-- attempt already proves the external call completed; that reclaim is used only
+-- to reconcile the job to published without issuing another platform create.
 
 BEGIN;
 
@@ -18,7 +19,7 @@ ALTER TABLE public.publish_jobs
   ADD COLUMN IF NOT EXISTS external_call_started_at TIMESTAMPTZ;
 
 COMMENT ON COLUMN public.publish_jobs.external_call_started_at IS
-  'Conservative irreversible-side-effect fence automatically set when the service-role Worker claims a job. Cleared only after a durably recorded safe provider rejection; otherwise blocks automatic replay.';
+  'Conservative irreversible-side-effect fence automatically set when the service-role Worker claims a job. Cleared after confirmed publication or a durably recorded safe provider rejection; otherwise blocks automatic replay.';
 
 -- Deployment-race repair: a Worker may already be in flight when this migration
 -- is applied, so that claim could not have passed through the new trigger yet.
@@ -100,6 +101,7 @@ DECLARE
     NEW.claim_token IS NOT NULL
     AND NEW.claim_token IS DISTINCT FROM OLD.claim_token;
   v_service_role BOOLEAN := COALESCE(auth.role(), '') = 'service_role';
+  v_confirmed_success BOOLEAN := FALSE;
 BEGIN
   IF NEW.workspace_id IS DISTINCT FROM OLD.workspace_id
      OR NEW.seed_id IS DISTINCT FROM OLD.seed_id
@@ -121,21 +123,39 @@ BEGIN
   END IF;
 
   IF v_new_claim THEN
-    -- A non-null fence means an older Worker vanished after entering the phase
-    -- where an external post may have been created. Silently suppress the stale
-    -- reclaim (RETURN NULL => UPDATE affects zero rows) so processPublishJob
-    -- reports a skipped claim rather than issuing another platform create.
     IF OLD.external_call_started_at IS NOT NULL THEN
-      RETURN NULL;
-    END IF;
+      -- Normally a surviving fence means an older Worker may already have
+      -- created the external post, so replay must be suppressed. The sole safe
+      -- exception is when the append-only attempt log already contains SUCCESS:
+      -- processPublishJob checks that log immediately after claiming and then
+      -- reconciles status='published' without calling the provider again.
+      SELECT EXISTS (
+        SELECT 1
+        FROM public.publish_attempts
+        WHERE publish_job_id = OLD.id
+          AND status = 'success'::public.publish_attempt_status
+      ) INTO v_confirmed_success;
 
-    NEW.external_call_started_at := NOW();
+      IF NOT v_confirmed_success THEN
+        RETURN NULL;
+      END IF;
+    ELSE
+      NEW.external_call_started_at := NOW();
+    END IF;
   END IF;
 
-  -- A service Worker may clear its own conservative fence only while durably
+  -- Once publication is durably confirmed, the fence has served its purpose.
+  -- Clearing it on the same service-owned terminal update keeps the row honest
+  -- while the published terminal state and success attempt remain authoritative.
+  IF v_service_role
+     AND OLD.external_call_started_at IS NOT NULL
+     AND NEW.status = 'published'::public.publish_job_status
+     AND NEW.claim_token IS NULL THEN
+    NEW.external_call_started_at := NULL;
+  -- A service Worker may also clear its conservative fence while durably
   -- transitioning to an ordinary failed result whose provider response proves
   -- retry is safe. Unknown/partial-result markers deliberately retain it.
-  IF v_service_role
+  ELSIF v_service_role
      AND OLD.external_call_started_at IS NOT NULL
      AND NEW.status = 'failed'::public.publish_job_status
      AND NEW.claim_token IS NULL
@@ -199,6 +219,6 @@ $$;
 COMMENT ON FUNCTION public.guard_publish_job_insert() IS
   'Validates immutable Revision provenance and prevents reusing a Revision after any fenced/ambiguous external publish operation.';
 COMMENT ON FUNCTION public.guard_publish_job_update() IS
-  'Automatically fences service-role publish claims, suppresses ambiguous stale reclaim, preserves unsafe markers, and clears the fence only for durably safe provider rejection.';
+  'Automatically fences service-role publish claims, suppresses ambiguous stale replay, permits claim-only success reconciliation from durable attempts, preserves unsafe markers, and clears the fence after confirmed publication or a durably safe provider rejection.';
 
 COMMIT;
