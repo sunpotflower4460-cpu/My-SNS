@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import type { SupabaseClient } from '@supabase/supabase-js'
 import { createClient } from '@/lib/supabase/server'
 import { createServiceClient } from '@/lib/supabase/service'
 import { processReplyJob } from '@/lib/services/reply-worker'
@@ -79,7 +80,16 @@ export async function POST(request: NextRequest) {
     )
   }
 
-  const serviceClient = createServiceClient()
+  let serviceClient: SupabaseClient
+  try {
+    serviceClient = createServiceClient()
+  } catch (cause) {
+    console.error('Reply trigger service client is unavailable:', cause)
+    return NextResponse.json(
+      { error: '返信処理に必要なサーバー設定を確認できませんでした。管理者に設定確認を依頼してください。' },
+      { status: 503 },
+    )
+  }
 
   let result
   try {
