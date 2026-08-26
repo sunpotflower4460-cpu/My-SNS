@@ -79,8 +79,6 @@ async function reconcilePendingTikTokPublish(
 
     if (error) throw new Error(error.message)
     if (!completed) {
-      // Another reconciliation may have completed it between the read above
-      // and this update. Do not create a new TikTok post in that case.
       const { data: current, error: currentError } = await serviceClient
         .from('publish_jobs')
         .select('status')
@@ -92,9 +90,6 @@ async function reconcilePendingTikTokPublish(
       return NextResponse.json({ error: 'この投稿の状態が変更されました。公開予定を再読み込みしてください。' }, { status: 409 })
     }
 
-    // Job state is already terminal before these best-effort bookkeeping
-    // writes. Even if analytics/audit persistence fails, a retry cannot create
-    // a duplicate external TikTok post.
     await recordPublishAttempt(serviceClient, {
       workspaceId: job.workspace_id,
       publishJobId: job.id,
@@ -116,8 +111,6 @@ async function reconcilePendingTikTokPublish(
     return NextResponse.json({ success: true, reconciled: true })
   }
 
-  // TikTok has definitively failed the previous operation. Returning null lets
-  // this same user-initiated retry proceed to a fresh publish safely.
   return null
 }
 
@@ -161,8 +154,6 @@ export async function POST(request: NextRequest) {
     )
   }
 
-  // RLS-scoped to the caller's own workspace even though the rest of this
-  // route uses the service-role client below (needed for credentials access).
   const { data: job, error: jobError } = await supabase
     .from('publish_jobs')
     .select('id, workspace_id, channel, created_by, seed_id, publish_mode, status, error_message, draft_revisions!inner(title, body, hashtags, cta, metadata)')
@@ -180,12 +171,19 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: `このジョブはすでに${job.status}の状態です。` }, { status: 400 })
   }
 
-  const serviceClient = createServiceClient()
+  let serviceClient: SupabaseClient
+  try {
+    serviceClient = createServiceClient()
+  } catch (cause) {
+    console.error('Publish trigger service client is unavailable:', cause)
+    return NextResponse.json(
+      { error: '公開処理に必要なサーバー設定を確認できませんでした。管理者に設定確認を依頼してください。' },
+      { status: 503 },
+    )
+  }
+
   const typedJob = job as unknown as TriggerJob
 
-  // DB transition guards stop failed→scheduled for these states, but this
-  // endpoint executes failed jobs directly. Gate here too so the manual
-  // "Publish now" path cannot bypass the duplicate-post protection.
   if (typedJob.status === 'failed' && isUnsafeExternalRetry(typedJob.error_message)) {
     return NextResponse.json(
       {
@@ -196,8 +194,6 @@ export async function POST(request: NextRequest) {
     )
   }
 
-  // A timed-out TikTok operation keeps running at TikTok. Before a failed job
-  // can start another publish, reconcile that durable publish_id first.
   const pendingTikTokId = typedJob.channel === 'tiktok' && typedJob.status === 'failed'
     ? parseTikTokPendingPublishId(typedJob.error_message)
     : null
@@ -228,10 +224,11 @@ export async function POST(request: NextRequest) {
       revision,
     })
   } catch (cause) {
-    // claimPublishJob can throw on a transient DB failure before
-    // processPublishJob enters its normal per-job error handling.
+    // Do not expose PostgREST/Supabase internals to the browser. The detailed
+    // error remains in server logs for diagnosis.
+    console.error(`Failed to start publish processing for job ${typedJob.id}:`, cause)
     return NextResponse.json(
-      { error: cause instanceof Error ? cause.message : '公開処理を開始できませんでした。' },
+      { error: '公開処理を開始できませんでした。通信状態を確認してからもう一度お試しください。' },
       { status: 503 },
     )
   }
