@@ -5,6 +5,7 @@ import { consumeOAuthState } from '@/lib/repositories/supabase/oauth-states'
 import {
   deletePendingSocialAccount,
   finalizeSocialAccountConnection,
+  getSocialAccountById,
   upsertPendingSocialAccount,
 } from '@/lib/repositories/supabase/social-accounts'
 import { deleteSocialCredentials, saveSocialCredentials } from '@/lib/repositories/supabase/social-credentials'
@@ -77,14 +78,25 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
     })
 
     await finalizeSocialConnectionWithCleanup({
-      finalize: async () => { await finalizeSocialAccountConnection(supabase, account.id) },
+      finalize: async () => finalizeSocialAccountConnection(supabase, account.id),
+      verifyFinalized: async () => {
+        const current = await getSocialAccountById(supabase, account.id)
+        return current?.connected ? current : null
+      },
       cleanup: async () => { await deleteSocialCredentials(serviceClient, account.id) },
+      onVerificationError: (verificationCause) => {
+        console.error(`Could not verify whether ${platform} connection finalization committed:`, verificationCause)
+      },
       onCleanupError: (cleanupCause) => {
         console.error(`Failed to clean credentials after ${platform} connection finalization failed:`, cleanupCause)
       },
     })
 
-    await supabase.from('audit_logs').insert({
+    // From here the row is durably connected (either the RPC response was
+    // received, or the reconciliation read confirmed a lost-response commit).
+    pendingAccountId = null
+
+    const { error: auditError } = await supabase.from('audit_logs').insert({
       workspace_id: consumed.workspaceId,
       actor_id: user.id,
       action: 'social_account_connected',
@@ -92,6 +104,11 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
       target_id: account.id,
       metadata: { platform, handle: connected.handle },
     })
+    if (auditError) {
+      // Connection is already authoritative. Audit failure is observability,
+      // not a reason to roll back or report a false connection failure.
+      console.error(`Failed to audit ${platform} social account connection:`, auditError)
+    }
 
     settingsUrl.searchParams.set('connected', platform)
     return NextResponse.redirect(settingsUrl)
