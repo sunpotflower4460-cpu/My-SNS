@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
+import { createServiceClient } from '@/lib/supabase/service'
 import { mapSeed, SEED_SELECT, type SeedRow } from '@/lib/repositories/supabase/seeds'
 import { getWorkspaceMonthlyAiCost, recordAiGeneration } from '@/lib/repositories/supabase/ai-generations'
 import { listRecentAiRevisionsForStyleLearning } from '@/lib/repositories/supabase/draft-revisions'
@@ -14,6 +15,11 @@ import {
   generateChannelDraftsWithAnthropic,
   isAnthropicConfigured,
 } from '@/lib/services/anthropic-draft'
+import {
+  claimWorkspaceAiBudget,
+  configuredMonthlyAiBudgetUsd,
+  releaseWorkspaceAiBudget,
+} from '@/lib/services/ai-generation-claims'
 
 const VALID_CHANNELS = new Set(Object.keys(PUBLISHING_CHANNEL_CONFIG))
 const VALID_LENGTHS = new Set(['short', 'medium', 'long'])
@@ -116,85 +122,113 @@ export async function POST(request: NextRequest) {
     })
   }
 
-  // Optional guardrail (PR9): unset means no cap, matching every other
-  // budget-adjacent env var in this app (unset cost-per-token rates just
-  // mean cost stays 0, never a hard stop) — this is an opt-in ceiling, not
-  // a security boundary, so it fails open rather than closed when unset.
-  // Can only block the *next* call once the cap is already met — there is
-  // no way to know this call's own cost before making it.
-  const monthlyBudgetUsd = Number(process.env.ANTHROPIC_MONTHLY_BUDGET_USD)
-  if (Number.isFinite(monthlyBudgetUsd) && monthlyBudgetUsd > 0) {
-    const spentUsd = await getWorkspaceMonthlyAiCost(supabase, workspaceId)
-    if (spentUsd >= monthlyBudgetUsd) {
-      return NextResponse.json(
-        {
-          error: `このワークスペースの今月のAI予算（$${monthlyBudgetUsd.toFixed(2)}）に達しました（使用額 $${spentUsd.toFixed(2)}）。ANTHROPIC_MONTHLY_BUDGET_USDを引き上げるか、来月まで待ってください。`,
-        },
-        { status: 402 },
-      )
+  const monthlyBudgetUsd = configuredMonthlyAiBudgetUsd()
+  const serviceClient = monthlyBudgetUsd !== null ? createServiceClient() : null
+  let budgetClaimToken: string | null = null
+
+  if (monthlyBudgetUsd !== null && serviceClient) {
+    try {
+      budgetClaimToken = await claimWorkspaceAiBudget(serviceClient, workspaceId)
+    } catch (cause) {
+      console.error('Failed to claim AI budget slot:', cause)
+      return NextResponse.json({ error: 'AI予算の確認を開始できませんでした。少し待ってから再試行してください。' }, { status: 503 })
+    }
+    if (!budgetClaimToken) {
+      return NextResponse.json({ error: 'このワークスペースでは別のAI処理が実行中です。完了後に再試行してください。' }, { status: 409 })
     }
   }
 
   try {
-    const result = await generateChannelDraftsWithAnthropic(seed, typedChannels, tone, typedLength, context)
-    const costUsd = calculateGenerationCost(result.inputTokens, result.outputTokens)
-
-    const generation = await recordAiGeneration(supabase, {
-      workspaceId,
-      seedId,
-      channels: typedChannels,
-      model: result.model,
-      inputTokens: result.inputTokens,
-      outputTokens: result.outputTokens,
-      costUsd,
-      createdBy: user.id,
-    })
-
-    await supabase.from('audit_logs').insert({
-      workspace_id: workspaceId,
-      actor_id: user.id,
-      action: 'draft_ai_generated',
-      target_type: 'seed',
-      target_id: seedId,
-      // styleExamplesUsed: traceability for PR7's cross-Seed style learning —
-      // this generation's prompt may have included wording a human approved
-      // on a *different* Seed (see listRecentAiRevisionsForStyleLearning),
-      // so the audit log should say when that happened, not just that a
-      // generation occurred.
-      metadata: { channels: typedChannels, model: result.model, aiGenerationId: generation.id, styleExamplesUsed: styleExamples.length },
-    })
-
-    return NextResponse.json({
-      source: 'ai',
-      model: result.model,
-      aiGenerationId: generation.id,
-      drafts: result.drafts,
-    })
-  } catch (cause) {
-    const message = cause instanceof Error ? cause.message : 'AIによる下書き生成に失敗しました。'
-
-    // The Anthropic call itself may have succeeded (and been billed) even
-    // though the response couldn't be turned into valid drafts. Record what
-    // was actually spent so ai_generations doesn't silently under-report cost.
-    if (cause instanceof AnthropicGenerationError) {
+    // Re-read spend only after the workspace mutex is held. This closes the
+    // old race where many simultaneous requests all saw the same pre-call total
+    // and each proceeded independently. One individual call can still cross a
+    // small remaining balance because its exact token cost is only known after
+    // Anthropic returns usage.
+    if (monthlyBudgetUsd !== null && serviceClient) {
+      let spentUsd: number
       try {
-        await recordAiGeneration(supabase, {
-          workspaceId,
-          seedId,
-          channels: typedChannels,
-          model: cause.usage.model,
-          inputTokens: cause.usage.inputTokens,
-          outputTokens: cause.usage.outputTokens,
-          costUsd: calculateGenerationCost(cause.usage.inputTokens, cause.usage.outputTokens),
-          createdBy: user.id,
-        })
-      } catch (recordError) {
-        console.error('Failed to record AI generation usage after a failed generation:', recordError)
+        spentUsd = await getWorkspaceMonthlyAiCost(serviceClient, workspaceId)
+      } catch (cause) {
+        console.error('Failed to read AI budget usage:', cause)
+        return NextResponse.json({ error: 'AI予算の使用額を確認できないため、安全のため生成を停止しました。' }, { status: 503 })
+      }
+      if (spentUsd >= monthlyBudgetUsd) {
+        return NextResponse.json(
+          {
+            error: `このワークスペースの今月のAI予算（$${monthlyBudgetUsd.toFixed(2)}）に達しました（使用額 $${spentUsd.toFixed(2)}）。ANTHROPIC_MONTHLY_BUDGET_USDを引き上げるか、来月まで待ってください。`,
+          },
+          { status: 402 },
+        )
       }
     }
 
-    // Fail closed: no fallback here. Silently substituting templates for a
-    // failed AI call would misrepresent them as intentional, reviewed output.
-    return NextResponse.json({ error: message }, { status: 502 })
+    try {
+      const result = await generateChannelDraftsWithAnthropic(seed, typedChannels, tone, typedLength, context)
+      const costUsd = calculateGenerationCost(result.inputTokens, result.outputTokens)
+
+      const generation = await recordAiGeneration(supabase, {
+        workspaceId,
+        seedId,
+        channels: typedChannels,
+        model: result.model,
+        inputTokens: result.inputTokens,
+        outputTokens: result.outputTokens,
+        costUsd,
+        createdBy: user.id,
+      })
+
+      await supabase.from('audit_logs').insert({
+        workspace_id: workspaceId,
+        actor_id: user.id,
+        action: 'draft_ai_generated',
+        target_type: 'seed',
+        target_id: seedId,
+        // styleExamplesUsed: traceability for PR7's cross-Seed style learning —
+        // this generation's prompt may have included wording a human approved
+        // on a *different* Seed (see listRecentAiRevisionsForStyleLearning),
+        // so the audit log should say when that happened, not just that a
+        // generation occurred.
+        metadata: { channels: typedChannels, model: result.model, aiGenerationId: generation.id, styleExamplesUsed: styleExamples.length },
+      })
+
+      return NextResponse.json({
+        source: 'ai',
+        model: result.model,
+        aiGenerationId: generation.id,
+        drafts: result.drafts,
+      })
+    } catch (cause) {
+      const message = cause instanceof Error ? cause.message : 'AIによる下書き生成に失敗しました。'
+
+      // The Anthropic call itself may have succeeded (and been billed) even
+      // though the response couldn't be turned into valid drafts. Record what
+      // was actually spent so ai_generations doesn't silently under-report cost.
+      if (cause instanceof AnthropicGenerationError) {
+        try {
+          await recordAiGeneration(supabase, {
+            workspaceId,
+            seedId,
+            channels: typedChannels,
+            model: cause.usage.model,
+            inputTokens: cause.usage.inputTokens,
+            outputTokens: cause.usage.outputTokens,
+            costUsd: calculateGenerationCost(cause.usage.inputTokens, cause.usage.outputTokens),
+            createdBy: user.id,
+          })
+        } catch (recordError) {
+          console.error('Failed to record AI generation usage after a failed generation:', recordError)
+        }
+      }
+
+      // Fail closed: no fallback here. Silently substituting templates for a
+      // failed AI call would misrepresent them as intentional, reviewed output.
+      return NextResponse.json({ error: message }, { status: 502 })
+    }
+  } finally {
+    if (budgetClaimToken && serviceClient) {
+      await releaseWorkspaceAiBudget(serviceClient, workspaceId, budgetClaimToken).catch((cause) =>
+        console.error('Failed to release AI budget claim:', cause),
+      )
+    }
   }
 }
