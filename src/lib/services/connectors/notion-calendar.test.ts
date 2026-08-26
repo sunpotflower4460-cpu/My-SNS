@@ -28,8 +28,6 @@ describe('NotionCalendarConnector', () => {
     })
 
     it('sends the JST calendar date for an all-day event, not the UTC-sliced date', async () => {
-      // 2026-07-21T15:00Z == 2026-07-22 00:00 JST. Slicing the UTC string would
-      // wrongly yield 2026-07-21; the JST date is 2026-07-22.
       const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
         new Response(JSON.stringify({ id: 'page-1', url: 'https://notion.so/page-1' }), { status: 200 }),
       )
@@ -52,9 +50,32 @@ describe('NotionCalendarConnector', () => {
       expect(body.properties.Date.date.start).toBe('2026-07-21T06:00:00.000Z')
     })
 
-    it('throws (fails closed) on a non-OK Notion response', async () => {
+    it('treats an explicit 4xx rejection as a normal confirmed failure', async () => {
       vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response('bad', { status: 401 }))
-      await expect(new NotionCalendarConnector().syncEvent({ title: 'x', startsAt: '2026-07-21T06:00:00.000Z', allDay: false })).rejects.toThrow()
+      const promise = new NotionCalendarConnector().syncEvent({ title: 'x', startsAt: '2026-07-21T06:00:00.000Z', allDay: false })
+      await expect(promise).rejects.toThrow(/Notion同期に失敗/)
+      await expect(promise).rejects.not.toThrow(/EXTERNAL_RESULT_UNKNOWN/)
+    })
+
+    it('marks a provider 5xx after create POST as externally unknown', async () => {
+      vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response('temporary', { status: 503 }))
+      await expect(
+        new NotionCalendarConnector().syncEvent({ title: 'x', startsAt: '2026-07-21T06:00:00.000Z', allDay: false }),
+      ).rejects.toThrow(/EXTERNAL_RESULT_UNKNOWN/)
+    })
+
+    it('marks a lost create response as externally unknown', async () => {
+      vi.spyOn(globalThis, 'fetch').mockRejectedValue(new TypeError('fetch failed'))
+      await expect(
+        new NotionCalendarConnector().syncEvent({ title: 'x', startsAt: '2026-07-21T06:00:00.000Z', allDay: false }),
+      ).rejects.toThrow(/EXTERNAL_RESULT_UNKNOWN/)
+    })
+
+    it('marks a success response without a page id as externally unknown', async () => {
+      vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(JSON.stringify({ url: 'https://notion.so/maybe' }), { status: 200 }))
+      await expect(
+        new NotionCalendarConnector().syncEvent({ title: 'x', startsAt: '2026-07-21T06:00:00.000Z', allDay: false }),
+      ).rejects.toThrow(/EXTERNAL_RESULT_UNKNOWN/)
     })
   })
 })
