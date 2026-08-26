@@ -14,17 +14,25 @@ import { hasPermission } from '@/lib/permissions'
 // notify on failure. Never throws — a failure is always recorded, not lost.
 
 const STALE_CLAIM_MINUTES = 10
+// LINE keeps X-Line-Retry-Key idempotency state for 24 hours. Never automatically
+// reclaim a send claim older than this safety window: after LINE forgets the key,
+// replaying the job could become a genuinely new push. A human can inspect and
+// close/cancel such a stranded job rather than risk a duplicate recipient DM.
+const LINE_RETRY_KEY_SAFE_RECLAIM_HOURS = 23
 
-function staleClaimFilter(): string {
-  const staleBefore = new Date(Date.now() - STALE_CLAIM_MINUTES * 60_000).toISOString()
-  return `claimed_at.is.null,claimed_at.lt.${staleBefore}`
+function reclaimableClaimFilter(): string {
+  const now = Date.now()
+  const staleBefore = new Date(now - STALE_CLAIM_MINUTES * 60_000).toISOString()
+  const retryKeyStillSafeAfter = new Date(now - LINE_RETRY_KEY_SAFE_RECLAIM_HOURS * 60 * 60_000).toISOString()
+  return `claimed_at.is.null,and(claimed_at.lt.${staleBefore},claimed_at.gt.${retryKeyStillSafeAfter})`
 }
 
 /**
  * Atomically marks a reply job as being sent right now. The token is the
  * ownership proof; claimed_at is only the stale/liveness clock. A request that
  * returns after a newer Worker reclaimed a stale job therefore cannot clear or
- * overwrite the newer claim.
+ * overwrite the newer claim. Claims older than the provider retry-key window
+ * are deliberately not reclaimed automatically.
  */
 async function claimReplyJob(supabase: SupabaseClient, jobId: string): Promise<string | null> {
   const claimToken = crypto.randomUUID()
@@ -33,7 +41,7 @@ async function claimReplyJob(supabase: SupabaseClient, jobId: string): Promise<s
     .update({ claimed_at: new Date().toISOString(), claim_token: claimToken })
     .eq('id', jobId)
     .in('status', ['scheduled', 'failed'])
-    .or(staleClaimFilter())
+    .or(reclaimableClaimFilter())
     .select('id')
     .maybeSingle()
 
@@ -136,8 +144,8 @@ export async function processReplyJob(supabase: SupabaseClient, job: ReplyableJo
   const claimToken = await claimReplyJob(supabase, job.id)
   if (!claimToken) {
     // Someone else (another "Send now", or an overlapping Worker tick) is
-    // already actively sending this — never attempt a second, possibly
-    // duplicate, real push.
+    // already actively sending this — or this is an old ambiguous claim outside
+    // LINE's 24h retry-key window. In either case never blindly issue a new push.
     return { success: false, skipped: true }
   }
 
@@ -168,6 +176,10 @@ export async function processReplyJob(supabase: SupabaseClient, job: ReplyableJo
       target: job.sendTarget,
       text: job.replyText,
       externalAccountId: credentials.externalAccountId,
+      // Stable across every attempt for this immutable reply job. LINE receives
+      // this on the first push and on every safe retry, so a lost DB response
+      // cannot turn into a duplicate recipient message.
+      retryKey: job.id,
     })
     confirmedReply = result
 
@@ -195,9 +207,8 @@ export async function processReplyJob(supabase: SupabaseClient, job: ReplyableJo
 
     return { success: true }
   } catch (cause) {
-    // A confirmed LINE push must never be rewritten as a failed send merely
-    // because later database bookkeeping failed. Reconcile the success and,
-    // most importantly, keep future Worker runs from pushing the message again.
+    // A confirmed LINE push (including a 409 retry-key reconciliation) must
+    // never be rewritten as failed merely because later DB bookkeeping failed.
     if (confirmedReply) {
       try {
         if (!(await hasSuccessfulReplyAttempt(supabase, job.id))) {
@@ -248,8 +259,9 @@ export async function processReplyJob(supabase: SupabaseClient, job: ReplyableJo
       await notifyReplyFailure(supabase, job, message)
     } catch (unexpected) {
       // Safety net: a DB hiccup recording *why* this send failed must never
-      // throw out of this function. The claim may be left set; it will be
-      // treated as abandoned and reclaimable after STALE_CLAIM_MINUTES.
+      // throw out of this function. The claim may be left set; it is only
+      // automatically reclaimable while LINE still remembers this job's retry
+      // key, preventing a very old ambiguous send from being replayed as new.
       console.error(`Unexpected error finishing reply_job ${job.id}:`, unexpected)
     }
 
