@@ -21,15 +21,16 @@ function staleClaimFilter(): string {
 }
 
 /**
- * Atomically marks a reply job as being sent right now. Returns false if
- * another still-active claim already exists — the caller must not send in that
- * case (a real LINE push could already be in flight). This is what makes
- * "Send now" safe to click twice and stops a cancel racing an in-flight send.
+ * Atomically marks a reply job as being sent right now. The token is the
+ * ownership proof; claimed_at is only the stale/liveness clock. A request that
+ * returns after a newer Worker reclaimed a stale job therefore cannot clear or
+ * overwrite the newer claim.
  */
-async function claimReplyJob(supabase: SupabaseClient, jobId: string): Promise<boolean> {
+async function claimReplyJob(supabase: SupabaseClient, jobId: string): Promise<string | null> {
+  const claimToken = crypto.randomUUID()
   const { data, error } = await supabase
     .from('reply_jobs')
-    .update({ claimed_at: new Date().toISOString() })
+    .update({ claimed_at: new Date().toISOString(), claim_token: claimToken })
     .eq('id', jobId)
     .in('status', ['scheduled', 'failed'])
     .or(staleClaimFilter())
@@ -37,16 +38,22 @@ async function claimReplyJob(supabase: SupabaseClient, jobId: string): Promise<b
     .maybeSingle()
 
   if (error) throw new Error(error.message)
-  return Boolean(data)
+  return data ? claimToken : null
 }
 
-async function releaseReplyJobClaim(supabase: SupabaseClient, jobId: string, fields: Record<string, unknown>): Promise<boolean> {
+async function releaseReplyJobClaim(
+  supabase: SupabaseClient,
+  jobId: string,
+  claimToken: string,
+  fields: Record<string, unknown>,
+): Promise<boolean> {
   const { data, error } = await supabase
     .from('reply_jobs')
-    .update({ ...fields, claimed_at: null })
+    .update({ ...fields, claimed_at: null, claim_token: null })
     .eq('id', jobId)
-    // Guard against a human cancelling in the brief window after the claim:
-    // never overwrite a 'cancelled' or already-reconciled 'sent' job.
+    .eq('claim_token', claimToken)
+    // Guard against a human cancelling, a stale reclaim by a newer Worker, or
+    // an already-reconciled sent row.
     .in('status', ['scheduled', 'failed'])
     .select('id')
     .maybeSingle()
@@ -126,8 +133,8 @@ type ConfirmedReplyResult = {
  * rest of the due jobs in the same run.
  */
 export async function processReplyJob(supabase: SupabaseClient, job: ReplyableJob): Promise<ProcessReplyResult> {
-  const claimed = await claimReplyJob(supabase, job.id)
-  if (!claimed) {
+  const claimToken = await claimReplyJob(supabase, job.id)
+  if (!claimToken) {
     // Someone else (another "Send now", or an overlapping Worker tick) is
     // already actively sending this — never attempt a second, possibly
     // duplicate, real push.
@@ -141,7 +148,7 @@ export async function processReplyJob(supabase: SupabaseClient, job: ReplyableJo
     // reply_jobs row failed afterwards, reconcile from the durable success
     // attempt and never send the same message again.
     if (await hasSuccessfulReplyAttempt(supabase, job.id)) {
-      await releaseReplyJobClaim(supabase, job.id, {
+      await releaseReplyJobClaim(supabase, job.id, claimToken, {
         status: 'sent',
         sent_at: new Date().toISOString(),
         error_message: null,
@@ -171,7 +178,11 @@ export async function processReplyJob(supabase: SupabaseClient, job: ReplyableJo
       externalMessageId: result.externalMessageId,
     })
 
-    await releaseReplyJobClaim(supabase, job.id, { status: 'sent', sent_at: new Date().toISOString(), error_message: null })
+    await releaseReplyJobClaim(supabase, job.id, claimToken, {
+      status: 'sent',
+      sent_at: new Date().toISOString(),
+      error_message: null,
+    })
 
     await supabase.from('audit_logs').insert({
       workspace_id: job.workspaceId,
@@ -197,7 +208,7 @@ export async function processReplyJob(supabase: SupabaseClient, job: ReplyableJo
             externalMessageId: confirmedReply.externalMessageId,
           })
         }
-        await releaseReplyJobClaim(supabase, job.id, {
+        await releaseReplyJobClaim(supabase, job.id, claimToken, {
           status: 'sent',
           sent_at: new Date().toISOString(),
           error_message: null,
@@ -223,7 +234,7 @@ export async function processReplyJob(supabase: SupabaseClient, job: ReplyableJo
         errorMessage: message,
       })
 
-      await releaseReplyJobClaim(supabase, job.id, { status: 'failed', error_message: message })
+      await releaseReplyJobClaim(supabase, job.id, claimToken, { status: 'failed', error_message: message })
 
       await supabase.from('audit_logs').insert({
         workspace_id: job.workspaceId,
