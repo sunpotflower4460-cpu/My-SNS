@@ -53,6 +53,7 @@ export default function ConciergeReplyPanel({ item }: { item: InboxItem }) {
   const [busy, setBusy] = useState<null | 'generate' | 'send' | 'trigger' | 'cancel' | 'autosend' | 'schedule' | number>(null)
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
+  const [warning, setWarning] = useState('')
   const [scheduleProposals, setScheduleProposals] = useState<ScheduleProposal[] | null>(null)
   const [addedProposals, setAddedProposals] = useState<Set<number>>(new Set())
   const [seededFrom, setSeededFrom] = useState<string | null>(suggestion?.id ?? null)
@@ -79,6 +80,7 @@ export default function ConciergeReplyPanel({ item }: { item: InboxItem }) {
   const resetMessages = () => {
     setError('')
     setNotice('')
+    setWarning('')
   }
 
   const handleGenerate = async () => {
@@ -86,8 +88,10 @@ export default function ConciergeReplyPanel({ item }: { item: InboxItem }) {
     setBusy('generate')
     try {
       const result = await generateInboxReply(item.id)
+      const usageWarning = (result as typeof result & { usageWarning?: string }).usageWarning
       setReplyText(result.reply)
       setSeededFrom(result.suggestionId)
+      setWarning(usageWarning ?? '')
       if (result.source === 'template-fallback') {
         setNotice(result.reason ?? 'AIが未設定のため、定型文を表示しています。')
       }
@@ -141,7 +145,7 @@ export default function ConciergeReplyPanel({ item }: { item: InboxItem }) {
     setBusy('cancel')
     try {
       await cancelReplyJob(replyJob.id)
-      setNotice(replyJob.status === 'failed' ? '失敗した返信ジョブを閉じました。' : '返信予約を取り消しました。')
+      setNotice(replyJob.status === 'failed' ? '失敗した返信ジョブを閉じました。' : '返信予約を取りり消しました。')
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : '取り消せませんでした。')
     } finally {
@@ -172,8 +176,10 @@ export default function ConciergeReplyPanel({ item }: { item: InboxItem }) {
     setBusy('schedule')
     try {
       const result = await extractSchedule(item.id)
+      const usageWarning = (result as typeof result & { usageWarning?: string }).usageWarning
       setScheduleProposals(result.proposals)
       setAddedProposals(new Set())
+      setWarning(usageWarning ?? '')
       if (result.source === 'unavailable') {
         setNotice(result.reason ?? 'AIが未設定のため、予定の抽出は利用できません。')
       } else if (result.proposals.length === 0) {
@@ -445,6 +451,7 @@ export default function ConciergeReplyPanel({ item }: { item: InboxItem }) {
         </div>
       )}
 
+      {warning && <p className="mt-3 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs leading-5 text-amber-800">{warning} 続けてAI処理を行う前に、管理者へ使用量台帳の確認を依頼してください。</p>}
       {notice && <p className="mt-3 text-xs text-green-700">{notice}</p>}
       {error && <p className="mt-3 text-xs text-rose-600">{error}</p>}
     </div>
