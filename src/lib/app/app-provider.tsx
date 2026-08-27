@@ -210,6 +210,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       try {
         const userWorkspaces = await workspacesRepo.getUserWorkspaces(currentUserId!)
         setWorkspaces(userWorkspaces)
+        setWorkspaceDataError(null)
 
         // Set active workspace
         if (userWorkspaces.length > 0) {
@@ -219,6 +220,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         }
       } catch (error) {
         console.error('Error loading workspaces:', error)
+        setWorkspaceDataError(
+          error instanceof Error
+            ? error.message
+            : 'ワークスペース一覧の読み込みに失敗しました。未所属として扱わず、再読み込みしてください。',
+        )
       } finally {
         setIsReady(true)
       }

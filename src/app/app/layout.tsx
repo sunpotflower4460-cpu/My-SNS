@@ -10,7 +10,7 @@ import { useAuth } from '@/lib/auth/auth-provider'
 export default function AppLayout({ children }: { children: React.ReactNode }) {
   const router = useRouter()
   const { user: currentUser, isAuthenticated, isReady: sessionReady, signOut } = useAuth()
-  const { currentWorkspace, currentMember, isReady: appReady } = useApp()
+  const { currentWorkspace, currentMember, isReady: appReady, workspaceDataError, refreshWorkspaceData, workspaces } = useApp()
 
   useEffect(() => {
     if (sessionReady && !isAuthenticated) {
@@ -32,13 +32,36 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
     return null
   }
 
+  // A transient read failure must not look like "you have no workspace".
+  if (workspaceDataError && (!currentWorkspace || !currentMember)) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-stone-50 px-6">
+        <div className="w-full max-w-xl rounded-3xl border border-amber-200 bg-amber-50 px-6 py-5 text-sm text-amber-950 shadow-sm">
+          <p className="font-medium">ワークスペースを読み込めませんでした</p>
+          <p className="mt-2 text-amber-900">{workspaceDataError}</p>
+          <button
+            type="button"
+            onClick={() => void refreshWorkspaceData()}
+            className="mt-4 rounded-2xl border border-amber-300 bg-white px-4 py-2 text-sm text-amber-950 transition hover:bg-amber-100"
+          >
+            再読み込み
+          </button>
+        </div>
+      </div>
+    )
+  }
+
   if (!currentWorkspace || !currentMember) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-stone-50 px-6">
         <div className="w-full max-w-xl">
           <EmptyState
             title="利用できるワークスペースがありません"
-            description="このアカウントにはまだ有効なワークスペースがないか、保存されていたワークスペースが利用できなくなっています。"
+            description={
+              workspaces.length === 0
+                ? 'このアカウントにはまだ有効なワークスペースがありません。'
+                : '保存されていたワークスペースが利用できなくなっているか、権限がありません。'
+            }
             action={
               <button
                 onClick={() => {

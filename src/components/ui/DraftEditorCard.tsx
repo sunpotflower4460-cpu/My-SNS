@@ -42,8 +42,10 @@ export default function DraftEditorCard({ draft, onEdit, onApprove, onRegenerate
   }
 
   const handleSave = () => {
+    // Keep isDirty until draft.draftText catches up via parent refresh.
+    // Clearing it eagerly would re-enable 予約する against a stale Revision
+    // if persistDraft fails.
     onEdit?.(draft.id, text)
-    setIsDirty(false)
   }
 
   const handleApprove = () => {

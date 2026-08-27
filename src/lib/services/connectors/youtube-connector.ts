@@ -234,7 +234,7 @@ export class YouTubeConnectorAdapter implements SocialConnectorAdapter {
     const mediaUrl = request.metadata.mediaUrl
     if (typeof mediaUrl !== 'string' || !mediaUrl) {
       throw new Error(
-        `YouTube requires a video file. Attach one to this draft before scheduling (not yet built) — or upload directly at ${STUDIO_URL}.`,
+        `YouTube requires a video file. Attach an image/video to this Seed (channel assignment optional) before scheduling — or upload directly at ${STUDIO_URL}.`,
       )
     }
 
