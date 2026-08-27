@@ -1,7 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createServiceClient } from '@/lib/supabase/service'
-import { finalizeSocialAccountConnection, upsertPendingSocialAccount } from '@/lib/repositories/supabase/social-accounts'
+import {
+  deletePendingSocialAccount,
+  finalizeSocialAccountConnection,
+  getSocialAccountById,
+  upsertPendingSocialAccount,
+} from '@/lib/repositories/supabase/social-accounts'
 import { deleteSocialCredentials, saveSocialCredentials } from '@/lib/repositories/supabase/social-credentials'
 import { getConnectorAdapter, isLineConfigured } from '@/lib/services/connectors'
 import { finalizeSocialConnectionWithCleanup } from '@/lib/services/social-connection-finalization'
@@ -54,6 +59,8 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'LINE_CHANNEL_ACCESS_TOKENが未設定です。デプロイの環境変数を設定してください。' }, { status: 400 })
   }
 
+  let pendingAccountId: string | null = null
+
   try {
     const adapter = getConnectorAdapter('line')
     // LINE ignores authCode/redirectUri — it reads the channel token from env
@@ -66,6 +73,7 @@ export async function POST(request: NextRequest) {
       handle: connected.handle,
       externalAccountId: connected.externalAccountId,
     })
+    pendingAccountId = account.id
 
     const serviceClient = createServiceClient()
     await saveSocialCredentials(serviceClient, account.id, {
@@ -75,15 +83,27 @@ export async function POST(request: NextRequest) {
       scopes: connected.scopes,
     })
 
-    await finalizeSocialConnectionWithCleanup({
-      finalize: async () => { await finalizeSocialAccountConnection(supabase, account.id) },
+    const finalizedAccount = await finalizeSocialConnectionWithCleanup({
+      finalize: async () => finalizeSocialAccountConnection(supabase, account.id),
+      verifyFinalized: async () => {
+        // Use service-role verification so a simultaneous membership/RLS change
+        // cannot hide a successfully committed row and trick cleanup into
+        // deleting the credential of the live LINE connection.
+        const current = await getSocialAccountById(serviceClient, account.id)
+        return current?.connected ? current : null
+      },
       cleanup: async () => { await deleteSocialCredentials(serviceClient, account.id) },
+      onVerificationError: (verificationCause) => {
+        console.error('Could not verify whether LINE connection finalization committed:', verificationCause)
+      },
       onCleanupError: (cleanupCause) => {
         console.error('Failed to clean credentials after LINE connection finalization failed:', cleanupCause)
       },
     })
 
-    await supabase.from('audit_logs').insert({
+    pendingAccountId = null
+
+    const { error: auditError } = await supabase.from('audit_logs').insert({
       workspace_id: workspaceId,
       actor_id: user.id,
       action: 'line_account_connected',
@@ -91,10 +111,27 @@ export async function POST(request: NextRequest) {
       target_id: account.id,
       metadata: { platform: 'line', handle: connected.handle },
     })
+    if (auditError) {
+      console.error('Failed to audit LINE social account connection:', auditError)
+    }
 
-    return NextResponse.json({ account })
+    // Return the finalized row, not the disconnected staging snapshot created
+    // before the credential write. This keeps client state immediately aligned
+    // with the durable DB connection without requiring a page reload.
+    return NextResponse.json({ account: finalizedAccount })
   } catch (cause) {
-    const message = cause instanceof Error ? cause.message : 'LINEの接続を完了できませんでした。'
-    return NextResponse.json({ error: message }, { status: 502 })
+    if (pendingAccountId) {
+      await deletePendingSocialAccount(supabase, pendingAccountId).catch((cleanupCause) => {
+        console.error('Failed to remove pending LINE account after connection failure:', cleanupCause)
+      })
+    }
+
+    // Keep provider/database details server-side. Returning raw cause.message can
+    // expose token-endpoint or database implementation details in the UI.
+    console.error('Failed to complete LINE account connection:', cause)
+    return NextResponse.json(
+      { error: 'LINEの接続を完了できませんでした。設定を確認して、もう一度お試しください。' },
+      { status: 502 },
+    )
   }
 }

@@ -67,7 +67,10 @@ export default function SeedDetailPage() {
     setTargetChannels(detail.seed.targetChannels)
     setBrandProfileId(detail.seed.brandProfileId ?? '')
     setTags(detail.seed.tags.join(', '))
-  }, [detail.seed])
+    // Only re-seed the form when this Seed identity or its durable update stamp
+    // changes — refreshWorkspaceData() rebuilds object identity every time.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [detail.seed?.id, detail.seed?.updatedAt])
 
   const selectedBrandProfile = brandProfiles.find((profile) => profile.id === brandProfileId) ?? null
   const normalizedTags = useMemo(() => normalizeTags(tags), [tags])

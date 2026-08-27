@@ -10,11 +10,6 @@ import {
   type ProviderSyncOutcome,
 } from '@/lib/services/calendar-sync'
 
-// Pushes one calendar event to every configured external provider (Notion /
-// TimeTree). A durable DB claim is acquired BEFORE any external create call so
-// double-clicks, HTTP retries, and overlapping requests cannot create duplicate
-// provider events. A pending/unknown result is intentionally never auto-retried.
-
 interface SyncBody {
   workspaceId?: string
   eventId?: string
@@ -30,6 +25,14 @@ interface CalendarSyncLinkRow {
 function orderOutcomes(outcomes: ProviderSyncOutcome[]): ProviderSyncOutcome[] {
   const order = new Map(CALENDAR_SYNC_PROVIDERS.map((provider, index) => [provider, index]))
   return outcomes.slice().sort((left, right) => (order.get(left.provider) ?? 99) - (order.get(right.provider) ?? 99))
+}
+
+function isExternalResultUnknown(error: string | undefined): boolean {
+  return Boolean(error?.startsWith('EXTERNAL_RESULT_UNKNOWN:'))
+}
+
+function creatorFacingCalendarError(error: string | undefined): string {
+  return (error ?? '外部同期の結果を確認できませんでした。').replace(/^EXTERNAL_RESULT_UNKNOWN:\s*/u, '')
 }
 
 export async function POST(request: NextRequest) {
@@ -65,7 +68,6 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'このワークスペースでカレンダーを編集する権限がありません。' }, { status: 403 })
   }
 
-  // RLS-scoped to the caller's workspace.
   const { data: event, error: eventError } = await supabase
     .from('calendar_events')
     .select('title, description, starts_at, ends_at, all_day, location')
@@ -103,7 +105,8 @@ export async function POST(request: NextRequest) {
     })
 
     if (claimError) {
-      outcomes.push({ provider, status: 'failed', error: `同期開始を記録できませんでした: ${claimError.message}` })
+      console.error(`Failed to claim ${provider} calendar sync:`, claimError)
+      outcomes.push({ provider, status: 'failed', error: '同期開始を安全に記録できませんでした。外部予定は作成していません。' })
       continue
     }
 
@@ -148,6 +151,19 @@ export async function POST(request: NextRequest) {
     const freshOutcomes = await syncEventToProviders(calendarEvent, claimedProviders)
 
     for (const outcome of freshOutcomes) {
+      // The connector crossed the external create boundary but could not prove
+      // whether the provider committed it. Do NOT convert the durable claim to
+      // failed: leaving it pending is what prevents the next click/request from
+      // creating a duplicate real calendar entry.
+      if (outcome.status === 'failed' && isExternalResultUnknown(outcome.error)) {
+        outcomes.push({
+          provider: outcome.provider,
+          status: 'failed',
+          error: `${creatorFacingCalendarError(outcome.error)} 外部カレンダーを確認するまで再同期は停止されています。`,
+        })
+        continue
+      }
+
       const finalStatus = outcome.status === 'synced' ? 'synced' : 'failed'
       const { error: finishError } = await supabase.rpc('finish_calendar_sync', {
         p_workspace_id: workspaceId,
@@ -160,9 +176,6 @@ export async function POST(request: NextRequest) {
       })
 
       if (finishError) {
-        // If the provider create succeeded but this bookkeeping write failed,
-        // the claim remains pending. Future requests will refuse to create
-        // another external event, avoiding the original duplicate-sync bug.
         outcomes.push({
           provider: outcome.provider,
           status: 'failed',

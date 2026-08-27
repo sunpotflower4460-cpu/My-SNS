@@ -4,15 +4,12 @@ import type {
   ConnectOptions,
   PublishRequest,
   PublishResult,
+  RefreshedCredentials,
   SendMessageResult,
   SocialConnectorAdapter,
 } from '../interfaces'
+import { assertTrustedPublishMediaUrl } from '@/lib/security/trusted-publish-media-url'
 import { deriveCodeChallenge, generateCodeVerifier } from './pkce'
-
-// TikTok for Developers — Login Kit (OAuth 2.0 + PKCE) and Content Posting
-// API, Direct Post via PULL_FROM_URL (TikTok fetches the video itself,
-// rather than this app streaming bytes the way YouTube's upload requires).
-// https://developers.tiktok.com/doc/content-posting-api-get-started
 
 const AUTHORIZE_URL = 'https://www.tiktok.com/v2/auth/authorize/'
 const TOKEN_URL = 'https://open.tiktokapis.com/v2/oauth/token/'
@@ -20,19 +17,11 @@ const CREATOR_INFO_URL = 'https://open.tiktokapis.com/v2/post/publish/creator_in
 const POST_INIT_URL = 'https://open.tiktokapis.com/v2/post/publish/video/init/'
 const POST_STATUS_URL = 'https://open.tiktokapis.com/v2/post/publish/status/fetch/'
 const SCOPES = ['user.info.basic', 'video.publish']
+const TIKTOK_REQUEST_TIMEOUT_MS = 30_000
 
-// Bounded polling: TikTok processes a PULL_FROM_URL post asynchronously.
-// This app is a serverless request/response route, not a long-running
-// worker, so it polls briefly and then reports "still processing" rather
-// than blocking indefinitely — the post keeps processing on TikTok's side
-// regardless of whether this app is still watching.
 const STATUS_POLL_ATTEMPTS = 5
 const STATUS_POLL_INTERVAL_MS = 2_000
 
-// processPublishJob persists thrown error messages on publish_jobs. Encoding the
-// provider operation id in that durable message lets the next manual retry
-// reconcile the existing TikTok operation before it is ever allowed to create
-// another post. Keep this prefix stable; /api/publish/trigger parses it.
 export const TIKTOK_PENDING_ERROR_PREFIX = 'TIKTOK_PENDING:'
 
 export type TikTokPublishCheck =
@@ -86,6 +75,7 @@ async function requestToken(body: URLSearchParams): Promise<TokenResponse> {
     method: 'POST',
     headers: { 'Content-Type': 'application/x-www-form-urlencoded', Accept: 'application/json' },
     body: body.toString(),
+    signal: AbortSignal.timeout(TIKTOK_REQUEST_TIMEOUT_MS),
   })
 
   const payload = await response.json().catch(() => null)
@@ -104,6 +94,7 @@ async function tiktokApi<T>(url: string, accessToken: string, body: Record<strin
       'Content-Type': 'application/json; charset=UTF-8',
     },
     body: JSON.stringify(body),
+    signal: AbortSignal.timeout(TIKTOK_REQUEST_TIMEOUT_MS),
   })
 
   const payload = (await response.json().catch(() => null)) as { data?: T; error?: { code: string; message: string } } | null
@@ -116,16 +107,75 @@ async function tiktokApi<T>(url: string, accessToken: string, body: Record<strin
   return payload?.data as T
 }
 
+/**
+ * Direct Post init starts TikTok's irreversible PULL_FROM_URL operation. Once
+ * this request crosses the provider boundary, a lost response or 5xx cannot
+ * prove that no post was started. Mark those outcomes unsafe to retry rather
+ * than create a second publish operation with no way to reconcile the first.
+ */
+async function initTikTokPublish(
+  accessToken: string,
+  body: Record<string, unknown>,
+): Promise<{ publish_id: string }> {
+  let response: Response
+  try {
+    response = await fetch(POST_INIT_URL, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        'Content-Type': 'application/json; charset=UTF-8',
+      },
+      body: JSON.stringify(body),
+      signal: AbortSignal.timeout(TIKTOK_REQUEST_TIMEOUT_MS),
+    })
+  } catch (cause) {
+    const detail = cause instanceof Error ? cause.message : 'network error'
+    throw new Error(
+      `EXTERNAL_RESULT_UNKNOWN: TikTok publish initialization lost its response (${detail}). A post may already be processing, so automatic retry is blocked.`,
+    )
+  }
+
+  const payload = (await response.json().catch(() => null)) as {
+    data?: { publish_id?: unknown }
+    error?: { code: string; message: string }
+  } | null
+
+  if (!response.ok || (payload?.error && payload.error.code !== 'ok')) {
+    const detail = payload?.error?.message ?? `HTTP ${response.status}`
+    if (response.status >= 500) {
+      throw new Error(
+        `EXTERNAL_RESULT_UNKNOWN: TikTok publish initialization returned ${response.status}. A post may already be processing, so automatic retry is blocked. Detail: ${detail}`,
+      )
+    }
+    throw new Error(`TikTok API error: ${detail}`)
+  }
+
+  const publishId = payload?.data?.publish_id
+  if (typeof publishId !== 'string' || !publishId) {
+    throw new Error(
+      'EXTERNAL_RESULT_UNKNOWN: TikTok accepted publish initialization but returned no publish_id. A post may already be processing, so automatic retry is blocked.',
+    )
+  }
+
+  return { publish_id: publishId }
+}
+
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms))
 }
 
-function toConnectedAccount(token: TokenResponse, nickname: string): ConnectedAccount {
+function toRefreshedCredentials(token: TokenResponse): RefreshedCredentials {
   return {
     accessToken: token.access_token,
     refreshToken: token.refresh_token,
     expiresAt: new Date(Date.now() + token.expires_in * 1000).toISOString(),
     scopes: token.scope.split(',').filter(Boolean),
+  }
+}
+
+function toConnectedAccount(token: TokenResponse, nickname: string): ConnectedAccount {
+  return {
+    ...toRefreshedCredentials(token),
     externalAccountId: token.open_id,
     handle: nickname,
   }
@@ -137,7 +187,6 @@ interface TikTokPublishStatusResponse {
   publicaly_available_post_id?: string[]
 }
 
-/** Durable publish id embedded by publish() when its bounded polling times out. */
 export function parseTikTokPendingPublishId(message: string | null | undefined): string | null {
   if (!message?.startsWith(TIKTOK_PENDING_ERROR_PREFIX)) return null
   const remainder = message.slice(TIKTOK_PENDING_ERROR_PREFIX.length)
@@ -146,7 +195,6 @@ export function parseTikTokPendingPublishId(message: string | null | undefined):
   return publishId || null
 }
 
-/** Checks an already-started TikTok publish without creating another post. */
 export async function checkTikTokPublishStatus(accessToken: string, publishId: string): Promise<TikTokPublishCheck> {
   const status = await tiktokApi<TikTokPublishStatusResponse>(POST_STATUS_URL, accessToken, { publish_id: publishId })
 
@@ -181,22 +229,21 @@ export class TikTokConnectorAdapter implements SocialConnectorAdapter {
     // the caller) is sufficient — the token simply stops being used.
   }
 
-  async refreshAccessToken(_platform: SocialPlatform, refreshToken: string): Promise<ConnectedAccount> {
+  async refreshAccessToken(_platform: SocialPlatform, refreshToken: string): Promise<RefreshedCredentials> {
+    // TikTok may return a new refresh token. Persist it immediately; creator
+    // profile lookup is not part of credential renewal and must not be able to
+    // discard a successful rotating-token response.
     const token = await requestToken(new URLSearchParams({ grant_type: 'refresh_token', refresh_token: refreshToken }))
-    const creatorInfo = await tiktokApi<{ creator_nickname: string }>(CREATOR_INFO_URL, token.access_token, {})
-    return toConnectedAccount(token, creatorInfo.creator_nickname)
+    return toRefreshedCredentials(token)
   }
 
   async publish(request: PublishRequest): Promise<PublishResult> {
     const mediaUrl = request.metadata.mediaUrl
     if (typeof mediaUrl !== 'string' || !mediaUrl) {
-      // Honest gap, same as YouTube/Instagram: no PR attaches media to a
-      // Revision yet, and TikTok's Direct Post API requires a video.
       throw new Error('TikTok requires a video URL. Attach one to this draft before scheduling (not yet built).')
     }
+    const trustedMediaUrl = assertTrustedPublishMediaUrl(mediaUrl).toString()
 
-    // Confirms the creator can currently post and surfaces TikTok's own
-    // per-account limits (duration, privacy options) before attempting one.
     const creatorInfo = await tiktokApi<{
       max_video_post_duration_sec: number
       privacy_level_options: string[]
@@ -207,18 +254,11 @@ export class TikTokConnectorAdapter implements SocialConnectorAdapter {
     }
 
     const title = [request.title ?? request.body, request.cta].filter(Boolean).join(' ')
-    // AIGC = "AI-generated content" as defined by TikTok's disclosure
-    // policy — about the video/audio itself, not whether the caption text
-    // was AI-assisted. This app has no way to know that about the attached
-    // media, so it only sets the flag when explicitly told to.
     const isAigcContent = request.metadata.isAigcContent === true
 
-    const init = await tiktokApi<{ publish_id: string }>(POST_INIT_URL, request.accessToken, {
+    const init = await initTikTokPublish(request.accessToken, {
       post_info: {
         title,
-        // Hardcoded: unaudited apps can only post SELF_ONLY. Making this
-        // configurable is future work for once the app passes TikTok's
-        // Content Posting API audit (see docs/master-plan.md §6 phase 2).
         privacy_level: 'SELF_ONLY',
         disable_duet: false,
         disable_comment: false,
@@ -227,7 +267,7 @@ export class TikTokConnectorAdapter implements SocialConnectorAdapter {
       },
       source_info: {
         source: 'PULL_FROM_URL',
-        video_url: mediaUrl,
+        video_url: trustedMediaUrl,
       },
     })
 
@@ -243,44 +283,21 @@ export class TikTokConnectorAdapter implements SocialConnectorAdapter {
       }
     }
 
-    // The operation may still complete after this request ends. Persist the
-    // publish_id inside the durable failure message so a later retry first
-    // checks this same operation instead of creating a second real post.
     throw new Error(
       `${TIKTOK_PENDING_ERROR_PREFIX}${init.publish_id}:TikTok is still processing this post after ${STATUS_POLL_ATTEMPTS * (STATUS_POLL_INTERVAL_MS / 1000)}s. Retry will check this existing publish before starting a new one.`,
     )
   }
 
-  // Honest gap, not a stub: the Content Posting API scope this app requests
-  // (user.info.basic, video.publish) does not include reading engagement
-  // data, and TikTok's separate Display/Research APIs that do require a
-  // distinct application review this app has not completed — see
-  // docs/master-plan.md §6 phase 2.
   private readonly readAccessGap =
     "TikTok comment/mention/DM sync is not available: this app's Content Posting API scope does not include reading engagement data, and TikTok's Display API requires separate application review not yet completed."
 
-  async fetchInbox(): Promise<InboundInboxEvent[]> {
-    throw new Error(this.readAccessGap)
-  }
-
-  async fetchComments(): Promise<InboundInboxEvent[]> {
-    throw new Error(this.readAccessGap)
-  }
-
-  async fetchMentions(): Promise<InboundInboxEvent[]> {
-    throw new Error(this.readAccessGap)
-  }
-
-  async fetchMessages(): Promise<InboundInboxEvent[]> {
-    throw new Error(this.readAccessGap)
-  }
-
-  async fetchMetrics(): Promise<PostMetrics> {
-    throw new Error(this.readAccessGap)
-  }
+  async fetchInbox(): Promise<InboundInboxEvent[]> { throw new Error(this.readAccessGap) }
+  async fetchComments(): Promise<InboundInboxEvent[]> { throw new Error(this.readAccessGap) }
+  async fetchMentions(): Promise<InboundInboxEvent[]> { throw new Error(this.readAccessGap) }
+  async fetchMessages(): Promise<InboundInboxEvent[]> { throw new Error(this.readAccessGap) }
+  async fetchMetrics(): Promise<PostMetrics> { throw new Error(this.readAccessGap) }
 
   async sendMessage(): Promise<SendMessageResult> {
-    // TikTok has no third-party consumer DM API — sending replies is not possible.
     throw new Error('TikTokは第三者向けのDM APIを提供していないため、返信の送信は未対応です。')
   }
 

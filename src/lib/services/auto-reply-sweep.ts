@@ -1,34 +1,30 @@
+import { randomUUID } from 'node:crypto'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import type { BrandProfile } from '@/lib/domain/types'
 import { generateReplyWithAnthropic, AnthropicReplyGenerationError } from './anthropic-reply'
 import { calculateGenerationCost, isAnthropicConfigured } from './anthropic-draft'
+import {
+  claimInboxReplyGeneration,
+  claimWorkspaceAiBudget,
+  configuredMonthlyAiBudgetUsd,
+  releaseInboxReplyGeneration,
+  releaseWorkspaceAiBudget,
+} from './ai-generation-claims'
 import { computeRecipientSendTime, ensureMinimumLead } from './reply-timing'
 import { getWorkspaceMonthlyAiCost, recordAiGeneration } from '@/lib/repositories/supabase/ai-generations'
 import { getDefaultBrandProfileForClient } from '@/lib/repositories/supabase/brand-profiles'
 import { listContactReplyExamples } from '@/lib/repositories/supabase/reply-learning'
 import { getMyCreatorStatus } from '@/lib/repositories/supabase/creator-status'
-import { createReplyJob } from '@/lib/repositories/supabase/reply-queue'
 import { createNotifications } from '@/lib/repositories/supabase/notifications'
 
-// The opt-in auto-reply sweep (Phase 2). For contacts the creator has explicitly
-// flipped `auto_send_enabled` on, this drafts a reply AND enqueues it without a
-// per-message approval — the deliberate exception to CLAUDE.md #4.
-//
-// Every safety rail lives here, not in the caller:
-// - Opt-in only: an inner join on messaging_contacts.auto_send_enabled = true.
-// - Never steps on human work: items that already have a suggestion OR a reply
-//   job are skipped (the creator may be mid-review).
-// - Never an instant send: the schedule is floored to a minimum cancel-window
-//   lead (ensureMinimumLead) even during the recipient's waking hours, and the
-//   creator is notified so they can edit or cancel before it goes.
-// - Fail-closed: no Anthropic key, over monthly budget, no connected LINE
-//   account, or a generation error → the item is skipped, never a fake send.
-// - LINE only: Instagram/others can't send in Phase 1, so they're never swept.
-
 const BATCH_SIZE = 20
-// Only recently-received, still-unread DMs are eligible — the sweep answers
-// fresh conversation, it does not retroactively reply to old backlog.
 const LOOKBACK_HOURS = 24
+// Background generation has no human watching the response. If one paid call
+// succeeds but its usage row cannot be saved, pause further automatic AI calls
+// for this workspace long enough for the owner/admin to see the notification and
+// for a transient database incident to recover. Manual AI flows surface their
+// own warning directly in the UI.
+const AI_USAGE_INCIDENT_COOLDOWN_HOURS = 1
 
 interface CandidateContact {
   id: string
@@ -48,6 +44,23 @@ interface CandidateRow {
   messaging_contacts: CandidateContact | CandidateContact[] | null
 }
 
+interface AutoReplyArtifactInput {
+  workspaceId: string
+  inboxItemId: string
+  contactId: string
+  suggestionId: string
+  replyJobId: string
+  aiGenerationId: string | null
+  replyText: string
+  tone: string
+  assumptions: string[]
+  summary: string
+  priority: 'high' | 'normal' | 'low'
+  sendTarget: string
+  scheduledAt: string
+  createdBy: string
+}
+
 function firstContact(value: CandidateRow['messaging_contacts']): CandidateContact | null {
   if (!value) return null
   return Array.isArray(value) ? (value[0] ?? null) : value
@@ -59,32 +72,45 @@ export interface AutoReplySweepResult {
   reason?: string
 }
 
-/** Per-workspace cache so we resolve owner / LINE-connection / brand profile / budget / status once. */
 interface WorkspaceContext {
   ownerId: string | null
   lineConnected: boolean
   brandProfile: BrandProfile | null
-  overBudget: boolean
   creatorStatus?: { mood: string; note?: string }
+  autoAiUsageBlocked: boolean
 }
 
-async function loadWorkspaceContext(supabase: SupabaseClient, workspaceId: string, monthlyBudgetUsd: number | null): Promise<WorkspaceContext> {
-  const [{ data: owner }, { data: account }, brandProfile] = await Promise.all([
+async function loadWorkspaceContext(
+  supabase: SupabaseClient,
+  workspaceId: string,
+  now: Date,
+): Promise<WorkspaceContext> {
+  const usageIncidentSince = new Date(now.getTime() - AI_USAGE_INCIDENT_COOLDOWN_HOURS * 60 * 60 * 1000).toISOString()
+  const [
+    { data: owner },
+    { data: account },
+    brandProfile,
+    { data: usageIncident, error: usageIncidentError },
+  ] = await Promise.all([
     supabase.from('workspace_members').select('user_id').eq('workspace_id', workspaceId).eq('role', 'owner').limit(1).maybeSingle(),
     supabase.from('social_accounts').select('id').eq('workspace_id', workspaceId).eq('platform', 'line').eq('connected', true).limit(1).maybeSingle(),
     getDefaultBrandProfileForClient(supabase, workspaceId).catch(() => null),
+    supabase
+      .from('audit_logs')
+      .select('id')
+      .eq('workspace_id', workspaceId)
+      .eq('action', 'inbox_reply_ai_generated')
+      .contains('metadata', { auto: true, usageRecorded: false })
+      .gte('created_at', usageIncidentSince)
+      .limit(1)
+      .maybeSingle(),
   ])
 
-  let overBudget = false
-  if (monthlyBudgetUsd !== null) {
-    const spent = await getWorkspaceMonthlyAiCost(supabase, workspaceId).catch(() => 0)
-    overBudget = spent >= monthlyBudgetUsd
+  if (usageIncidentError) {
+    throw new Error(`Could not verify automatic AI usage-ledger safety state: ${usageIncidentError.message}`)
   }
 
   const ownerId = (owner?.user_id as string | undefined) ?? null
-  // The owner's status (Phase 5), conveyed by an auto reply only if shared. The
-  // sweep uses the service client, so RLS is bypassed — we still honor the
-  // owner's share_with_contacts flag explicitly here.
   const status = ownerId ? await getMyCreatorStatus(supabase, workspaceId, ownerId).catch(() => null) : null
   const creatorStatus = status?.shareWithContacts ? { mood: status.mood, note: status.note } : undefined
 
@@ -92,26 +118,95 @@ async function loadWorkspaceContext(supabase: SupabaseClient, workspaceId: strin
     ownerId,
     lineConnected: Boolean(account),
     brandProfile,
-    overBudget,
     creatorStatus,
+    autoAiUsageBlocked: Boolean(usageIncident),
   }
 }
 
+async function isAlreadyHandledNow(supabase: SupabaseClient, inboxItemId: string): Promise<boolean> {
+  const [{ data: job, error: jobError }, { data: suggestion, error: suggestionError }] = await Promise.all([
+    // Any job means a human/system already made a decision about this inbound
+    // message. In particular, cancellation is an explicit human veto and must
+    // not be ignored by a sweep racing immediately afterwards.
+    supabase.from('reply_jobs').select('id').eq('inbox_item_id', inboxItemId).limit(1).maybeSingle(),
+    supabase.from('ai_reply_suggestions').select('id').eq('inbox_item_id', inboxItemId).limit(1).maybeSingle(),
+  ])
+
+  if (jobError) throw new Error(jobError.message)
+  if (suggestionError) throw new Error(suggestionError.message)
+  return Boolean(job || suggestion)
+}
+
+async function reconcileAutoReplyJob(
+  supabase: SupabaseClient,
+  workspaceId: string,
+  replyJobId: string,
+): Promise<boolean> {
+  const { data, error } = await supabase
+    .from('reply_jobs')
+    .select('id')
+    .eq('id', replyJobId)
+    .eq('workspace_id', workspaceId)
+    .maybeSingle()
+  if (error) throw new Error(error.message)
+  return Boolean(data)
+}
+
 /**
- * Runs one sweep pass. Uses the service-role client (cross-workspace, no user in
- * the request). Never throws for a single item's failure — one bad generation
- * must not stop the batch. `now` is injected for determinism/testability.
+ * The model has already been billed when this runs. The RPC is atomic, and the
+ * caller owns stable suggestion/job UUIDs, so one same-id retry is safe: a late
+ * first commit can only collide with the exact same ids, never create a second
+ * outbound job. Reconcile after each ambiguous response before giving up.
  */
+async function persistAutoReplyArtifacts(
+  supabase: SupabaseClient,
+  input: AutoReplyArtifactInput,
+): Promise<void> {
+  const rpcArgs = {
+    p_workspace_id: input.workspaceId,
+    p_inbox_item_id: input.inboxItemId,
+    p_contact_id: input.contactId,
+    p_suggestion_id: input.suggestionId,
+    p_reply_job_id: input.replyJobId,
+    p_ai_generation_id: input.aiGenerationId,
+    p_reply_text: input.replyText,
+    p_tone: input.tone,
+    p_assumptions: input.assumptions,
+    p_summary: input.summary,
+    p_priority: input.priority,
+    p_send_target: input.sendTarget,
+    p_scheduled_at: input.scheduledAt,
+    p_created_by: input.createdBy,
+  }
+
+  let lastError = '自動返信の保存に失敗しました。'
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    const { error } = await supabase.rpc('create_auto_reply_artifacts', rpcArgs)
+    if (!error) return
+    lastError = error.message
+
+    try {
+      if (await reconcileAutoReplyJob(supabase, input.workspaceId, input.replyJobId)) return
+    } catch (cause) {
+      // The read may be failing for the same transient reason as the RPC. One
+      // same-id retry below is still safe and may recover once DB connectivity
+      // returns; after the final attempt, surface the combined error to logs.
+      lastError = `${lastError} (reconciliation failed: ${cause instanceof Error ? cause.message : 'unknown error'})`
+    }
+  }
+
+  // A second RPC may have returned duplicate-key after a late first commit; one
+  // final authoritative read converts that ambiguous response into success.
+  if (await reconcileAutoReplyJob(supabase, input.workspaceId, input.replyJobId)) return
+  throw new Error(lastError)
+}
+
 export async function runAutoReplySweep(supabase: SupabaseClient, now: Date = new Date()): Promise<AutoReplySweepResult> {
-  // Global fail-closed gate: with no AI key, nothing can be drafted — so nothing
-  // is auto-sent. Honest no-op rather than a silent partial run.
   if (!isAnthropicConfigured()) {
     return { scheduled: 0, skipped: 0, reason: 'ANTHROPIC_API_KEY未設定のため自動返信は実行されません。' }
   }
 
-  const rawBudget = Number(process.env.ANTHROPIC_MONTHLY_BUDGET_USD)
-  const monthlyBudgetUsd = Number.isFinite(rawBudget) && rawBudget > 0 ? rawBudget : null
-
+  const monthlyBudgetUsd = configuredMonthlyAiBudgetUsd()
   const cutoffIso = new Date(now.getTime() - LOOKBACK_HOURS * 60 * 60 * 1000).toISOString()
 
   const { data: candidates, error } = await supabase
@@ -132,13 +227,24 @@ export async function runAutoReplySweep(supabase: SupabaseClient, now: Date = ne
   const rows = (candidates ?? []) as unknown as CandidateRow[]
   if (rows.length === 0) return { scheduled: 0, skipped: 0 }
 
-  // Skip any item a human is already handling: an existing suggestion or an
-  // existing reply job means the concierge (or the creator) already engaged it.
   const itemIds = rows.map((row) => row.id)
-  const [{ data: existingJobs }, { data: existingSuggestions }] = await Promise.all([
+  const [
+    { data: existingJobs, error: existingJobsError },
+    { data: existingSuggestions, error: existingSuggestionsError },
+  ] = await Promise.all([
     supabase.from('reply_jobs').select('inbox_item_id').in('inbox_item_id', itemIds),
     supabase.from('ai_reply_suggestions').select('inbox_item_id').in('inbox_item_id', itemIds),
   ])
+  if (existingJobsError || existingSuggestionsError) {
+    return {
+      scheduled: 0,
+      skipped: 0,
+      reason:
+        existingJobsError?.message ??
+        existingSuggestionsError?.message ??
+        '既存の自動返信状態を確認できないため、安全のためスイープを中止しました。',
+    }
+  }
   const alreadyHandled = new Set<string>([
     ...((existingJobs ?? []) as Array<{ inbox_item_id: string }>).map((r) => r.inbox_item_id),
     ...((existingSuggestions ?? []) as Array<{ inbox_item_id: string }>).map((r) => r.inbox_item_id),
@@ -150,9 +256,6 @@ export async function runAutoReplySweep(supabase: SupabaseClient, now: Date = ne
 
   for (const row of rows) {
     const contact = firstContact(row.messaging_contacts)
-    // The inner-join query already guarantees auto_send_enabled=true; this
-    // re-check is belt-and-suspenders on the single most safety-critical
-    // invariant (never auto-send to a contact who didn't opt in).
     if (!contact || !contact.auto_send_enabled || alreadyHandled.has(row.id)) {
       skipped += 1
       continue
@@ -160,22 +263,55 @@ export async function runAutoReplySweep(supabase: SupabaseClient, now: Date = ne
 
     let context = workspaceContexts.get(row.workspace_id)
     if (!context) {
-      context = await loadWorkspaceContext(supabase, row.workspace_id, monthlyBudgetUsd)
+      context = await loadWorkspaceContext(supabase, row.workspace_id, now)
       workspaceContexts.set(row.workspace_id, context)
     }
 
-    // Fail-closed preconditions: without a LINE connection, an owner to attribute
-    // the job to, or budget headroom, skip — never enqueue something that can't
-    // send or shouldn't be billed. `ownerId` is a const so it stays narrowed to
-    // string for the rest of this iteration (used as created_by / notify target).
     const ownerId = context.ownerId
-    if (!context.lineConnected || !ownerId || context.overBudget) {
+    if (!context.lineConnected || !ownerId || context.autoAiUsageBlocked) {
       skipped += 1
       continue
     }
 
+    let replyClaimToken: string | null = null
+    let budgetClaimToken: string | null = null
+    let generationId: string | null = null
+
     try {
+      replyClaimToken = await claimInboxReplyGeneration(supabase, row.workspace_id, row.id)
+      if (!replyClaimToken) {
+        skipped += 1
+        continue
+      }
+
+      if (await isAlreadyHandledNow(supabase, row.id)) {
+        skipped += 1
+        continue
+      }
+
+      if (monthlyBudgetUsd !== null) {
+        budgetClaimToken = await claimWorkspaceAiBudget(supabase, row.workspace_id)
+        if (!budgetClaimToken) {
+          skipped += 1
+          continue
+        }
+
+        let spentUsd: number
+        try {
+          spentUsd = await getWorkspaceMonthlyAiCost(supabase, row.workspace_id)
+        } catch (cause) {
+          console.error(`Could not read AI budget for workspace ${row.workspace_id}:`, cause)
+          skipped += 1
+          continue
+        }
+        if (spentUsd >= monthlyBudgetUsd) {
+          skipped += 1
+          continue
+        }
+      }
+
       const styleExamples = await listContactReplyExamples(supabase, row.workspace_id, contact.id).catch(() => [])
+      generationId = randomUUID()
       const result = await generateReplyWithAnthropic(row.text, {
         brandProfile: context.brandProfile,
         contactDisplayName: contact.display_name ?? undefined,
@@ -184,81 +320,96 @@ export async function runAutoReplySweep(supabase: SupabaseClient, now: Date = ne
       })
       const costUsd = calculateGenerationCost(result.inputTokens, result.outputTokens)
 
-      const generation = await recordAiGeneration(supabase, {
-        workspaceId: row.workspace_id,
-        inboxItemId: row.id,
-        purpose: 'reply',
-        channels: [],
-        model: result.model,
-        inputTokens: result.inputTokens,
-        outputTokens: result.outputTokens,
-        costUsd,
-        createdBy: ownerId,
-      })
-
-      const { data: suggestion, error: suggestionError } = await supabase
-        .from('ai_reply_suggestions')
-        .insert({
-          workspace_id: row.workspace_id,
-          inbox_item_id: row.id,
-          suggested_text: result.proposal.reply,
-          tone: result.proposal.tone,
-          source: 'ai',
-          assumptions: result.proposal.assumptions,
-          ai_generation_id: generation.id,
+      let recordedGenerationId: string | null = null
+      try {
+        const generation = await recordAiGeneration(supabase, {
+          id: generationId,
+          workspaceId: row.workspace_id,
+          inboxItemId: row.id,
+          purpose: 'reply',
+          channels: [],
+          model: result.model,
+          inputTokens: result.inputTokens,
+          outputTokens: result.outputTokens,
+          costUsd,
+          createdBy: ownerId,
         })
-        .select('id')
-        .single()
-      if (suggestionError) throw new Error(suggestionError.message)
+        recordedGenerationId = generation.id
+      } catch (recordError) {
+        console.error(`Auto reply generated for ${row.id}, but AI usage could not be recorded:`, recordError)
+        context.autoAiUsageBlocked = true
+        const { error: incidentAuditError } = await supabase.from('audit_logs').insert({
+          workspace_id: row.workspace_id,
+          actor_id: ownerId,
+          action: 'inbox_reply_ai_generated',
+          target_type: 'inbox_item',
+          target_id: row.id,
+          metadata: {
+            platform: 'line',
+            auto: true,
+            model: result.model,
+            aiGenerationId: null,
+            usageRecorded: false,
+          },
+        })
+        if (incidentAuditError) {
+          console.error(`Failed to persist AI usage-ledger incident for auto reply ${row.id}:`, incidentAuditError)
+        }
+      }
 
-      await supabase
-        .from('inbox_items')
-        .update({ ai_summary: result.proposal.summary, ai_priority: result.proposal.priority })
-        .eq('id', row.id)
-        .eq('workspace_id', row.workspace_id)
-
-      // Recipient-appropriate time, then floored so there is always a cancel
-      // window — an auto reply is never delivered the instant it is drafted.
       const recipientTime = computeRecipientSendTime(now, {
         timeZone: contact.timezone ?? undefined,
         quietStart: contact.quiet_hours_start ?? undefined,
         quietEnd: contact.quiet_hours_end ?? undefined,
       })
       const scheduledAt = ensureMinimumLead(recipientTime, now)
+      const suggestionId = randomUUID()
+      const replyJobId = randomUUID()
 
-      // If a concurrent sweep (or a sweep racing a human) already enqueued an
-      // active auto reply for this item, the partial unique index
-      // reply_jobs_one_active_auto_per_item makes this INSERT fail — the catch
-      // below then skips the item, so the recipient never gets a duplicate DM.
-      const job = await createReplyJob(supabase, {
+      await persistAutoReplyArtifacts(supabase, {
         workspaceId: row.workspace_id,
         inboxItemId: row.id,
         contactId: contact.id,
-        suggestionId: suggestion.id as string,
-        platform: 'line',
+        suggestionId,
+        replyJobId,
+        aiGenerationId: recordedGenerationId,
         replyText: result.proposal.reply,
+        tone: result.proposal.tone,
+        assumptions: result.proposal.assumptions,
+        summary: result.proposal.summary,
+        priority: result.proposal.priority,
         sendTarget: contact.external_contact_id,
-        replyMode: 'auto',
         scheduledAt,
         createdBy: ownerId,
       })
 
-      await supabase.from('audit_logs').insert({
+      const usageRecorded = Boolean(recordedGenerationId)
+      const { error: auditError } = await supabase.from('audit_logs').insert({
         workspace_id: row.workspace_id,
         actor_id: ownerId,
         action: 'inbox_reply_scheduled',
         target_type: 'inbox_item',
         target_id: row.id,
-        metadata: { platform: 'line', replyJobId: job.id, scheduledAt, auto: true },
+        metadata: {
+          platform: 'line',
+          replyJobId,
+          scheduledAt,
+          auto: true,
+          aiGenerationId: recordedGenerationId,
+          usageRecorded,
+        },
       })
+      if (auditError) console.error(`Failed to audit auto reply ${replyJobId}:`, auditError)
 
       await createNotifications(supabase, [
         {
           workspaceId: row.workspace_id,
           userId: ownerId,
           type: 'auto_reply_scheduled',
-          title: '自動返信を予約しました',
-          body: `${contact.display_name ?? '相手'}さんへの返信を${new Date(scheduledAt).toLocaleString('ja-JP', { timeZone: 'Asia/Tokyo' })}に送信予定です。内容の確認・取り消しができます。`,
+          title: usageRecorded ? '自動返信を予約しました' : '自動返信を予約しました（AI使用量の記録を確認してください）',
+          body: usageRecorded
+            ? `${contact.display_name ?? '相手'}さんへの返信を${new Date(scheduledAt).toLocaleString('ja-JP', { timeZone: 'Asia/Tokyo' })}に送信予定です。内容の確認・取り消しができます。`
+            : `${contact.display_name ?? '相手'}さんへの返信を${new Date(scheduledAt).toLocaleString('ja-JP', { timeZone: 'Asia/Tokyo' })}に送信予定です。ただし今回のAI使用量を台帳へ保存できなかったため、このワークスペースの後続自動AI処理を一時停止しています。内容を確認し、必要なら返信を取り消したうえで管理者に台帳確認を依頼してください。`,
           targetType: 'inbox_item',
           targetId: row.id,
         },
@@ -266,23 +417,67 @@ export async function runAutoReplySweep(supabase: SupabaseClient, now: Date = ne
 
       scheduled += 1
     } catch (cause) {
-      // Record billed usage on a parse failure so cost isn't under-reported,
-      // then skip the item — never enqueue a reply we couldn't draft.
-      if (cause instanceof AnthropicReplyGenerationError) {
-        await recordAiGeneration(supabase, {
-          workspaceId: row.workspace_id,
-          inboxItemId: row.id,
-          purpose: 'reply',
-          channels: [],
-          model: cause.usage.model,
-          inputTokens: cause.usage.inputTokens,
-          outputTokens: cause.usage.outputTokens,
-          costUsd: calculateGenerationCost(cause.usage.inputTokens, cause.usage.outputTokens),
-          createdBy: ownerId,
-        }).catch((recordError) => console.error('Failed to record AI usage after a failed auto reply:', recordError))
+      if (cause instanceof AnthropicReplyGenerationError && generationId) {
+        try {
+          await recordAiGeneration(supabase, {
+            id: generationId,
+            workspaceId: row.workspace_id,
+            inboxItemId: row.id,
+            purpose: 'reply',
+            channels: [],
+            model: cause.usage.model,
+            inputTokens: cause.usage.inputTokens,
+            outputTokens: cause.usage.outputTokens,
+            costUsd: calculateGenerationCost(cause.usage.inputTokens, cause.usage.outputTokens),
+            createdBy: ownerId,
+          })
+        } catch (recordError) {
+          console.error('Failed to record AI usage after a failed auto reply:', recordError)
+          context.autoAiUsageBlocked = true
+          const { error: incidentAuditError } = await supabase.from('audit_logs').insert({
+            workspace_id: row.workspace_id,
+            actor_id: ownerId,
+            action: 'inbox_reply_ai_generated',
+            target_type: 'inbox_item',
+            target_id: row.id,
+            metadata: {
+              platform: 'line',
+              auto: true,
+              generationFailed: true,
+              model: cause.usage.model,
+              aiGenerationId: null,
+              usageRecorded: false,
+            },
+          })
+          if (incidentAuditError) {
+            console.error(`Failed to persist failed-generation usage incident for auto reply ${row.id}:`, incidentAuditError)
+          }
+          await createNotifications(supabase, [
+            {
+              workspaceId: row.workspace_id,
+              userId: ownerId,
+              type: 'reply_failed',
+              title: '自動返信AIを一時停止しました',
+              body: '自動返信のAI処理に失敗し、その処理で発生したAI使用量も台帳へ保存できませんでした。安全のため、このワークスペースの後続自動AI処理を一時停止しています。管理者に使用量台帳の確認を依頼してください。',
+              targetType: 'inbox_item',
+              targetId: row.id,
+            },
+          ]).catch((notificationError) => console.error('Failed to notify about an automatic AI usage incident:', notificationError))
+        }
       }
       console.error(`Auto-reply generation failed for inbox item ${row.id}:`, cause)
       skipped += 1
+    } finally {
+      if (budgetClaimToken) {
+        await releaseWorkspaceAiBudget(supabase, row.workspace_id, budgetClaimToken).catch((cause) =>
+          console.error(`Failed to release AI budget claim for workspace ${row.workspace_id}:`, cause),
+        )
+      }
+      if (replyClaimToken) {
+        await releaseInboxReplyGeneration(supabase, row.workspace_id, row.id, replyClaimToken).catch((cause) =>
+          console.error(`Failed to release reply generation claim for inbox item ${row.id}:`, cause),
+        )
+      }
     }
   }
 

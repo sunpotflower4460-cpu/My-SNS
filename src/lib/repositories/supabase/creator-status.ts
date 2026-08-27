@@ -38,8 +38,7 @@ export async function getMyCreatorStatus(supabase: SupabaseClient, workspaceId: 
     .maybeSingle()
 
   if (error) {
-    console.error('Error fetching creator status:', error)
-    return null
+    throw new Error(`クリエイター状態を読み込めませんでした。未設定として扱わず、再読み込みしてください: ${error.message}`)
   }
 
   return data ? mapCreatorStatus(data as CreatorStatusRow) : null

@@ -165,8 +165,7 @@ export async function listWorkspaceSeeds(workspaceId: string): Promise<Seed[]> {
     .order('updated_at', { ascending: false })
 
   if (error) {
-    console.error('Error fetching Seeds:', error)
-    return []
+    throw new Error(`シードを読み込めませんでした。空の一覧として扱わず、再読み込みしてください: ${error.message}`)
   }
 
   return (data ?? []).map((seed) => mapSeed(seed as SeedRow))
@@ -288,8 +287,7 @@ export async function listSeedAssets(workspaceId: string, seedId: string): Promi
     .order('created_at', { ascending: true })
 
   if (error) {
-    console.error('Error fetching Seed assets:', error)
-    return []
+    throw new Error(`シードのアセットを読み込めませんでした。空として扱わず、再読み込みしてください: ${error.message}`)
   }
 
   return resolveAssetUrls((data ?? []) as AssetRow[])
@@ -304,8 +302,7 @@ export async function listWorkspaceAssets(workspaceId: string): Promise<Asset[]>
     .order('created_at', { ascending: true })
 
   if (error) {
-    console.error('Error fetching workspace assets:', error)
-    return []
+    throw new Error(`アセットを読み込めませんでした。空として扱わず、再読み込みしてください: ${error.message}`)
   }
 
   return resolveAssetUrls((data ?? []) as AssetRow[])

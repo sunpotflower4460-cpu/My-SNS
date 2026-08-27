@@ -23,7 +23,7 @@ const TONE_LABELS: Record<string, string> = {
 
 export default function DraftsPage() {
   const searchParams = useSearchParams()
-  const { approveDraft, currentMember, drafts, generateChannelDrafts, getDraftsForSeed, saveAndApproveDraft, saveDraft, scheduleDraft, seeds } = useApp()
+  const { currentMember, drafts, generateChannelDrafts, getDraftsForSeed, saveAndApproveDraft, saveDraft, scheduleDraft, seeds } = useApp()
   const canApprove = Boolean(currentMember && hasPermission(currentMember.role, 'approve_drafts'))
   const canManageQueue = Boolean(currentMember && hasPermission(currentMember.role, 'manage_queue'))
   const requestedSeedId = searchParams.get('seed')
@@ -34,6 +34,7 @@ export default function DraftsPage() {
   const [generatedDrafts, setGeneratedDrafts] = useState<SocialDraft[]>([])
   const [loading, setLoading] = useState(false)
   const [feedback, setFeedback] = useState('')
+  const [warning, setWarning] = useState('')
   const [error, setError] = useState('')
 
   const selectedSeed = useMemo(() => seeds.find((seed) => seed.id === seedId) ?? null, [seedId, seeds])
@@ -50,11 +51,15 @@ export default function DraftsPage() {
     if (seeds.length > 0 && !seeds.some((seed) => seed.id === seedId)) setSeedId(seeds[0].id)
   }, [seedId, seeds])
 
+  // Only reset channel picks / unsaved AI drafts when the selected Seed *id*
+  // changes. refreshWorkspaceData() rebuilds Seed object identity often, and
+  // keying this effect on the whole object was wiping in-progress edits.
   useEffect(() => {
     if (!selectedSeed) return
     setSelectedChannels(selectedSeed.targetChannels.length > 0 ? selectedSeed.targetChannels : [...CORE_PUBLISHING_CHANNELS])
     setGeneratedDrafts([])
-  }, [selectedSeed])
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- intentional: seed id only
+  }, [selectedSeed?.id])
 
   const toggleChannel = (channel: PublishingChannel) => {
     setSelectedChannels((current) => current.includes(channel)
@@ -66,9 +71,12 @@ export default function DraftsPage() {
     if (!selectedSeed) return
     setLoading(true)
     setError('')
+    setWarning('')
     try {
       const result = await generateChannelDrafts(selectedSeed.id, selectedChannels, tone, length)
+      const usageWarning = (result as typeof result & { usageWarning?: string }).usageWarning
       setGeneratedDrafts(result.drafts)
+      setWarning(usageWarning ?? '')
       setFeedback(
         result.source === 'ai'
           ? `AIが${result.drafts.length}件の提案を作成しました。承認する前に仮定を確認してください。`
@@ -77,6 +85,7 @@ export default function DraftsPage() {
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : '下書きを作成できませんでした。')
       setFeedback('')
+      setWarning('')
     } finally {
       setLoading(false)
     }
@@ -118,6 +127,7 @@ export default function DraftsPage() {
       <PageHeader title="下書きスタジオ" description="1つのシードから媒体ごとの提案を作成します。AIの下書きには必ず仮定（AIの推測）が示され、あなたが確認するまで何も承認されません。" />
 
       {(feedback || error) && <div className={`mb-5 rounded-2xl border px-4 py-3 text-sm ${error ? 'border-red-200 bg-red-50 text-red-700' : 'border-green-200 bg-green-50 text-green-700'}`}>{error || feedback}</div>}
+      {warning && !error && <div className="mb-5 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">{warning} 続けて大量生成する前に、管理者へ使用量台帳の確認を依頼してください。</div>}
 
       {seeds.length === 0 ? (
         <EmptyState title="下書きを作成できるシードがありません" description="まず情報源を1つ記録してから、媒体ごとの下書きを準備してください。" action={<Link href="/app/seeds/new" className="rounded-2xl bg-violet-600 px-4 py-2 text-sm font-medium text-white">シードを記録する</Link>} icon="✍️" />
@@ -148,13 +158,13 @@ export default function DraftsPage() {
                   setGeneratedDrafts((current) => current.map((entry) => entry.id === id ? { ...entry, draftText: text, updatedAt: new Date().toISOString() } : entry))
                   if (target) void runDraftAction(() => persistDraft({ ...target, draftText: text }), `${PUBLISHING_CHANNEL_CONFIG[target.channel].label}の下書きを保存しました。`)
                 }}
-                onApprove={canApprove ? (id) => {
+                onApprove={canApprove ? (id, text) => {
                   const target = generatedDrafts.find((entry) => entry.id === id)
                   if (!target) return
                   void runDraftAction(
                     async () => {
-                      await saveAndApproveDraft(toDraftInput(target))
-                      setGeneratedDrafts((current) => current.map((entry) => entry.id === id ? { ...entry, status: 'approved' } : entry))
+                      await saveAndApproveDraft(toDraftInput({ ...target, draftText: text }))
+                      setGeneratedDrafts((current) => current.map((entry) => entry.id === id ? { ...entry, draftText: text, status: 'approved' } : entry))
                     },
                     `${PUBLISHING_CHANNEL_CONFIG[target.channel].label}の下書きを承認し、承認版（Revision）として記録しました。`,
                   )
@@ -174,7 +184,7 @@ export default function DraftsPage() {
         <div className="mb-3 flex items-center justify-between gap-3"><h2 className="text-base font-semibold text-gray-900">保存済みの下書き</h2>{selectedSeed && <span className="text-sm text-gray-500">{selectedSeed.title}</span>}</div>
         {existingDrafts.length === 0 ? <EmptyState title="まだ下書きがありません" description="テンプレートを作成し、残しておきたいバージョンを保存してください。" /> : (
           <div className="space-y-6">
-            {Object.entries(draftsByChannel).map(([channel, channelDrafts]) => <section key={channel}><div className="mb-3 flex items-center justify-between"><h3 className="text-sm font-semibold text-gray-700">{PUBLISHING_CHANNEL_CONFIG[channel as PublishingChannel].label}</h3><span className="text-xs text-gray-400">{channelDrafts.length}件保存済み</span></div><div className="grid grid-cols-1 gap-4 xl:grid-cols-2">{channelDrafts.map((draft) => <DraftEditorCard key={draft.id} draft={draft} onEdit={(id, text) => { const target = existingDrafts.find((entry) => entry.id === id); if (target) void runDraftAction(() => persistDraft({ ...target, draftText: text }), `${PUBLISHING_CHANNEL_CONFIG[target.channel].label}の下書きを保存しました。`) }} onApprove={canApprove ? (id) => { void runDraftAction(() => approveDraft(id), '下書きを承認し、承認版として記録しました。') } : undefined} onRegenerate={(id) => { if (!selectedSeed) return; const target = existingDrafts.find((entry) => entry.id === id); if (target) void runDraftAction(() => persistDraft({ ...target, draftText: resetTemplateDraft(target, selectedSeed) }), '元のテンプレートに戻して保存しました。') }} onSchedule={canManageQueue ? (id, scheduledAt) => { void runDraftAction(() => scheduleDraft(id, scheduledAt), '予約しました。公開キューから確認できます。') } : undefined} />)}</div></section>)}
+            {Object.entries(draftsByChannel).map(([channel, channelDrafts]) => <section key={channel}><div className="mb-3 flex items-center justify-between"><h3 className="text-sm font-semibold text-gray-700">{PUBLISHING_CHANNEL_CONFIG[channel as PublishingChannel].label}</h3><span className="text-xs text-gray-400">{channelDrafts.length}件保存済み</span></div><div className="grid grid-cols-1 gap-4 xl:grid-cols-2">{channelDrafts.map((draft) => <DraftEditorCard key={draft.id} draft={draft} onEdit={(id, text) => { const target = existingDrafts.find((entry) => entry.id === id); if (target) void runDraftAction(() => persistDraft({ ...target, draftText: text }), `${PUBLISHING_CHANNEL_CONFIG[target.channel].label}の下書きを保存しました。`) }} onApprove={canApprove ? (id, text) => { const target = existingDrafts.find((entry) => entry.id === id); if (!target) return; void runDraftAction(() => saveAndApproveDraft({ ...toDraftInput(target), draftText: text, id: target.id }), '下書きを承認し、承認版として記録しました。') } : undefined} onRegenerate={(id) => { if (!selectedSeed) return; const target = existingDrafts.find((entry) => entry.id === id); if (target) void runDraftAction(() => persistDraft({ ...target, draftText: resetTemplateDraft(target, selectedSeed) }), '元のテンプレートに戻して保存しました。') }} onSchedule={canManageQueue ? (id, scheduledAt) => { void runDraftAction(() => scheduleDraft(id, scheduledAt), '予約しました。公開キューから確認できます。') } : undefined} />)}</div></section>)}
           </div>
         )}
       </section>

@@ -3,14 +3,15 @@ import { createClient } from '@/lib/supabase/server'
 import { createServiceClient } from '@/lib/supabase/service'
 import { createReplyJob, findNonCancelledReplyJob } from '@/lib/repositories/supabase/reply-queue'
 import { processReplyJob } from '@/lib/services/reply-worker'
+import { isLineResultUnknownError } from '@/lib/services/connectors/line-connector'
 import { computeRecipientSendTime } from '@/lib/services/reply-timing'
 import { hasPermission } from '@/lib/permissions'
 import type { ReplyJob, WorkspaceRole } from '@/lib/domain/types'
 
 // Approve a suggested reply and enqueue it for sending. The human's edited text
 // is captured as an immutable snapshot on the reply_job; the send target and an
-// absolute-UTC scheduled_at (computed from the recipient's timezone / quiet
-// hours) are baked in at enqueue so the Worker stays timezone-agnostic.
+// absolute-UTC scheduled_at (computed at enqueue from the contact's timezone /
+// quiet hours) are baked in at enqueue so the Worker stays timezone-agnostic.
 //
 // Honesty gates (CLAUDE.md #5, #7):
 // - Instagram DM sending needs Meta's messaging permission + app review, which
@@ -94,8 +95,10 @@ export async function POST(request: NextRequest) {
     )
   }
 
-  // Need a connected LINE account (the send credential) …
-  const { data: account } = await supabase
+  // Need a connected LINE account (the send credential). Treat a database
+  // read failure differently from a real "not connected" state — silently
+  // collapsing the former into the latter can prompt needless reconnects.
+  const { data: account, error: accountError } = await supabase
     .from('social_accounts')
     .select('id')
     .eq('workspace_id', workspaceId)
@@ -103,6 +106,9 @@ export async function POST(request: NextRequest) {
     .eq('connected', true)
     .maybeSingle()
 
+  if (accountError) {
+    return NextResponse.json({ error: 'LINEの接続状態を確認できませんでした。少し後でもう一度お試しください。' }, { status: 502 })
+  }
   if (!account) {
     return NextResponse.json(
       { error: 'LINE公式アカウントが接続されていません。設定から接続してください。' },
@@ -170,8 +176,11 @@ export async function POST(request: NextRequest) {
     }
 
     if (!existing) {
+      // The low-level cause can contain PostgREST/database details. Keep it in
+      // server logs and return stable creator-facing copy instead.
+      console.error(`Failed to enqueue reply for inbox item ${inboxItemId}:`, cause)
       return NextResponse.json(
-        { error: cause instanceof Error ? cause.message : '返信を予約できませんでした。' },
+        { error: '返信を安全に予約できませんでした。少し待ってからもう一度お試しください。' },
         { status: 502 },
       )
     }
@@ -214,6 +223,17 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ status: 'sent', job, reused: reusedExistingJob })
     }
     if (job.status === 'failed') {
+      if (isLineResultUnknownError(job.errorMessage)) {
+        return NextResponse.json(
+          {
+            status: 'failed',
+            job,
+            error:
+              '前回のLINE送信は相手に届いたか判定できません。二重送信を防ぐため再送は停止しています。LINEの会話を確認し、必要ならこのジョブを閉じてから新しい返信を作成してください。',
+          },
+          { status: 409 },
+        )
+      }
       return NextResponse.json(
         { status: 'failed', job, error: 'この返信は以前の送信で失敗しています。既存ジョブの「再送」を使用してください。' },
         { status: 409 },
@@ -228,11 +248,31 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ status: 'sent', job, reused: true })
   }
 
+  if (job.status === 'failed' && isLineResultUnknownError(job.errorMessage)) {
+    return NextResponse.json(
+      {
+        status: 'failed',
+        job,
+        error:
+          '前回のLINE送信は相手に届いたか判定できません。二重送信を防ぐため、この返信の即時再送は停止しています。会話を確認し、必要なら新しい返信として作成してください。',
+      },
+      { status: 409 },
+    )
+  }
+
   // Immediate send: process inline with the service client (credentials +
   // append-only attempt writes need service role). processReplyJob never throws.
-  // Failed existing jobs deliberately go through this path too, matching the
-  // dedicated retry endpoint while keeping this approval request idempotent.
-  const serviceClient = createServiceClient()
+  let serviceClient
+  try {
+    serviceClient = createServiceClient()
+  } catch (cause) {
+    console.error('Reply send service client is unavailable:', cause)
+    return NextResponse.json(
+      { error: '返信送信に必要なサーバー設定を確認できませんでした。管理者に設定確認を依頼してください。' },
+      { status: 503 },
+    )
+  }
+
   const result = await processReplyJob(serviceClient, {
     id: job.id,
     workspaceId: job.workspaceId,
@@ -251,11 +291,17 @@ export async function POST(request: NextRequest) {
     // The scheduled Worker claimed this due job in the tiny window between
     // enqueue/recovery and our inline claim — it may well have already delivered
     // it. Don't report a false failure: re-read the authoritative row status.
-    const { data: current } = await serviceClient
+    const { data: current, error: currentError } = await serviceClient
       .from('reply_jobs')
       .select('status')
       .eq('id', job.id)
       .maybeSingle()
+    if (currentError) {
+      return NextResponse.json(
+        { status: 'scheduled', job, error: '返信処理は別のWorkerが進行中ですが、最新状態を確認できませんでした。受信箱を再読み込みしてください。' },
+        { status: 409 },
+      )
+    }
     const status = (current?.status as 'scheduled' | 'sent' | 'failed' | 'cancelled' | undefined) ?? 'scheduled'
     if (status === 'failed') {
       return NextResponse.json(

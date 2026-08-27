@@ -75,7 +75,8 @@ export default function NewSeedPage() {
 
   useEffect(() => {
     if (!brandProfileId && defaultBrandProfile) setBrandProfileId(defaultBrandProfile.id)
-  }, [brandProfileId, defaultBrandProfile])
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- only react when the default profile id appears/changes
+  }, [brandProfileId, defaultBrandProfile?.id])
 
   useEffect(() => {
     assetsRef.current = assets
