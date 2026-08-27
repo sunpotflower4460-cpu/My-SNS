@@ -7,6 +7,7 @@ import ConciergeReplyPanel from '@/components/ui/ConciergeReplyPanel'
 import CreatorStatusBar from '@/components/ui/CreatorStatusBar'
 import EmptyState from '@/components/ui/EmptyState'
 import { useApp } from '@/lib/app/app-provider'
+import { hasPermission } from '@/lib/permissions'
 import {
   filterInboxItems,
   groupInboxItems,
@@ -26,10 +27,12 @@ const TABS: Array<{ label: string; value: FilterTab }> = [
 ]
 
 export default function InboxPage() {
-  const { addInboxNote, getInboxNotes, inboxItems, seeds, toggleInboxNeedsAction, toggleInboxRead, toggleInboxStar } = useApp()
+  const { addInboxNote, currentMember, getInboxNotes, inboxItems, seeds, toggleInboxNeedsAction, toggleInboxRead, toggleInboxStar } = useApp()
+  const canMutateInbox = Boolean(currentMember && hasPermission(currentMember.role, 'reply_inbox'))
   const [activeTab, setActiveTab] = useState<FilterTab>('all')
   const [draftNotes, setDraftNotes] = useState<Record<string, string>>({})
   const [feedback, setFeedback] = useState('')
+  const [error, setError] = useState('')
 
   // Filter first, then split into priority groups (急ぎ / 対応が必要 / そのほか) so
   // the messages that need a fast reply stay at the top even within a filter.
@@ -40,6 +43,17 @@ export default function InboxPage() {
     counts.urgent > 0
       ? `急ぎの返信が${counts.urgent}件、未読が${counts.unread}件あります。`
       : `未読の会話が${counts.unread}件あります。`
+
+  const runInboxAction = async (action: () => Promise<unknown>, successMessage: string) => {
+    try {
+      await action()
+      setFeedback(successMessage)
+      setError('')
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : '受信箱の更新に失敗しました。')
+      setFeedback('')
+    }
+  }
 
   const renderItem = (item: (typeof inboxItems)[number]) => {
     const notes = getInboxNotes(item.id)
@@ -54,24 +68,28 @@ export default function InboxPage() {
           }
           relatedSeedHref={item.seedId ? `/app/seeds/${item.seedId}` : null}
           onChangeNote={(value) => setDraftNotes((prev) => ({ ...prev, [item.id]: value }))}
-          onSaveNote={async () => {
+          onSaveNote={canMutateInbox ? () => {
             if (!draftNotes[item.id]?.trim()) return
-            await addInboxNote(item.id, draftNotes[item.id])
-            setDraftNotes((prev) => ({ ...prev, [item.id]: '' }))
-            setFeedback('内部メモをこのワークスペースに保存しました。')
-          }}
-          onToggleRead={async () => {
-            await toggleInboxRead(item.id)
-            setFeedback(item.isRead ? '未読にしました。' : '既読にしました。')
-          }}
-          onToggleStar={async () => {
-            await toggleInboxStar(item.id)
-            setFeedback(item.isStarred ? 'スターを外しました。' : 'フォローアップ用にスターを付けました。')
-          }}
-          onToggleNeedsAction={async () => {
-            await toggleInboxNeedsAction(item.id)
-            setFeedback(item.needsAction ? '要対応を解除しました。' : '要対応としてフラグを立てました。')
-          }}
+            void runInboxAction(async () => {
+              await addInboxNote(item.id, draftNotes[item.id])
+              setDraftNotes((prev) => ({ ...prev, [item.id]: '' }))
+            }, '内部メモをこのワークスペースに保存しました。')
+          } : undefined}
+          onToggleRead={canMutateInbox ? () => {
+            void runInboxAction(() => toggleInboxRead(item.id), item.isRead ? '未読にしました。' : '既読にしました。')
+          } : undefined}
+          onToggleStar={canMutateInbox ? () => {
+            void runInboxAction(
+              () => toggleInboxStar(item.id),
+              item.isStarred ? 'スターを外しました。' : 'フォローアップ用にスターを付けました。',
+            )
+          } : undefined}
+          onToggleNeedsAction={canMutateInbox ? () => {
+            void runInboxAction(
+              () => toggleInboxNeedsAction(item.id),
+              item.needsAction ? '要対応を解除しました。' : '要対応としてフラグを立てました。',
+            )
+          } : undefined}
         />
         {/* The concierge (summary + reply proposal + timed send) is for
             conversational DMs — comments/mentions/replies use notes only. */}
@@ -89,6 +107,11 @@ export default function InboxPage() {
       {feedback && (
         <div className="mb-5 rounded-2xl border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-700">
           {feedback}
+        </div>
+      )}
+      {error && (
+        <div className="mb-5 rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+          {error}
         </div>
       )}
 

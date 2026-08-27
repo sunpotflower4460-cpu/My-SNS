@@ -1,11 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { createClient } from '@/lib/supabase/server'
+import { isNextResponse, requireWorkspaceMember } from '@/lib/api/workspace-access'
 import { createServiceClient } from '@/lib/supabase/service'
 import { processReplyJob } from '@/lib/services/reply-worker'
 import { isLineResultUnknownError } from '@/lib/services/connectors/line-connector'
-import { hasPermission } from '@/lib/permissions'
-import type { WorkspaceRole } from '@/lib/domain/types'
 
 // Sends one reply job right now, regardless of scheduled_at — the messaging-side
 // twin of /api/publish/trigger. Used for "Send now" on an already-scheduled
@@ -39,17 +38,8 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'ログインしていません。' }, { status: 401 })
   }
 
-  const { data: member } = await supabase
-    .from('workspace_members')
-    .select('role')
-    .eq('workspace_id', workspaceId)
-    .eq('user_id', user.id)
-    .maybeSingle()
-
-  const role = member?.role as WorkspaceRole | undefined
-  if (!role || !hasPermission(role, 'reply_inbox')) {
-    return NextResponse.json({ error: 'このワークスペースで返信する権限がありません。' }, { status: 403 })
-  }
+  const membership = await requireWorkspaceMember(supabase, workspaceId, user.id, 'reply_inbox', 'このワークスペースで返信を送信する権限がありません。')
+  if (isNextResponse(membership)) return membership
 
   // RLS-scoped to the caller's own workspace even though the send below uses the
   // service-role client (needed for credentials + append-only attempt writes).

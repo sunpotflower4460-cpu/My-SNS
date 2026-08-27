@@ -1,11 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { createClient } from '@/lib/supabase/server'
+import { isNextResponse, requireWorkspaceMember } from '@/lib/api/workspace-access'
 import { createServiceClient } from '@/lib/supabase/service'
 import { resolveCredentials } from '@/lib/services/publish-worker'
 import { getConnectorAdapter } from '@/lib/services/connectors'
-import { hasPermission } from '@/lib/permissions'
-import type { WorkspaceRole } from '@/lib/domain/types'
 
 interface MetricsRequestBody {
   workspaceId?: string
@@ -31,17 +30,8 @@ export async function POST(request: NextRequest) {
   } = await supabase.auth.getUser()
   if (!user) return NextResponse.json({ error: 'ログインしていません。' }, { status: 401 })
 
-  const { data: member } = await supabase
-    .from('workspace_members')
-    .select('role')
-    .eq('workspace_id', workspaceId)
-    .eq('user_id', user.id)
-    .maybeSingle()
-
-  const role = member?.role as WorkspaceRole | undefined
-  if (!role || !hasPermission(role, 'view_queue')) {
-    return NextResponse.json({ error: 'このワークスペースを閲覧する権限がありません。' }, { status: 403 })
-  }
+  const membership = await requireWorkspaceMember(supabase, workspaceId, user.id, 'view_queue', 'このワークスペースを閲覧する権限がありません。')
+  if (isNextResponse(membership)) return membership
 
   const { data: job, error: jobError } = await supabase
     .from('publish_jobs')
@@ -51,7 +41,7 @@ export async function POST(request: NextRequest) {
     .single()
   if (jobError || !job) return NextResponse.json({ error: 'ジョブが見つかりません。' }, { status: 404 })
 
-  const { data: attempt } = await supabase
+  const { data: attempt, error: attemptError } = await supabase
     .from('publish_attempts')
     .select('external_post_id')
     .eq('publish_job_id', jobId)
@@ -60,6 +50,14 @@ export async function POST(request: NextRequest) {
     .order('attempt_number', { ascending: false })
     .limit(1)
     .maybeSingle()
+
+  if (attemptError) {
+    console.error('Failed to load publish attempt for metrics:', attemptError)
+    return NextResponse.json(
+      { error: '公開記録を確認できないため、安全のため指標取得を中止しました。少し待ってから再試行してください。' },
+      { status: 503 },
+    )
+  }
 
   if (!attempt?.external_post_id) {
     return NextResponse.json({ error: 'このジョブには指標を取得できる公開済みの投稿記録がありません。' }, { status: 400 })

@@ -8,6 +8,7 @@ import EmptyState from '@/components/ui/EmptyState'
 import PageHeader from '@/components/ui/PageHeader'
 import SeedCard from '@/components/ui/SeedCard'
 import { useApp } from '@/lib/app/app-provider'
+import { hasPermission } from '@/lib/permissions'
 import { countSeedsByKind, filterSeeds } from '@/lib/presentation/seeds-presenter'
 import type { SeedKind } from '@/lib/domain/types'
 
@@ -22,7 +23,8 @@ const KIND_FILTERS: Array<{ label: string; value: SeedKind | 'all' }> = [
 
 export default function SeedsPage() {
   const router = useRouter()
-  const { currentWorkspace, seeds } = useApp()
+  const { currentMember, currentWorkspace, seeds } = useApp()
+  const canCreateSeeds = Boolean(currentMember && hasPermission(currentMember.role, 'create_seeds'))
   const [activeKind, setActiveKind] = useState<SeedKind | 'all'>('all')
   const [search, setSearch] = useState('')
 
@@ -39,6 +41,7 @@ export default function SeedsPage() {
         title="シードライブラリ"
         description={`${currentWorkspace?.name ?? 'このワークスペース'}のための生のアイデアや素材を、媒体ごとの調整前にまとめて保管します。`}
         actions={
+          canCreateSeeds ? (
           <Link
             href="/app/seeds/new"
             className="inline-flex min-h-touch items-center gap-2 rounded-full bg-gray-900 px-4 text-sm font-medium text-white transition hover:bg-gray-700 sm:min-h-control"
@@ -46,6 +49,7 @@ export default function SeedsPage() {
             <Plus aria-hidden className="h-4 w-4" />
             新しいシード
           </Link>
+          ) : undefined
         }
       />
 

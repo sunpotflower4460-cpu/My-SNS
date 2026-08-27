@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
+import { isNextResponse, requireWorkspaceMember } from '@/lib/api/workspace-access'
 import { createServiceClient } from '@/lib/supabase/service'
 import {
   deletePendingSocialAccount,
@@ -10,8 +11,6 @@ import {
 import { deleteSocialCredentials, saveSocialCredentials } from '@/lib/repositories/supabase/social-credentials'
 import { getConnectorAdapter, isLineConfigured } from '@/lib/services/connectors'
 import { finalizeSocialConnectionWithCleanup } from '@/lib/services/social-connection-finalization'
-import { hasPermission } from '@/lib/permissions'
-import type { WorkspaceRole } from '@/lib/domain/types'
 
 // LINE connects with a channel access token from the environment, not an OAuth
 // redirect — so this is a plain POST, not the GET authorize/callback dance the
@@ -43,17 +42,8 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'ログインしていません。' }, { status: 401 })
   }
 
-  const { data: member } = await supabase
-    .from('workspace_members')
-    .select('role')
-    .eq('workspace_id', workspaceId)
-    .eq('user_id', user.id)
-    .maybeSingle()
-
-  const role = member?.role as WorkspaceRole | undefined
-  if (!role || !hasPermission(role, 'manage_social_accounts')) {
-    return NextResponse.json({ error: 'あなたの役割ではSNSアカウントを接続できません。' }, { status: 403 })
-  }
+  const membership = await requireWorkspaceMember(supabase, workspaceId, user.id, 'manage_social_accounts', 'あなたの役割ではSNSアカウントを接続できません。')
+  if (isNextResponse(membership)) return membership
 
   if (!isLineConfigured()) {
     return NextResponse.json({ error: 'LINE_CHANNEL_ACCESS_TOKENが未設定です。デプロイの環境変数を設定してください。' }, { status: 400 })

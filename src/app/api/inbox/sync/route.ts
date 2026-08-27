@@ -1,12 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { createClient } from '@/lib/supabase/server'
+import { isNextResponse, requireWorkspaceMember } from '@/lib/api/workspace-access'
 import { createServiceClient } from '@/lib/supabase/service'
 import { resolveCredentials } from '@/lib/services/publish-worker'
 import { getConnectorAdapter } from '@/lib/services/connectors'
 import { upsertInboxItems } from '@/lib/repositories/supabase/inbox-ingest'
-import { hasPermission } from '@/lib/permissions'
-import type { SocialPlatform, WorkspaceRole } from '@/lib/domain/types'
+import type { SocialPlatform } from '@/lib/domain/types'
 
 interface SyncRequestBody {
   workspaceId?: string
@@ -34,17 +34,8 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'ログインしていません。' }, { status: 401 })
   }
 
-  const { data: member } = await supabase
-    .from('workspace_members')
-    .select('role')
-    .eq('workspace_id', workspaceId)
-    .eq('user_id', user.id)
-    .maybeSingle()
-
-  const role = member?.role as WorkspaceRole | undefined
-  if (!role || !hasPermission(role, 'manage_social_accounts')) {
-    return NextResponse.json({ error: 'このワークスペースで受信箱を同期する権限がありません。' }, { status: 403 })
-  }
+  const membership = await requireWorkspaceMember(supabase, workspaceId, user.id, 'manage_social_accounts', 'このワークスペースで受信箱を同期する権限がありません。')
+  if (isNextResponse(membership)) return membership
 
   let serviceClient: SupabaseClient
   try {

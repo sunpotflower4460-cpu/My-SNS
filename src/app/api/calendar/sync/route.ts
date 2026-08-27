@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
-import { hasPermission } from '@/lib/permissions'
-import type { WorkspaceRole } from '@/lib/domain/types'
+import { isNextResponse, requireWorkspaceMember } from '@/lib/api/workspace-access'
 import type { CalendarSyncProvider } from '@/lib/services/connectors/calendar-sync-types'
 import {
   CALENDAR_SYNC_PROVIDERS,
@@ -56,17 +55,8 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'ログインしていません。' }, { status: 401 })
   }
 
-  const { data: member } = await supabase
-    .from('workspace_members')
-    .select('role')
-    .eq('workspace_id', workspaceId)
-    .eq('user_id', user.id)
-    .maybeSingle()
-
-  const role = member?.role as WorkspaceRole | undefined
-  if (!role || !hasPermission(role, 'manage_calendar')) {
-    return NextResponse.json({ error: 'このワークスペースでカレンダーを編集する権限がありません。' }, { status: 403 })
-  }
+  const membership = await requireWorkspaceMember(supabase, workspaceId, user.id, 'manage_calendar', 'このワークスペースでカレンダーを編集する権限がありません。')
+  if (isNextResponse(membership)) return membership
 
   const { data: event, error: eventError } = await supabase
     .from('calendar_events')

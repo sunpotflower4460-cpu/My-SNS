@@ -2,13 +2,12 @@ import { randomUUID } from 'node:crypto'
 import { NextRequest, NextResponse } from 'next/server'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { createClient } from '@/lib/supabase/server'
+import { isNextResponse, requireWorkspaceMember } from '@/lib/api/workspace-access'
 import { createServiceClient } from '@/lib/supabase/service'
 import { getWorkspaceMonthlyAiCost, recordAiGeneration } from '@/lib/repositories/supabase/ai-generations'
 import { getDefaultBrandProfileForClient } from '@/lib/repositories/supabase/brand-profiles'
 import { listContactReplyExamples } from '@/lib/repositories/supabase/reply-learning'
 import { getMyCreatorStatus } from '@/lib/repositories/supabase/creator-status'
-import { hasPermission } from '@/lib/permissions'
-import type { WorkspaceRole } from '@/lib/domain/types'
 import { TemplateReplyGeneratorService } from '@/lib/services/ai-reply'
 import { AnthropicReplyGenerationError, generateReplyWithAnthropic } from '@/lib/services/anthropic-reply'
 import { calculateGenerationCost, isAnthropicConfigured } from '@/lib/services/anthropic-draft'
@@ -19,6 +18,7 @@ import {
   releaseInboxReplyGeneration,
   releaseWorkspaceAiBudget,
 } from '@/lib/services/ai-generation-claims'
+import { hasUnrecordedAiUsageIncident } from '@/lib/services/ai-usage-incidents'
 import type { ReplyProposal } from '@/lib/services/interfaces'
 
 interface GenerateReplyBody {
@@ -135,16 +135,8 @@ export async function POST(request: NextRequest) {
   } = await supabase.auth.getUser()
   if (!user) return NextResponse.json({ error: 'ログインしていません。' }, { status: 401 })
 
-  const { data: member } = await supabase
-    .from('workspace_members')
-    .select('role')
-    .eq('workspace_id', workspaceId)
-    .eq('user_id', user.id)
-    .maybeSingle()
-  const role = member?.role as WorkspaceRole | undefined
-  if (!role || !hasPermission(role, 'reply_inbox')) {
-    return NextResponse.json({ error: 'このワークスペースで返信を作成する権限がありません。' }, { status: 403 })
-  }
+  const membership = await requireWorkspaceMember(supabase, workspaceId, user.id, 'reply_inbox', 'このワークスペースで返信を作成する権限がありません。')
+  if (isNextResponse(membership)) return membership
 
   const { data: item, error: itemError } = await supabase
     .from('inbox_items')
@@ -278,6 +270,21 @@ export async function POST(request: NextRequest) {
       }
     }
 
+    try {
+      if (await hasUnrecordedAiUsageIncident(serviceClient, workspaceId)) {
+        return NextResponse.json(
+          {
+            error:
+              '直近のAI使用量を台帳に記録できなかったため、安全のため追加のAI生成を停止しています。管理者に使用量台帳の確認を依頼してください。',
+          },
+          { status: 503 },
+        )
+      }
+    } catch (cause) {
+      console.error('Failed to verify AI usage-ledger safety state:', cause)
+      return NextResponse.json({ error: 'AI使用量台帳の安全状態を確認できないため、生成を停止しました。' }, { status: 503 })
+    }
+
     const monthlyBudgetUsd = configuredMonthlyAiBudgetUsd()
     let budgetClaimToken: string | null = null
     if (monthlyBudgetUsd !== null) {
@@ -334,7 +341,7 @@ export async function POST(request: NextRequest) {
           recordedGenerationId = generation.id
         } catch (recordError) {
           console.error('Reply generation succeeded but AI usage ledger persistence failed:', recordError)
-          usageWarning = '返信案のAI生成は成功しましたが、使用量の記録だけ保存できませんでした。'
+          usageWarning = '返信案のAI生成は成功しましたが、使用量の記録だけ保存できませんでした。予算の過小計上を防ぐため、台帳が復旧するまで追加のAI生成は停止します。'
         }
 
         const durableSuggestionId = await persistReplyArtifacts(serviceClient, {
