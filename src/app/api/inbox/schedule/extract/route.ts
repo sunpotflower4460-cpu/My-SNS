@@ -50,7 +50,10 @@ export async function POST(request: NextRequest) {
     .eq('id', inboxItemId)
     .eq('workspace_id', workspaceId)
     .maybeSingle()
-  if (itemError || !item) return NextResponse.json({ error: '受信メッセージが見つかりません。' }, { status: 404 })
+  if (itemError) {
+    return NextResponse.json({ error: '受信メッセージを確認できませんでした。少し後でもう一度お試しください。' }, { status: 503 })
+  }
+  if (!item) return NextResponse.json({ error: '受信メッセージが見つかりません。' }, { status: 404 })
 
   if (!isAnthropicConfigured()) {
     return NextResponse.json(

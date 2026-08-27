@@ -507,6 +507,18 @@ export async function processPublishJob(supabase: SupabaseClient, job: Publishab
         return { success: true }
       } catch (reconciliationError) {
         console.error(`Confirmed publish for job ${job.id} could not be reconciled:`, reconciliationError)
+        // Leave a durable unsafe marker so cancel/retry cannot open a second
+        // platform call while the post may already exist externally.
+        const unknownMessage =
+          'EXTERNAL_RESULT_UNKNOWN: The platform may already have accepted this publish, but local bookkeeping failed. Inspect the channel before publishing again.'
+        try {
+          await releasePublishJobClaim(supabase, job.id, claimToken, {
+            status: 'failed',
+            error_message: unknownMessage,
+          })
+        } catch (markerError) {
+          console.error(`Failed to persist EXTERNAL_RESULT_UNKNOWN for publish job ${job.id}:`, markerError)
+        }
         return { success: false }
       }
     }

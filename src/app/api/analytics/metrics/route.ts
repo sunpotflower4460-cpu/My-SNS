@@ -39,7 +39,10 @@ export async function POST(request: NextRequest) {
     .eq('id', jobId)
     .eq('workspace_id', workspaceId)
     .single()
-  if (jobError || !job) return NextResponse.json({ error: 'ジョブが見つかりません。' }, { status: 404 })
+  if (jobError) {
+    return NextResponse.json({ error: 'ジョブを確認できませんでした。少し後でもう一度お試しください。' }, { status: 503 })
+  }
+  if (!job) return NextResponse.json({ error: 'ジョブが見つかりません。' }, { status: 404 })
 
   const { data: attempt, error: attemptError } = await supabase
     .from('publish_attempts')

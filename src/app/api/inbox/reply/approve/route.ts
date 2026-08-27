@@ -64,7 +64,10 @@ export async function POST(request: NextRequest) {
     .eq('workspace_id', workspaceId)
     .maybeSingle()
 
-  if (itemError || !item) {
+  if (itemError) {
+    return NextResponse.json({ error: '受信メッセージを確認できませんでした。少し後でもう一度お試しください。' }, { status: 503 })
+  }
+  if (!item) {
     return NextResponse.json({ error: '受信メッセージが見つかりません。' }, { status: 404 })
   }
 
@@ -122,7 +125,13 @@ export async function POST(request: NextRequest) {
     .eq('workspace_id', workspaceId)
     .maybeSingle()
 
-  if (contactError || !contact) {
+  if (contactError) {
+    return NextResponse.json(
+      { error: '送信先の連絡先情報を確認できませんでした。少し後でもう一度お試しください。' },
+      { status: 503 },
+    )
+  }
+  if (!contact) {
     return NextResponse.json(
       { error: '送信先の連絡先情報が見つからないため、返信を送信できません。' },
       { status: 400 },

@@ -177,8 +177,7 @@ export async function listRecentAiRevisionsForStyleLearning(
     .limit(50)
 
   if (error) {
-    console.error('Error fetching revisions for style learning:', error)
-    return []
+    throw new Error(`スタイル学習用の下書き履歴を読み込めませんでした: ${error.message}`)
   }
 
   const revisions = (data ?? []).map((row) => mapRevision(row as DraftRevisionRow))
