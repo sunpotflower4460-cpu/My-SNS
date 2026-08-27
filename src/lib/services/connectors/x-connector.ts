@@ -150,13 +150,21 @@ export class XConnectorAdapter implements SocialConnectorAdapter {
     }
 
     if (!username) {
-      const account = await fetchAuthenticatedHandle(request.accessToken)
-      username = account.username
+      // The tweet(s) above are already confirmed on X's side — a failure here
+      // (rate limit, transient error) must not throw away that confirmed
+      // firstId, or the caller will record this as a failed publish and a
+      // retry will post a duplicate tweet. Fall back to no URL instead.
+      try {
+        const account = await fetchAuthenticatedHandle(request.accessToken)
+        username = account.username
+      } catch {
+        username = undefined
+      }
     }
 
     return {
       externalPostId: firstId,
-      externalUrl: firstId ? `https://x.com/${username}/status/${firstId}` : undefined,
+      externalUrl: firstId && username ? `https://x.com/${username}/status/${firstId}` : undefined,
     }
   }
 

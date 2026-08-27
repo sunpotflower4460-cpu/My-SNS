@@ -189,12 +189,22 @@ export class InstagramConnectorAdapter implements SocialConnectorAdapter {
       creation_id: creation.id,
     })
 
-    const permalink = await graphGet<{ permalink?: string }>(`/${published.id}`, {
-      fields: 'permalink',
-      access_token: request.accessToken,
-    })
+    // media_publish above already confirmed the post on Instagram's side — a
+    // failure looking up its permalink must not throw away that confirmed id,
+    // or the caller will record this as a failed publish and a retry will
+    // publish the media a second time. Fall back to no URL instead.
+    let permalink: string | undefined
+    try {
+      const result = await graphGet<{ permalink?: string }>(`/${published.id}`, {
+        fields: 'permalink',
+        access_token: request.accessToken,
+      })
+      permalink = result.permalink
+    } catch {
+      permalink = undefined
+    }
 
-    return { externalPostId: published.id, externalUrl: permalink.permalink }
+    return { externalPostId: published.id, externalUrl: permalink }
   }
 
   private async assertWithinPublishingLimit(igUserId: string, accessToken: string): Promise<void> {

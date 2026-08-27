@@ -234,7 +234,16 @@ export class TikTokConnectorAdapter implements SocialConnectorAdapter {
     for (let attempt = 0; attempt < STATUS_POLL_ATTEMPTS; attempt += 1) {
       await sleep(STATUS_POLL_INTERVAL_MS)
 
-      const status = await checkTikTokPublishStatus(request.accessToken, init.publish_id)
+      // init.publish_id above already started a real post on TikTok's side —
+      // a transient failure checking its status (network blip, momentary API
+      // error) must not throw away that publish_id, or the caller would
+      // record this as a failed publish and a retry would start a second
+      // real post. Treat a failed status check as still-processing and keep
+      // polling; it still falls through to the pending-error below on
+      // exhaustion, which lets a retry check this same operation.
+      const status = await checkTikTokPublishStatus(request.accessToken, init.publish_id).catch(
+        (): TikTokPublishCheck => ({ state: 'processing' }),
+      )
       if (status.state === 'complete') {
         return { externalPostId: status.postId ?? init.publish_id, externalUrl: undefined }
       }

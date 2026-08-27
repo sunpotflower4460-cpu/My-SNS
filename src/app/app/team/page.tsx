@@ -17,6 +17,8 @@ export default function TeamPage() {
   const [inviteRole, setInviteRole] = useState<WorkspaceRole>('viewer')
   const [feedback, setFeedback] = useState('')
   const [error, setError] = useState('')
+  const [isInviting, setIsInviting] = useState(false)
+  const [busyUserId, setBusyUserId] = useState<string | null>(null)
 
   const pendingInvitations = useMemo(() => getPendingInvitations(invitations), [invitations])
 
@@ -29,6 +31,7 @@ export default function TeamPage() {
       return
     }
 
+    setIsInviting(true)
     try {
       await inviteMember(validation.email, inviteRole)
       setInviteEmail('')
@@ -38,10 +41,13 @@ export default function TeamPage() {
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : '招待を作成できませんでした。')
       setFeedback('')
+    } finally {
+      setIsInviting(false)
     }
   }
 
   const handleRoleChange = async (userId: string, role: WorkspaceRole) => {
+    setBusyUserId(userId)
     try {
       await changeMemberRole(userId, role)
       setFeedback('役割を更新しました。')
@@ -49,10 +55,13 @@ export default function TeamPage() {
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : '役割を更新できませんでした。')
       setFeedback('')
+    } finally {
+      setBusyUserId(null)
     }
   }
 
   const handleRemove = async (userId: string) => {
+    setBusyUserId(userId)
     try {
       await removeMember(userId)
       setFeedback('メンバーをワークスペースから削除しました。')
@@ -60,6 +69,8 @@ export default function TeamPage() {
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'メンバーを削除できませんでした。')
       setFeedback('')
+    } finally {
+      setBusyUserId(null)
     }
   }
 
@@ -96,8 +107,8 @@ export default function TeamPage() {
                     <PermissionGate requiredPermission="change_roles" currentRole={currentMember?.role ?? 'viewer'}>
                       <select
                         value={member.role}
-                        disabled={disableRoleChange}
-                        onChange={(event) => handleRoleChange(member.userId, event.target.value as WorkspaceRole)}
+                        disabled={disableRoleChange || busyUserId === member.userId}
+                        onChange={(event) => void handleRoleChange(member.userId, event.target.value as WorkspaceRole)}
                         className="min-h-touch rounded-control border border-stone-200 px-3 text-xs focus:outline-none focus:ring-2 focus:ring-violet-300 disabled:cursor-not-allowed disabled:bg-stone-100 disabled:text-gray-400 sm:min-h-control"
                       >
                         {member.role === 'owner' && <option value="owner">オーナー</option>}
@@ -108,7 +119,7 @@ export default function TeamPage() {
                       </select>
                     </PermissionGate>
                     <PermissionGate requiredPermission="remove_members" currentRole={currentMember?.role ?? 'viewer'}>
-                      <Button size="sm" variant="destructive" onClick={() => handleRemove(member.userId)} disabled={disableRemove}>
+                      <Button size="sm" variant="destructive" onClick={() => void handleRemove(member.userId)} disabled={disableRemove || busyUserId === member.userId}>
                         削除
                       </Button>
                     </PermissionGate>
@@ -145,7 +156,7 @@ export default function TeamPage() {
                 <option value="contributor">投稿者</option>
                 <option value="viewer">閲覧者</option>
               </select>
-              <Button variant="primary" onClick={handleInvite}>招待を送る</Button>
+              <Button variant="primary" onClick={() => void handleInvite()} loading={isInviting}>招待を送る</Button>
             </div>
           </Card>
         </PermissionGate>

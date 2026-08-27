@@ -39,7 +39,7 @@ export async function POST(request: NextRequest) {
   }
 
   const { workspaceId, inboxItemId, suggestionId, sendNow } = body
-  const replyText = body.replyText?.trim()
+  const replyText = typeof body.replyText === 'string' ? body.replyText.trim() : undefined
   if (!workspaceId || !inboxItemId || !replyText) {
     return NextResponse.json({ error: 'workspaceId、inboxItemId、返信本文は必須です。' }, { status: 400 })
   }

@@ -54,7 +54,12 @@ export default function DraftsPage() {
     if (!selectedSeed) return
     setSelectedChannels(selectedSeed.targetChannels.length > 0 ? selectedSeed.targetChannels : [...CORE_PUBLISHING_CHANNELS])
     setGeneratedDrafts([])
-  }, [selectedSeed])
+    // Keyed on the id, not the seed object: `seeds` gets a fresh array (and
+    // fresh seed objects) from refreshWorkspaceData() after every draft save,
+    // so depending on the object itself would wipe the still-unsaved
+    // "未保存の下書き" list right after the very save that triggered it.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedSeed?.id])
 
   const toggleChannel = (channel: PublishingChannel) => {
     setSelectedChannels((current) => current.includes(channel)
