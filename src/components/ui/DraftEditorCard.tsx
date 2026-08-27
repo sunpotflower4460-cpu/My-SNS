@@ -5,7 +5,7 @@ import type { SocialDraft } from '@/lib/domain/types'
 import ChannelBadge from './ChannelBadge'
 import StatusBadge from './StatusBadge'
 
-function defaultScheduleInputValue(): string {
+function clientScheduleInputValue(): string {
   const now = new Date()
   now.setMinutes(now.getMinutes() - now.getTimezoneOffset())
   return now.toISOString().slice(0, 16)
@@ -14,7 +14,8 @@ function defaultScheduleInputValue(): string {
 interface DraftEditorCardProps {
   draft: SocialDraft
   onEdit?: (id: string, text: string) => void
-  onApprove?: (id: string) => void
+  /** Receives the editor's current text so approve never freezes a stale saved copy. */
+  onApprove?: (id: string, text: string) => void
   onRegenerate?: (id: string) => void
   onSchedule?: (id: string, scheduledAt: string) => void
 }
@@ -22,12 +23,18 @@ interface DraftEditorCardProps {
 export default function DraftEditorCard({ draft, onEdit, onApprove, onRegenerate, onSchedule }: DraftEditorCardProps) {
   const [text, setText] = useState(draft.draftText)
   const [isDirty, setIsDirty] = useState(false)
-  const [scheduleInput, setScheduleInput] = useState(defaultScheduleInputValue)
+  // datetime-local defaults must be client-only: SSR often runs in UTC while the
+  // browser uses Asia/Tokyo, which would hydrate with a mismatched value.
+  const [scheduleInput, setScheduleInput] = useState('')
 
   useEffect(() => {
     setText(draft.draftText)
     setIsDirty(false)
   }, [draft.draftText, draft.id])
+
+  useEffect(() => {
+    setScheduleInput(clientScheduleInputValue())
+  }, [draft.id])
 
   const handleChange = (val: string) => {
     setText(val)
@@ -35,8 +42,21 @@ export default function DraftEditorCard({ draft, onEdit, onApprove, onRegenerate
   }
 
   const handleSave = () => {
+    // Keep isDirty until draft.draftText catches up via parent refresh.
+    // Clearing it eagerly would re-enable 予約する against a stale Revision
+    // if persistDraft fails.
     onEdit?.(draft.id, text)
-    setIsDirty(false)
+  }
+
+  const handleApprove = () => {
+    // Keep isDirty until the parent confirms via an updated draft prop.
+    // Clearing it eagerly would hide "未保存" if approval fails.
+    onApprove?.(draft.id, text)
+  }
+
+  const handleSchedule = () => {
+    if (isDirty || !scheduleInput) return
+    onSchedule?.(draft.id, new Date(scheduleInput).toISOString())
   }
 
   return (
@@ -85,11 +105,18 @@ export default function DraftEditorCard({ draft, onEdit, onApprove, onRegenerate
             className="ui-input rounded-control px-2.5 py-1.5 text-xs focus:outline-none"
           />
           <button
-            onClick={() => onSchedule(draft.id, new Date(scheduleInput).toISOString())}
-            className="rounded-full bg-[color:var(--accent)] px-3 py-1.5 text-xs font-medium text-white transition duration-200 ease-[var(--ease-out-premium)] hover:bg-[color:var(--accent-hover)]"
+            onClick={handleSchedule}
+            disabled={isDirty || !scheduleInput}
+            title={isDirty ? '未保存の編集があります。先に保存してから再承認してください。予約は直近の承認版を使います。' : undefined}
+            className="rounded-full bg-[color:var(--accent)] px-3 py-1.5 text-xs font-medium text-white transition duration-200 ease-[var(--ease-out-premium)] hover:bg-[color:var(--accent-hover)] disabled:cursor-not-allowed disabled:opacity-50"
           >
             予約する
           </button>
+          {isDirty && (
+            <p className="basis-full text-[11px] text-amber-700">
+              未保存の編集があります。予約は直近の承認版を使うため、先に保存して再承認してください。
+            </p>
+          )}
         </div>
       )}
 
@@ -105,7 +132,7 @@ export default function DraftEditorCard({ draft, onEdit, onApprove, onRegenerate
         )}
         {onApprove && draft.status === 'draft' && (
           <button
-            onClick={() => onApprove(draft.id)}
+            onClick={handleApprove}
             className="rounded-full bg-emerald-600 px-3 py-1.5 text-xs text-white transition duration-200 ease-[var(--ease-out-premium)] hover:bg-emerald-700"
           >
             承認する

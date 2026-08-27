@@ -1,11 +1,12 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { YouTubeConnectorAdapter, mapCommentThreads, type CommentThreadsResponse } from './youtube-connector'
 
-function mockResponse(init: { ok: boolean; status: number; body?: unknown }): Response {
+function mockResponse(init: { ok: boolean; status: number; body?: unknown; headers?: Record<string, string>; streamBody?: unknown }): Response {
   return {
     ok: init.ok,
     status: init.status,
-    headers: new Headers(),
+    headers: new Headers(init.headers ?? {}),
+    body: init.streamBody ?? null,
     json: async () => init.body,
     text: async () => JSON.stringify(init.body ?? {}),
   } as unknown as Response
@@ -53,6 +54,111 @@ describe('mapCommentThreads', () => {
         items: [{ snippet: { topLevelComment: { id: 'c2', snippet: {} } } }],
       })[0].authorHandle,
     ).toBe('unknown')
+  })
+})
+
+describe('YouTubeConnectorAdapter credential refresh', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals()
+    delete process.env.YOUTUBE_CLIENT_ID
+    delete process.env.YOUTUBE_CLIENT_SECRET
+  })
+
+  it('persists the refreshed access token without requiring a channel lookup', async () => {
+    process.env.YOUTUBE_CLIENT_ID = 'client'
+    process.env.YOUTUBE_CLIENT_SECRET = 'secret'
+    const fetchMock = vi.fn().mockResolvedValue(
+      mockResponse({
+        ok: true,
+        status: 200,
+        body: {
+          access_token: 'new-access',
+          expires_in: 3600,
+          scope: 'https://www.googleapis.com/auth/youtube.upload',
+          token_type: 'Bearer',
+        },
+      }),
+    )
+    vi.stubGlobal('fetch', fetchMock)
+
+    const refreshed = await new YouTubeConnectorAdapter().refreshAccessToken('youtube', 'old-refresh')
+
+    expect(refreshed.accessToken).toBe('new-access')
+    expect(refreshed.refreshToken).toBeUndefined()
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('YouTubeConnectorAdapter.publish result safety', () => {
+  const previousSupabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
+
+  afterEach(() => {
+    vi.unstubAllGlobals()
+    if (previousSupabaseUrl === undefined) delete process.env.NEXT_PUBLIC_SUPABASE_URL
+    else process.env.NEXT_PUBLIC_SUPABASE_URL = previousSupabaseUrl
+  })
+
+  it('marks a provider 5xx after video bytes are sent as externally unknown', async () => {
+    process.env.NEXT_PUBLIC_SUPABASE_URL = 'https://project.supabase.co'
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        mockResponse({ ok: true, status: 200, headers: { location: 'https://upload.youtube.test/session' } }),
+      )
+      .mockResolvedValueOnce(
+        mockResponse({
+          ok: true,
+          status: 200,
+          headers: { 'content-type': 'video/mp4' },
+          streamBody: { fake: 'stream' },
+        }),
+      )
+      .mockResolvedValueOnce(mockResponse({ ok: false, status: 503, body: { error: 'temporary' } }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    await expect(
+      new YouTubeConnectorAdapter().publish({
+        platform: 'youtube',
+        accessToken: 'token',
+        title: 'Video',
+        body: 'Description',
+        hashtags: [],
+        metadata: {
+          mediaUrl: 'https://project.supabase.co/storage/v1/object/sign/assets/workspace/video.mp4?token=abc',
+        },
+      }),
+    ).rejects.toThrow(/EXTERNAL_RESULT_UNKNOWN/)
+  })
+
+  it('marks a lost final upload response as externally unknown', async () => {
+    process.env.NEXT_PUBLIC_SUPABASE_URL = 'https://project.supabase.co'
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        mockResponse({ ok: true, status: 200, headers: { location: 'https://upload.youtube.test/session' } }),
+      )
+      .mockResolvedValueOnce(
+        mockResponse({
+          ok: true,
+          status: 200,
+          headers: { 'content-type': 'video/mp4' },
+          streamBody: { fake: 'stream' },
+        }),
+      )
+      .mockRejectedValueOnce(new TypeError('fetch failed'))
+    vi.stubGlobal('fetch', fetchMock)
+
+    await expect(
+      new YouTubeConnectorAdapter().publish({
+        platform: 'youtube',
+        accessToken: 'token',
+        body: 'Description',
+        hashtags: [],
+        metadata: {
+          mediaUrl: 'https://project.supabase.co/storage/v1/object/sign/assets/workspace/video.mp4?token=abc',
+        },
+      }),
+    ).rejects.toThrow(/EXTERNAL_RESULT_UNKNOWN/)
   })
 })
 

@@ -10,14 +10,29 @@ interface AuthContextValue {
   currentUserId: string | null
   isAuthenticated: boolean
   isReady: boolean
+  profileError: string | null
   signOut: () => Promise<void>
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null)
 
+function sessionFallbackUser(authUser: User): AppUser {
+  return {
+    id: authUser.id,
+    email: authUser.email ?? '',
+    name:
+      (typeof authUser.user_metadata?.name === 'string' && authUser.user_metadata.name) ||
+      authUser.email ||
+      'ユーザー',
+    avatarUrl: typeof authUser.user_metadata?.avatar_url === 'string' ? authUser.user_metadata.avatar_url : undefined,
+    createdAt: authUser.created_at,
+  }
+}
+
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<AppUser | null>(null)
   const [isReady, setIsReady] = useState(false)
+  const [profileError, setProfileError] = useState<string | null>(null)
 
   async function loadUserProfile(authUser: User) {
     try {
@@ -29,8 +44,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         .single()
 
       if (error) {
+        // Session is still valid — do not pretend the user is signed out. Keep a
+        // session-derived identity so workspace bootstrap can retry instead of
+        // bouncing to the login screen on a transient profiles read failure.
         console.error('Error loading profile:', error)
-        setUser(null)
+        setUser(sessionFallbackUser(authUser))
+        setProfileError(error.message)
       } else if (profile) {
         setUser({
           id: profile.id,
@@ -39,10 +58,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           avatarUrl: profile.avatar_url,
           createdAt: profile.created_at,
         })
+        setProfileError(null)
       }
     } catch (error) {
       console.error('Error loading profile:', error)
-      setUser(null)
+      setUser(sessionFallbackUser(authUser))
+      setProfileError(error instanceof Error ? error.message : 'プロフィールを読み込めませんでした')
     } finally {
       setIsReady(true)
     }
@@ -68,6 +89,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         loadUserProfile(session.user)
       } else {
         setUser(null)
+        setProfileError(null)
         setIsReady(true)
       }
     })
@@ -82,6 +104,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const supabase = createClient()
     await supabase.auth.signOut()
     setUser(null)
+    setProfileError(null)
   }
 
   return (
@@ -91,6 +114,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         currentUserId: user?.id ?? null,
         isAuthenticated: !!user,
         isReady,
+        profileError,
         signOut,
       }}
     >

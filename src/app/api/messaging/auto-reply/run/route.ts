@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import type { SupabaseClient } from '@supabase/supabase-js'
 import { createServiceClient } from '@/lib/supabase/service'
 import { runAutoReplySweep } from '@/lib/services/auto-reply-sweep'
 
@@ -11,8 +12,6 @@ import { runAutoReplySweep } from '@/lib/services/auto-reply-sweep'
 // the reply_mode='auto' jobs once due. That is the same claim-guarded send path
 // as every other reply, so nothing here sends a message directly.
 
-// Generation is per-item and can add up across a batch; give it room but far
-// under a long-upload ceiling (these are text pushes, drafted then queued).
 export const maxDuration = 120
 
 export async function GET(request: NextRequest) {
@@ -24,7 +23,22 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: 'Not authorized.' }, { status: 401 })
   }
 
-  const supabase = createServiceClient()
-  const result = await runAutoReplySweep(supabase)
-  return NextResponse.json(result)
+  let supabase: SupabaseClient
+  try {
+    supabase = createServiceClient()
+  } catch (cause) {
+    console.error('Auto-reply worker service client is unavailable:', cause)
+    return NextResponse.json({ error: 'Worker database configuration is unavailable.' }, { status: 503 })
+  }
+
+  try {
+    const result = await runAutoReplySweep(supabase)
+    return NextResponse.json(result)
+  } catch (cause) {
+    // Most item-level failures are isolated inside the sweep. This boundary is
+    // for unexpected setup/query failures so a cron call still returns a clear
+    // retryable status rather than an unhandled function error.
+    console.error('Auto-reply sweep failed before completing:', cause)
+    return NextResponse.json({ error: 'Auto-reply worker could not complete this pass.' }, { status: 503 })
+  }
 }

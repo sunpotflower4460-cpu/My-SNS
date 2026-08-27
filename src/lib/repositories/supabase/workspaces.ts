@@ -6,15 +6,20 @@ import type {
 } from '@/lib/domain/types'
 import { createClient } from '@/lib/supabase/client'
 
+function workspaceReadError(scope: string, message: string): Error {
+  return new Error(`${scope}を読み込めませんでした。空／未所属として扱わず、再読み込みしてください: ${message}`)
+}
+
 export async function getUserWorkspaces(userId: string): Promise<Workspace[]> {
   const supabase = createClient()
 
   // First get the workspace IDs for this user
-  const { data: memberships } = await supabase
+  const { data: memberships, error: membershipError } = await supabase
     .from('workspace_members')
     .select('workspace_id')
     .eq('user_id', userId)
 
+  if (membershipError) throw workspaceReadError('所属ワークスペース', membershipError.message)
   if (!memberships || memberships.length === 0) {
     return []
   }
@@ -28,10 +33,7 @@ export async function getUserWorkspaces(userId: string): Promise<Workspace[]> {
     .in('id', workspaceIds)
     .order('created_at', { ascending: false })
 
-  if (error) {
-    console.error('Error fetching workspaces:', error)
-    return []
-  }
+  if (error) throw workspaceReadError('ワークスペース一覧', error.message)
 
   return (data || []).map((w) => ({
     id: w.id,
@@ -51,12 +53,10 @@ export async function getWorkspaceById(workspaceId: string): Promise<Workspace |
     .from('workspaces')
     .select('*')
     .eq('id', workspaceId)
-    .single()
+    .maybeSingle()
 
-  if (error || !data) {
-    console.error('Error fetching workspace:', error)
-    return null
-  }
+  if (error) throw workspaceReadError('ワークスペース', error.message)
+  if (!data) return null
 
   return {
     id: data.id,
@@ -83,11 +83,10 @@ export async function getCurrentMember(
     `)
     .eq('workspace_id', workspaceId)
     .eq('user_id', userId)
-    .single()
+    .maybeSingle()
 
-  if (error || !data) {
-    return null
-  }
+  if (error) throw workspaceReadError('メンバーシップ', error.message)
+  if (!data) return null
 
   const user = Array.isArray(data.user) ? data.user[0] : data.user
 
@@ -119,10 +118,7 @@ export async function listWorkspaceMembers(workspaceId: string): Promise<Workspa
     .eq('workspace_id', workspaceId)
     .order('joined_at', { ascending: true })
 
-  if (error) {
-    console.error('Error fetching members:', error)
-    return []
-  }
+  if (error) throw workspaceReadError('メンバー一覧', error.message)
 
   return (data || []).map((m) => {
     const user = Array.isArray(m.user) ? m.user[0] : m.user
@@ -152,10 +148,7 @@ export async function listWorkspaceInvitations(workspaceId: string): Promise<Inv
     .eq('workspace_id', workspaceId)
     .order('created_at', { ascending: false })
 
-  if (error) {
-    console.error('Error fetching invitations:', error)
-    return []
-  }
+  if (error) throw workspaceReadError('招待一覧', error.message)
 
   return (data || []).map((i) => ({
     id: i.id,

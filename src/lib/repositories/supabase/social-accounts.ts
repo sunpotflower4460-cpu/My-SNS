@@ -42,6 +42,21 @@ export async function listWorkspaceSocialAccounts(workspaceId: string): Promise<
   return (data ?? []).map((row) => mapAccount(row as SocialAccountRow))
 }
 
+/** Server/session-side durable read used to reconcile an RPC whose response may have been lost after commit. */
+export async function getSocialAccountById(
+  supabase: SupabaseClient,
+  accountId: string,
+): Promise<SocialAccount | null> {
+  const { data, error } = await supabase
+    .from('social_accounts')
+    .select('*')
+    .eq('id', accountId)
+    .maybeSingle()
+
+  if (error) throw new Error(error.message)
+  return data ? mapAccount(data as SocialAccountRow) : null
+}
+
 export interface UpsertPendingAccountInput {
   workspaceId: string
   platform: SocialPlatform
@@ -50,14 +65,12 @@ export interface UpsertPendingAccountInput {
 }
 
 /**
- * Called from the OAuth callback route with the connecting user's own
- * session-scoped client (RLS requires owner/admin, matching manage_social_accounts).
+ * Creates a separate pending row for every OAuth attempt. Reusing the existing
+ * live row would set connected=false before the new credential is durable and
+ * could take a perfectly working account offline when reconnect fails.
  *
- * Deliberately upserts with connected=false — the row is created (so its id
- * exists for the credentials FK) but not marked connected yet. The callback
- * route only flips it to connected via finalizeSocialAccountConnection()
- * after the encrypted credential save succeeds, so a failure in between
- * can never leave Settings claiming "Connected" with no working token.
+ * finalizeSocialAccountConnection() performs the eventual old→new swap in one
+ * DB transaction after encrypted credentials have been stored.
  */
 export async function upsertPendingSocialAccount(
   supabase: SupabaseClient,
@@ -65,16 +78,13 @@ export async function upsertPendingSocialAccount(
 ): Promise<SocialAccount> {
   const { data, error } = await supabase
     .from('social_accounts')
-    .upsert(
-      {
-        workspace_id: input.workspaceId,
-        platform: input.platform,
-        handle: input.handle,
-        external_account_id: input.externalAccountId ?? null,
-        connected: false,
-      },
-      { onConflict: 'workspace_id,platform,handle' },
-    )
+    .insert({
+      workspace_id: input.workspaceId,
+      platform: input.platform,
+      handle: input.handle,
+      external_account_id: input.externalAccountId ?? null,
+      connected: false,
+    })
     .select()
     .single()
 
@@ -82,17 +92,34 @@ export async function upsertPendingSocialAccount(
   return mapAccount(data as SocialAccountRow)
 }
 
+/**
+ * Atomically activates this credential-backed pending account and retires the
+ * previously connected account for the same workspace/platform. The RPC is
+ * owner/admin checked and enforces the same single-connected invariant as the
+ * partial unique index in 20260826075000_single_connected_social_account.sql.
+ */
 export async function finalizeSocialAccountConnection(
   supabase: SupabaseClient,
   accountId: string,
 ): Promise<SocialAccount> {
-  const { data, error } = await supabase
+  const { data, error } = await supabase.rpc('finalize_social_account_connection', {
+    p_account_id: accountId,
+  })
+
+  if (error || !data) throw new Error(error?.message ?? 'SNSアカウントの接続を確定できませんでした。')
+  return mapAccount(data as unknown as SocialAccountRow)
+}
+
+/** Remove a failed OAuth attempt without ever touching a live connection. */
+export async function deletePendingSocialAccount(
+  supabase: SupabaseClient,
+  accountId: string,
+): Promise<void> {
+  const { error } = await supabase
     .from('social_accounts')
-    .update({ connected: true, connected_at: new Date().toISOString() })
+    .delete()
     .eq('id', accountId)
-    .select()
-    .single()
+    .eq('connected', false)
 
   if (error) throw new Error(error.message)
-  return mapAccount(data as SocialAccountRow)
 }

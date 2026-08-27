@@ -74,8 +74,7 @@ export async function getLatestDraftRevision(workspaceId: string, socialDraftId:
     .maybeSingle()
 
   if (error) {
-    console.error('Error fetching the latest draft revision:', error)
-    return null
+    throw new Error(`承認版（Revision）を読み込めませんでした。存在しないものとして扱わず、再読み込みしてください: ${error.message}`)
   }
 
   return data ? mapRevision(data as DraftRevisionRow) : null
@@ -92,8 +91,7 @@ export async function getDraftRevisionById(workspaceId: string, revisionId: stri
     .maybeSingle()
 
   if (error) {
-    console.error('Error fetching draft revision:', error)
-    return null
+    throw new Error(`承認版（Revision）を読み込めませんでした。存在しないものとして扱わず、再読み込みしてください: ${error.message}`)
   }
 
   return data ? mapRevision(data as DraftRevisionRow) : null
@@ -110,8 +108,7 @@ export async function listSeedRevisions(workspaceId: string, seedId: string): Pr
     .order('created_at', { ascending: false })
 
   if (error) {
-    console.error('Error fetching draft revisions:', error)
-    return []
+    throw new Error(`承認版一覧を読み込めませんでした。空として扱わず、再読み込みしてください: ${error.message}`)
   }
 
   return (data ?? []).map((row) => mapRevision(row as DraftRevisionRow))
@@ -132,8 +129,7 @@ export async function listWorkspaceDraftRevisions(workspaceId: string, limit = W
     .limit(limit)
 
   if (error) {
-    console.error('Error fetching workspace draft revisions:', error)
-    return []
+    throw new Error(`承認版一覧を読み込めませんでした。空として扱わず、再読み込みしてください: ${error.message}`)
   }
 
   return (data ?? []).map((row) => mapRevision(row as DraftRevisionRow))
@@ -181,8 +177,7 @@ export async function listRecentAiRevisionsForStyleLearning(
     .limit(50)
 
   if (error) {
-    console.error('Error fetching revisions for style learning:', error)
-    return []
+    throw new Error(`スタイル学習用の下書き履歴を読み込めませんでした: ${error.message}`)
   }
 
   const revisions = (data ?? []).map((row) => mapRevision(row as DraftRevisionRow))

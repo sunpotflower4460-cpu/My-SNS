@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import type { SupabaseClient } from '@supabase/supabase-js'
 import { createServiceClient } from '@/lib/supabase/service'
 import { processReplyJob } from '@/lib/services/reply-worker'
 
@@ -10,14 +11,12 @@ import { processReplyJob } from '@/lib/services/reply-worker'
 
 const BATCH_SIZE = 20
 
-// A text push is quick (no media upload), so the default is plenty — unlike the
-// publish Worker, which needs a long ceiling for video uploads.
 export const maxDuration = 60
 
 interface DueReplyRow {
   id: string
   workspace_id: string
-  platform: 'line'
+  platform: string
   inbox_item_id: string
   send_target: string
   reply_text: string
@@ -33,7 +32,13 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: 'Not authorized.' }, { status: 401 })
   }
 
-  const supabase = createServiceClient()
+  let supabase: SupabaseClient
+  try {
+    supabase = createServiceClient()
+  } catch (cause) {
+    console.error('Reply worker service client is unavailable:', cause)
+    return NextResponse.json({ error: 'Worker database configuration is unavailable.' }, { status: 503 })
+  }
 
   const { data: dueJobs, error: dueJobsError } = await supabase
     .from('reply_jobs')
@@ -41,10 +46,13 @@ export async function GET(request: NextRequest) {
     .eq('status', 'scheduled')
     .in('reply_mode', ['scheduled', 'auto'])
     .lte('scheduled_at', new Date().toISOString())
+    .order('scheduled_at', { ascending: true })
+    .order('created_at', { ascending: true })
     .limit(BATCH_SIZE)
 
   if (dueJobsError) {
-    return NextResponse.json({ error: dueJobsError.message }, { status: 500 })
+    console.error('Failed to load due reply jobs:', dueJobsError)
+    return NextResponse.json({ error: 'Worker could not load due reply jobs.' }, { status: 503 })
   }
 
   let succeeded = 0
@@ -52,6 +60,25 @@ export async function GET(request: NextRequest) {
   let skipped = 0
 
   for (const rawJob of (dueJobs ?? []) as unknown as DueReplyRow[]) {
+    // Current DB guards only permit LINE sends, but service-role code must also
+    // defend against legacy rows created before those guards existed. Never
+    // reinterpret another platform's recipient id as a LINE user id.
+    if (rawJob.platform !== 'line') {
+      failed += 1
+      const errorMessage = `Unsupported reply platform in worker: ${rawJob.platform}`
+      const { error: quarantineError } = await supabase
+        .from('reply_jobs')
+        .update({ status: 'failed', error_message: errorMessage, claimed_at: null, claim_token: null })
+        .eq('id', rawJob.id)
+        .eq('status', 'scheduled')
+      if (quarantineError) {
+        console.error(`Failed to quarantine legacy reply job ${rawJob.id}:`, quarantineError)
+      } else {
+        console.error(`Quarantined legacy non-LINE reply job ${rawJob.id}: ${rawJob.platform}`)
+      }
+      continue
+    }
+
     try {
       const result = await processReplyJob(supabase, {
         id: rawJob.id,
@@ -67,8 +94,6 @@ export async function GET(request: NextRequest) {
       else if (result.success) succeeded += 1
       else failed += 1
     } catch (cause) {
-      // Keep the cron batch progressing even if claiming this one row fails
-      // because of a transient database error. Later jobs are independent.
       failed += 1
       console.error(`Unhandled reply worker error for job ${rawJob.id}:`, cause)
     }

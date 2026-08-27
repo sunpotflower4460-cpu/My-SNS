@@ -1,7 +1,7 @@
 import type { BrandProfile, Seed, SocialDraft, PublishingChannel, SocialPlatform, InboundInboxEvent, PostMetrics } from '@/lib/domain/types'
 
 // ─── Draft Generator ──────────────────────────────────────────────────────────
-/** One prior AI proposal a human edited before approving, for the same channel — used as a few-shot style hint (PR7). */
+/** One prior AI proposal a human edited before approving, for the same channel — used as a few-shot style hint (PR7's "learn from corrections"). */
 export interface DraftStyleExample {
   channel: PublishingChannel
   aiProposed: string
@@ -135,6 +135,19 @@ export interface ConnectedAccount {
 }
 
 /**
+ * Only the credential material returned by a refresh operation. Refreshing a
+ * rotating token must not depend on a later profile/handle lookup: once the
+ * provider rotates the refresh token, losing that new token can break an
+ * otherwise healthy connection. Account identity remains the durable DB row.
+ */
+export interface RefreshedCredentials {
+  accessToken: string
+  refreshToken?: string
+  expiresAt?: string
+  scopes: string[]
+}
+
+/**
  * Credentials the caller resolved for one connected account — mirrors
  * PublishRequest's shape/philosophy: the adapter never touches the
  * database itself, it just receives what it needs to call the platform.
@@ -159,6 +172,12 @@ export interface SendMessageRequest {
   target: string
   text: string
   externalAccountId?: string
+  /**
+   * Stable caller-owned UUID for provider-side idempotency when supported.
+   * LINE push messages use this as X-Line-Retry-Key from the very first request,
+   * so a retry after an ambiguous network/DB failure cannot deliver twice.
+   */
+  retryKey?: string
 }
 
 export interface SendMessageResult {
@@ -169,7 +188,7 @@ export interface SendMessageResult {
 export interface SocialConnectorAdapter {
   connect(platform: SocialPlatform, authCode: string, options: ConnectOptions): Promise<ConnectedAccount>
   disconnect(platform: SocialPlatform): Promise<void>
-  refreshAccessToken(platform: SocialPlatform, refreshToken: string): Promise<ConnectedAccount>
+  refreshAccessToken(platform: SocialPlatform, refreshToken: string): Promise<RefreshedCredentials>
   publish(request: PublishRequest): Promise<PublishResult>
   /** Send one outbound DM reply. Only real messaging connectors (LINE) implement this; every other adapter fails closed. */
   sendMessage(request: SendMessageRequest): Promise<SendMessageResult>

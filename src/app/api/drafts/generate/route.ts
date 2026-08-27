@@ -1,11 +1,14 @@
+import { randomUUID } from 'node:crypto'
+import type { SupabaseClient } from '@supabase/supabase-js'
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
+import { isNextResponse, requireWorkspaceMember } from '@/lib/api/workspace-access'
+import { createServiceClient } from '@/lib/supabase/service'
 import { mapSeed, SEED_SELECT, type SeedRow } from '@/lib/repositories/supabase/seeds'
 import { getWorkspaceMonthlyAiCost, recordAiGeneration } from '@/lib/repositories/supabase/ai-generations'
 import { listRecentAiRevisionsForStyleLearning } from '@/lib/repositories/supabase/draft-revisions'
 import { PUBLISHING_CHANNEL_CONFIG } from '@/lib/channels/config'
-import { hasPermission } from '@/lib/permissions'
-import type { PublishingChannel, WorkspaceRole } from '@/lib/domain/types'
+import type { PublishingChannel } from '@/lib/domain/types'
 import { CORE_PUBLISHING_CHANNELS } from '@/lib/domain/types'
 import { TemplateDraftGeneratorService } from '@/lib/services/ai-draft'
 import {
@@ -14,6 +17,12 @@ import {
   generateChannelDraftsWithAnthropic,
   isAnthropicConfigured,
 } from '@/lib/services/anthropic-draft'
+import {
+  claimWorkspaceAiBudget,
+  configuredMonthlyAiBudgetUsd,
+  releaseWorkspaceAiBudget,
+} from '@/lib/services/ai-generation-claims'
+import { hasUnrecordedAiUsageIncident } from '@/lib/services/ai-usage-incidents'
 
 const VALID_CHANNELS = new Set(Object.keys(PUBLISHING_CHANNEL_CONFIG))
 const VALID_LENGTHS = new Set(['short', 'medium', 'long'])
@@ -69,17 +78,8 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'ログインしていません。' }, { status: 401 })
   }
 
-  const { data: member } = await supabase
-    .from('workspace_members')
-    .select('role')
-    .eq('workspace_id', workspaceId)
-    .eq('user_id', user.id)
-    .maybeSingle()
-
-  const role = member?.role as WorkspaceRole | undefined
-  if (!role || !hasPermission(role, 'create_drafts')) {
-    return NextResponse.json({ error: 'このワークスペースで下書きを生成する権限がありません。' }, { status: 403 })
-  }
+  const membership = await requireWorkspaceMember(supabase, workspaceId, user.id, 'create_drafts', 'このワークスペースで下書きを作成する権限がありません。')
+  if (isNextResponse(membership)) return membership
 
   const { data: seedRow, error: seedError } = await supabase
     .from('seeds')
@@ -88,19 +88,26 @@ export async function POST(request: NextRequest) {
     .eq('workspace_id', workspaceId)
     .single()
 
-  if (seedError || !seedRow) {
+  if (seedError) {
+    return NextResponse.json({ error: 'シードを確認できませんでした。少し後でもう一度お試しください。' }, { status: 503 })
+  }
+  if (!seedRow) {
     return NextResponse.json({ error: 'シードが見つかりません。' }, { status: 404 })
   }
 
   const seed = mapSeed(seedRow as unknown as SeedRow)
   const typedChannels = channels as PublishingChannel[]
   const typedLength = length as 'short' | 'medium' | 'long'
-  // Best-effort: a failure here must never block draft generation itself —
-  // style learning is a quality nudge, not a required input.
-  const styleExamples = await listRecentAiRevisionsForStyleLearning(supabase, workspaceId, typedChannels).catch((cause) => {
+  let styleExamples
+  try {
+    styleExamples = await listRecentAiRevisionsForStyleLearning(supabase, workspaceId, typedChannels)
+  } catch (cause) {
     console.error('Failed to load style examples for draft generation:', cause)
-    return []
-  })
+    return NextResponse.json(
+      { error: 'スタイル学習データを読み込めなかったため、安全のため下書き生成を中止しました。少し待ってから再試行してください。' },
+      { status: 503 },
+    )
+  }
   const context = {
     createdBy: user.id,
     brandProfile: seed.brandProfile ?? null,
@@ -116,85 +123,148 @@ export async function POST(request: NextRequest) {
     })
   }
 
-  // Optional guardrail (PR9): unset means no cap, matching every other
-  // budget-adjacent env var in this app (unset cost-per-token rates just
-  // mean cost stays 0, never a hard stop) — this is an opt-in ceiling, not
-  // a security boundary, so it fails open rather than closed when unset.
-  // Can only block the *next* call once the cap is already met — there is
-  // no way to know this call's own cost before making it.
-  const monthlyBudgetUsd = Number(process.env.ANTHROPIC_MONTHLY_BUDGET_USD)
-  if (Number.isFinite(monthlyBudgetUsd) && monthlyBudgetUsd > 0) {
-    const spentUsd = await getWorkspaceMonthlyAiCost(supabase, workspaceId)
-    if (spentUsd >= monthlyBudgetUsd) {
-      return NextResponse.json(
-        {
-          error: `このワークスペースの今月のAI予算（$${monthlyBudgetUsd.toFixed(2)}）に達しました（使用額 $${spentUsd.toFixed(2)}）。ANTHROPIC_MONTHLY_BUDGET_USDを引き上げるか、来月まで待ってください。`,
-        },
-        { status: 402 },
-      )
+  // Once Anthropic is configured, every paid call must be able to use the
+  // service-role ledger/claim path. Do not let a missing server credential turn
+  // into an unhandled 500 or a paid generation whose usage cannot be tracked.
+  let serviceClient: SupabaseClient
+  try {
+    serviceClient = createServiceClient()
+  } catch (cause) {
+    console.error('AI draft service client is unavailable:', cause)
+    return NextResponse.json(
+      { error: 'AI生成に必要なサーバー設定を確認できませんでした。管理者に設定確認を依頼してください。' },
+      { status: 503 },
+    )
+  }
+
+  const monthlyBudgetUsd = configuredMonthlyAiBudgetUsd()
+  let budgetClaimToken: string | null = null
+
+  if (monthlyBudgetUsd !== null) {
+    try {
+      budgetClaimToken = await claimWorkspaceAiBudget(serviceClient, workspaceId)
+    } catch (cause) {
+      console.error('Failed to claim AI budget slot:', cause)
+      return NextResponse.json({ error: 'AI予算の確認を開始できませんでした。少し待ってから再試行してください。' }, { status: 503 })
+    }
+    if (!budgetClaimToken) {
+      return NextResponse.json({ error: 'このワークスペースでは別のAI処理が実行中です。完了後に再試行してください。' }, { status: 409 })
     }
   }
 
   try {
-    const result = await generateChannelDraftsWithAnthropic(seed, typedChannels, tone, typedLength, context)
-    const costUsd = calculateGenerationCost(result.inputTokens, result.outputTokens)
+    try {
+      if (await hasUnrecordedAiUsageIncident(serviceClient, workspaceId)) {
+        return NextResponse.json(
+          {
+            error:
+              '直近のAI使用量を台帳に記録できなかったため、安全のため追加のAI生成を停止しています。管理者に使用量台帳の確認を依頼してください。',
+          },
+          { status: 503 },
+        )
+      }
+    } catch (cause) {
+      console.error('Failed to verify AI usage-ledger safety state:', cause)
+      return NextResponse.json({ error: 'AI使用量台帳の安全状態を確認できないため、生成を停止しました。' }, { status: 503 })
+    }
 
-    const generation = await recordAiGeneration(supabase, {
-      workspaceId,
-      seedId,
-      channels: typedChannels,
-      model: result.model,
-      inputTokens: result.inputTokens,
-      outputTokens: result.outputTokens,
-      costUsd,
-      createdBy: user.id,
-    })
-
-    await supabase.from('audit_logs').insert({
-      workspace_id: workspaceId,
-      actor_id: user.id,
-      action: 'draft_ai_generated',
-      target_type: 'seed',
-      target_id: seedId,
-      // styleExamplesUsed: traceability for PR7's cross-Seed style learning —
-      // this generation's prompt may have included wording a human approved
-      // on a *different* Seed (see listRecentAiRevisionsForStyleLearning),
-      // so the audit log should say when that happened, not just that a
-      // generation occurred.
-      metadata: { channels: typedChannels, model: result.model, aiGenerationId: generation.id, styleExamplesUsed: styleExamples.length },
-    })
-
-    return NextResponse.json({
-      source: 'ai',
-      model: result.model,
-      aiGenerationId: generation.id,
-      drafts: result.drafts,
-    })
-  } catch (cause) {
-    const message = cause instanceof Error ? cause.message : 'AIによる下書き生成に失敗しました。'
-
-    // The Anthropic call itself may have succeeded (and been billed) even
-    // though the response couldn't be turned into valid drafts. Record what
-    // was actually spent so ai_generations doesn't silently under-report cost.
-    if (cause instanceof AnthropicGenerationError) {
+    if (monthlyBudgetUsd !== null) {
+      let spentUsd: number
       try {
-        await recordAiGeneration(supabase, {
-          workspaceId,
-          seedId,
-          channels: typedChannels,
-          model: cause.usage.model,
-          inputTokens: cause.usage.inputTokens,
-          outputTokens: cause.usage.outputTokens,
-          costUsd: calculateGenerationCost(cause.usage.inputTokens, cause.usage.outputTokens),
-          createdBy: user.id,
-        })
-      } catch (recordError) {
-        console.error('Failed to record AI generation usage after a failed generation:', recordError)
+        spentUsd = await getWorkspaceMonthlyAiCost(serviceClient, workspaceId)
+      } catch (cause) {
+        console.error('Failed to read AI budget usage:', cause)
+        return NextResponse.json({ error: 'AI予算の使用額を確認できないため、安全のため生成を停止しました。' }, { status: 503 })
+      }
+      if (spentUsd >= monthlyBudgetUsd) {
+        return NextResponse.json(
+          {
+            error: `このワークスペースの今月のAI予算（$${monthlyBudgetUsd.toFixed(2)}）に達しました（使用額 $${spentUsd.toFixed(2)}）。ANTHROPIC_MONTHLY_BUDGET_USDを引き上げるか、来月まで待ってください。`,
+          },
+          { status: 402 },
+        )
       }
     }
 
-    // Fail closed: no fallback here. Silently substituting templates for a
-    // failed AI call would misrepresent them as intentional, reviewed output.
-    return NextResponse.json({ error: message }, { status: 502 })
+    const generationId = randomUUID()
+
+    try {
+      const result = await generateChannelDraftsWithAnthropic(seed, typedChannels, tone, typedLength, context)
+      const costUsd = calculateGenerationCost(result.inputTokens, result.outputTokens)
+
+      let recordedGenerationId: string | undefined
+      let usageWarning: string | undefined
+      try {
+        const generation = await recordAiGeneration(serviceClient, {
+          id: generationId,
+          workspaceId,
+          seedId,
+          channels: typedChannels,
+          model: result.model,
+          inputTokens: result.inputTokens,
+          outputTokens: result.outputTokens,
+          costUsd,
+          createdBy: user.id,
+        })
+        recordedGenerationId = generation.id
+      } catch (recordError) {
+        console.error('AI draft generation succeeded but usage ledger persistence failed:', recordError)
+        usageWarning =
+          'AI生成は成功しましたが、使用量の記録だけ保存できませんでした。予算の過小計上を防ぐため、台帳が復旧するまで追加のAI生成は停止します。'
+      }
+
+      const { error: auditError } = await supabase.from('audit_logs').insert({
+        workspace_id: workspaceId,
+        actor_id: user.id,
+        action: 'draft_ai_generated',
+        target_type: 'seed',
+        target_id: seedId,
+        metadata: {
+          channels: typedChannels,
+          model: result.model,
+          aiGenerationId: recordedGenerationId ?? null,
+          usageRecorded: Boolean(recordedGenerationId),
+          styleExamplesUsed: styleExamples.length,
+        },
+      })
+      if (auditError) console.error('Failed to audit draft AI generation:', auditError)
+
+      return NextResponse.json({
+        source: 'ai',
+        model: result.model,
+        aiGenerationId: recordedGenerationId,
+        usageRecorded: Boolean(recordedGenerationId),
+        usageWarning,
+        drafts: result.drafts,
+      })
+    } catch (cause) {
+      const message = cause instanceof Error ? cause.message : 'AIによる下書き生成に失敗しました。'
+
+      if (cause instanceof AnthropicGenerationError) {
+        try {
+          await recordAiGeneration(serviceClient, {
+            id: generationId,
+            workspaceId,
+            seedId,
+            channels: typedChannels,
+            model: cause.usage.model,
+            inputTokens: cause.usage.inputTokens,
+            outputTokens: cause.usage.outputTokens,
+            costUsd: calculateGenerationCost(cause.usage.inputTokens, cause.usage.outputTokens),
+            createdBy: user.id,
+          })
+        } catch (recordError) {
+          console.error('Failed to record AI generation usage after a failed generation:', recordError)
+        }
+      }
+
+      return NextResponse.json({ error: message }, { status: 502 })
+    }
+  } finally {
+    if (budgetClaimToken) {
+      await releaseWorkspaceAiBudget(serviceClient, workspaceId, budgetClaimToken).catch((cause) =>
+        console.error('Failed to release AI budget claim:', cause),
+      )
+    }
   }
 }

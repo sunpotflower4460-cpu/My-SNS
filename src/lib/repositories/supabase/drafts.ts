@@ -45,6 +45,10 @@ function mapDraft(row: SocialDraftRow): SocialDraft {
   }
 }
 
+function draftsReadError(scope: string, message: string): Error {
+  return new Error(`${scope}を読み込めませんでした。空の下書きとして扱わず、再読み込みしてください: ${message}`)
+}
+
 export async function listWorkspaceDrafts(workspaceId: string): Promise<SocialDraft[]> {
   const supabase = createClient()
 
@@ -54,10 +58,7 @@ export async function listWorkspaceDrafts(workspaceId: string): Promise<SocialDr
     .eq('workspace_id', workspaceId)
     .order('updated_at', { ascending: false })
 
-  if (error) {
-    console.error('Error fetching drafts:', error)
-    return []
-  }
+  if (error) throw draftsReadError('下書き', error.message)
 
   return (data ?? []).map((row) => mapDraft(row as SocialDraftRow))
 }
@@ -75,10 +76,7 @@ export async function listSeedDrafts(
     .eq('seed_id', seedId)
     .order('updated_at', { ascending: false })
 
-  if (error) {
-    console.error('Error fetching Seed drafts:', error)
-    return []
-  }
+  if (error) throw draftsReadError('このシードの下書き', error.message)
 
   return (data ?? []).map((row) => mapDraft(row as SocialDraftRow))
 }

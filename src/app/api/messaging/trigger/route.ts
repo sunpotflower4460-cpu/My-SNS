@@ -1,9 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server'
+import type { SupabaseClient } from '@supabase/supabase-js'
 import { createClient } from '@/lib/supabase/server'
+import { isNextResponse, requireWorkspaceMember } from '@/lib/api/workspace-access'
 import { createServiceClient } from '@/lib/supabase/service'
 import { processReplyJob } from '@/lib/services/reply-worker'
-import { hasPermission } from '@/lib/permissions'
-import type { WorkspaceRole } from '@/lib/domain/types'
+import { isLineResultUnknownError } from '@/lib/services/connectors/line-connector'
 
 // Sends one reply job right now, regardless of scheduled_at — the messaging-side
 // twin of /api/publish/trigger. Used for "Send now" on an already-scheduled
@@ -37,28 +38,22 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'ログインしていません。' }, { status: 401 })
   }
 
-  const { data: member } = await supabase
-    .from('workspace_members')
-    .select('role')
-    .eq('workspace_id', workspaceId)
-    .eq('user_id', user.id)
-    .maybeSingle()
-
-  const role = member?.role as WorkspaceRole | undefined
-  if (!role || !hasPermission(role, 'reply_inbox')) {
-    return NextResponse.json({ error: 'このワークスペースで返信する権限がありません。' }, { status: 403 })
-  }
+  const membership = await requireWorkspaceMember(supabase, workspaceId, user.id, 'reply_inbox', 'このワークスペースで返信を送信する権限がありません。')
+  if (isNextResponse(membership)) return membership
 
   // RLS-scoped to the caller's own workspace even though the send below uses the
   // service-role client (needed for credentials + append-only attempt writes).
   const { data: job, error: jobError } = await supabase
     .from('reply_jobs')
-    .select('id, workspace_id, platform, inbox_item_id, send_target, reply_text, created_by, status')
+    .select('id, workspace_id, platform, inbox_item_id, send_target, reply_text, created_by, status, error_message')
     .eq('id', jobId)
     .eq('workspace_id', workspaceId)
     .single()
 
-  if (jobError || !job) {
+  if (jobError) {
+    return NextResponse.json({ error: '返信ジョブを確認できませんでした。少し後でもう一度お試しください。' }, { status: 503 })
+  }
+  if (!job) {
     return NextResponse.json({ error: '返信ジョブが見つかりません。' }, { status: 404 })
   }
   if (job.platform !== 'line') {
@@ -68,7 +63,26 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: `この返信はすでに${job.status}の状態です。` }, { status: 400 })
   }
 
-  const serviceClient = createServiceClient()
+  if (job.status === 'failed' && isLineResultUnknownError(job.error_message)) {
+    return NextResponse.json(
+      {
+        error:
+          '前回のLINE送信は「相手に届いたか判定できない」状態です。二重送信を防ぐため自動再送は停止しています。LINE側・相手との会話を確認してから、必要なら新しい返信として明示的に作成してください。',
+      },
+      { status: 409 },
+    )
+  }
+
+  let serviceClient: SupabaseClient
+  try {
+    serviceClient = createServiceClient()
+  } catch (cause) {
+    console.error('Reply trigger service client is unavailable:', cause)
+    return NextResponse.json(
+      { error: '返信処理に必要なサーバー設定を確認できませんでした。管理者に設定確認を依頼してください。' },
+      { status: 503 },
+    )
+  }
 
   let result
   try {

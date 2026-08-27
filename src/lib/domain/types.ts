@@ -501,6 +501,7 @@ export type AuditAction =
   | 'draft_ai_generated'
   | 'draft_revision_approved'
   | 'inbox_reply_ai_generated'
+  | 'schedule_ai_extracted'
   | 'inbox_reply_scheduled'
   | 'inbox_reply_sent'
   | 'inbox_reply_failed'

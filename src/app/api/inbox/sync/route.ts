@@ -1,18 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server'
+import type { SupabaseClient } from '@supabase/supabase-js'
 import { createClient } from '@/lib/supabase/server'
+import { isNextResponse, requireWorkspaceMember } from '@/lib/api/workspace-access'
 import { createServiceClient } from '@/lib/supabase/service'
 import { resolveCredentials } from '@/lib/services/publish-worker'
 import { getConnectorAdapter } from '@/lib/services/connectors'
 import { upsertInboxItems } from '@/lib/repositories/supabase/inbox-ingest'
-import { hasPermission } from '@/lib/permissions'
-import type { SocialPlatform, WorkspaceRole } from '@/lib/domain/types'
-
-// Manual, on-demand pull sync — the counterpart to /api/webhooks/meta's push
-// ingestion. Exists because most platforms (X, TikTok, and Instagram's own
-// "mentions" field) have no webhook this app can receive, and YouTube has no
-// webhook at all for comments — see each connector's fetchInbox for which
-// platforms actually return anything here versus fail closed with an honest
-// "not available" reason.
+import type { SocialPlatform } from '@/lib/domain/types'
 
 interface SyncRequestBody {
   workspaceId?: string
@@ -40,25 +34,29 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'ログインしていません。' }, { status: 401 })
   }
 
-  const { data: member } = await supabase
-    .from('workspace_members')
-    .select('role')
-    .eq('workspace_id', workspaceId)
-    .eq('user_id', user.id)
-    .maybeSingle()
+  const membership = await requireWorkspaceMember(supabase, workspaceId, user.id, 'manage_social_accounts', 'このワークスペースで受信箱を同期する権限がありません。')
+  if (isNextResponse(membership)) return membership
 
-  const role = member?.role as WorkspaceRole | undefined
-  if (!role || !hasPermission(role, 'manage_social_accounts')) {
-    return NextResponse.json({ error: 'このワークスペースで受信箱を同期する権限がありません。' }, { status: 403 })
+  let serviceClient: SupabaseClient
+  try {
+    serviceClient = createServiceClient()
+  } catch (cause) {
+    console.error('Inbox sync service client is unavailable:', cause)
+    return NextResponse.json(
+      { error: '受信箱同期に必要なサーバー設定を確認できませんでした。管理者に設定確認を依頼してください。' },
+      { status: 503 },
+    )
   }
-
-  const serviceClient = createServiceClient()
 
   let credentials
   try {
     credentials = await resolveCredentials(serviceClient, workspaceId, platform)
   } catch (cause) {
-    return NextResponse.json({ error: cause instanceof Error ? cause.message : '認証情報を取得できませんでした。' }, { status: 502 })
+    console.error(`Failed to resolve ${platform} credentials for inbox sync:`, cause)
+    return NextResponse.json(
+      { error: 'SNSの認証情報を確認できませんでした。設定画面で接続状態を確認してから再試行してください。' },
+      { status: 502 },
+    )
   }
   if (!credentials) {
     return NextResponse.json({ error: `このワークスペースには接続済みの${platform}アカウントがありません。` }, { status: 400 })
@@ -74,6 +72,17 @@ export async function POST(request: NextRequest) {
     const ingested = await upsertInboxItems(serviceClient, workspaceId, events)
     return NextResponse.json({ ingested })
   } catch (cause) {
-    return NextResponse.json({ error: cause instanceof Error ? cause.message : '同期に失敗しました。' }, { status: 502 })
+    // Connector feature-gap messages are useful to the creator (for example
+    // "Instagram uses webhook push"), but provider/DB internals belong in logs.
+    const detail = cause instanceof Error ? cause.message : '同期に失敗しました。'
+    console.error(`Inbox sync failed for ${platform}:`, cause)
+    const safeMessage =
+      detail.includes('not available')
+      || detail.includes('via webhook')
+      || detail.includes('no direct-message API')
+      || detail.includes('有料API')
+        ? detail
+        : '受信箱の同期に失敗しました。接続状態と通信状況を確認してから再試行してください。'
+    return NextResponse.json({ error: safeMessage }, { status: 502 })
   }
 }

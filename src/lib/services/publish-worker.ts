@@ -1,9 +1,17 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import type { AssetType, PublishFailureReason, SocialPlatform, WorkspaceRole } from '@/lib/domain/types'
 import { recordPublishAttempt } from '@/lib/repositories/supabase/publish-attempts'
-import { getSocialCredentials, saveSocialCredentials } from '@/lib/repositories/supabase/social-credentials'
+import {
+  getSocialCredentials,
+  saveSocialCredentials,
+  type StoredCredentials,
+} from '@/lib/repositories/supabase/social-credentials'
 import { createNotifications } from '@/lib/repositories/supabase/notifications'
 import { getConnectorAdapter } from '@/lib/services/connectors'
+import {
+  claimSocialCredentialRefresh,
+  releaseSocialCredentialRefresh,
+} from '@/lib/services/social-credential-refresh-claim'
 import { hasPermission } from '@/lib/permissions'
 
 // Shared by the scheduled Worker (/api/publish/run, batches every due
@@ -17,6 +25,13 @@ import { hasPermission } from '@/lib/permissions'
 // same threshold applied to cancel/manual-complete.
 const STALE_CLAIM_MINUTES = 10
 
+// Do not hand a token to an external API when it is about to expire mid-call.
+// Refresh one minute early so upload/status/network latency does not turn a
+// technically-valid-at-read-time token into an avoidable 401 during the call.
+const ACCESS_TOKEN_REFRESH_SKEW_MS = 60_000
+const REFRESH_WAIT_ATTEMPTS = 30
+const REFRESH_WAIT_INTERVAL_MS = 250
+
 // Signed URLs from Supabase Storage are valid for 1 hour (3600 s). This is
 // intentionally short: the URL is generated immediately before the publish
 // call so it is always fresh, regardless of when the job was scheduled.
@@ -27,17 +42,54 @@ function staleClaimFilter(): string {
   return `claimed_at.is.null,claimed_at.lt.${staleBefore}`
 }
 
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms))
+}
+
+function credentialsNeedRefresh(credentials: StoredCredentials): boolean {
+  if (!credentials.expiresAt) return false
+  const expiresAt = new Date(credentials.expiresAt).getTime()
+  return !Number.isFinite(expiresAt) || expiresAt <= Date.now() + ACCESS_TOKEN_REFRESH_SKEW_MS
+}
+
+function resolvedCredentialShape(
+  credentials: StoredCredentials,
+  account: { handle: string | null; external_account_id: string | null },
+): ResolvedCredentials {
+  return {
+    accessToken: credentials.accessToken,
+    handle: account.handle ?? undefined,
+    externalAccountId: account.external_account_id ?? undefined,
+  }
+}
+
+async function waitForConcurrentCredentialRefresh(
+  supabase: SupabaseClient,
+  socialAccountId: string,
+): Promise<StoredCredentials | null> {
+  for (let attempt = 0; attempt < REFRESH_WAIT_ATTEMPTS; attempt += 1) {
+    await sleep(REFRESH_WAIT_INTERVAL_MS)
+    const latest = await getSocialCredentials(supabase, socialAccountId)
+    // Credential removal can mean the account was superseded/disconnected while
+    // we waited. The caller will re-resolve the currently connected row.
+    if (!latest) return null
+    if (!credentialsNeedRefresh(latest)) return latest
+  }
+  return null
+}
+
 /**
- * Atomically marks a job as "being worked on right now". Returns false if
- * another still-active claim already exists — the caller must not attempt
- * to publish in that case (a real platform call could already be in
- * flight for it). This is what makes "Publish now" safe to click twice, and
- * what stops a cancel from racing an in-flight publish undetected.
+ * Atomically marks a job as "being worked on right now". The random token is
+ * ownership, while claimed_at is only liveness/staleness. Returning the token
+ * lets every later state change prove this same request still owns the claim;
+ * an older request that comes back after a stale reclaim cannot clear or
+ * overwrite the newer worker's claim (ABA race).
  */
-async function claimPublishJob(supabase: SupabaseClient, jobId: string): Promise<boolean> {
+async function claimPublishJob(supabase: SupabaseClient, jobId: string): Promise<string | null> {
+  const claimToken = crypto.randomUUID()
   const { data, error } = await supabase
     .from('publish_jobs')
-    .update({ claimed_at: new Date().toISOString() })
+    .update({ claimed_at: new Date().toISOString(), claim_token: claimToken })
     .eq('id', jobId)
     .in('status', ['scheduled', 'draft', 'failed'])
     .or(staleClaimFilter())
@@ -45,15 +97,22 @@ async function claimPublishJob(supabase: SupabaseClient, jobId: string): Promise
     .maybeSingle()
 
   if (error) throw new Error(error.message)
-  return Boolean(data)
+  return data ? claimToken : null
 }
 
-async function releasePublishJobClaim(supabase: SupabaseClient, jobId: string, fields: Record<string, unknown>): Promise<boolean> {
+async function releasePublishJobClaim(
+  supabase: SupabaseClient,
+  jobId: string,
+  claimToken: string,
+  fields: Record<string, unknown>,
+): Promise<boolean> {
   const { data, error } = await supabase
     .from('publish_jobs')
-    .update({ ...fields, claimed_at: null })
+    .update({ ...fields, claimed_at: null, claim_token: null })
     .eq('id', jobId)
-    // Never overwrite a cancellation or an already-reconciled published row.
+    .eq('claim_token', claimToken)
+    // Never overwrite a cancellation, a newer stale-reclaimed Worker, or an
+    // already-reconciled published row.
     .in('status', ['scheduled', 'draft', 'failed'])
     .select('id')
     .maybeSingle()
@@ -117,6 +176,7 @@ const CONNECTOR_NOT_READY_PHRASE = 'unavailable until the reviewed platform conn
 /** Turns an adapter error message into one of the documented failure buckets. */
 export function classifyFailure(message: string): PublishFailureReason {
   const lower = message.toLowerCase()
+  if (lower.includes('credential refresh is still in progress')) return 'network'
   if (lower.includes('auth') || lower.includes('token') || lower.includes('unauthorized') || lower.includes('reconnect')) return 'auth'
   if (lower.includes('rate limit') || lower.includes('429')) return 'ratelimit'
   if (lower.includes('network') || lower.includes('timeout') || lower.includes('fetch failed')) return 'network'
@@ -130,57 +190,118 @@ export interface ResolvedCredentials {
   externalAccountId?: string
 }
 
-/** Not connected, or the connector can't publish yet (throws) → the caller classifies that as an "auth" failure. */
+/**
+ * Resolves one workspace/platform credential and refreshes it when needed.
+ * Refresh is serialized per social account because providers such as X rotate
+ * refresh tokens: concurrent use of the same old refresh token can make a
+ * healthy connection look broken. A losing request waits for the winner's DB
+ * write and reuses that new credential instead of calling the provider again.
+ */
 export async function resolveCredentials(
   supabase: SupabaseClient,
   workspaceId: string,
   channel: SocialPlatform,
 ): Promise<ResolvedCredentials | null> {
-  const { data: account } = await supabase
-    .from('social_accounts')
-    .select('id, handle, external_account_id')
-    .eq('workspace_id', workspaceId)
-    .eq('platform', channel)
-    .eq('connected', true)
-    .maybeSingle()
+  // A reconnect can atomically swap the connected row while this request is
+  // waiting on credential refresh. Resolve at most twice so we can follow that
+  // new active row without unbounded recursion.
+  for (let accountLookupAttempt = 0; accountLookupAttempt < 2; accountLookupAttempt += 1) {
+    const { data: account, error: accountError } = await supabase
+      .from('social_accounts')
+      .select('id, handle, external_account_id')
+      .eq('workspace_id', workspaceId)
+      .eq('platform', channel)
+      .eq('connected', true)
+      .maybeSingle()
 
-  if (!account) return null
+    if (accountError) throw new Error(accountError.message)
+    if (!account) return null
 
-  const stored = await getSocialCredentials(supabase, account.id)
-  if (!stored) return null
+    const stored = await getSocialCredentials(supabase, account.id)
+    if (!stored) {
+      // The connection may have been swapped between the account read and the
+      // credential read. Give one fresh connected-account lookup a chance.
+      if (accountLookupAttempt === 0) continue
+      return null
+    }
 
-  const isExpired = stored.expiresAt ? new Date(stored.expiresAt).getTime() <= Date.now() : false
-  if (!isExpired) {
-    return { accessToken: stored.accessToken, handle: account.handle, externalAccountId: account.external_account_id ?? undefined }
+    if (!credentialsNeedRefresh(stored)) {
+      return resolvedCredentialShape(stored, account)
+    }
+
+    if (!stored.refreshToken) {
+      throw new Error(`${channel} access token expired and there is no refresh token. Reconnect the account.`)
+    }
+
+    const refreshClaimToken = await claimSocialCredentialRefresh(supabase, account.id)
+    if (!refreshClaimToken) {
+      const refreshedByPeer = await waitForConcurrentCredentialRefresh(supabase, account.id)
+      if (refreshedByPeer) return resolvedCredentialShape(refreshedByPeer, account)
+
+      // A successful reconnect may have retired this account while we waited.
+      const { data: currentAccount, error: currentAccountError } = await supabase
+        .from('social_accounts')
+        .select('id')
+        .eq('workspace_id', workspaceId)
+        .eq('platform', channel)
+        .eq('connected', true)
+        .maybeSingle()
+      if (currentAccountError) throw new Error(currentAccountError.message)
+      if (currentAccount && currentAccount.id !== account.id && accountLookupAttempt === 0) continue
+
+      throw new Error('Credential refresh is still in progress. Try again shortly.')
+    }
+
+    try {
+      // Re-read after acquiring the mutex: another request may have completed
+      // a refresh just before we won the insert/reclaim race.
+      const latest = await getSocialCredentials(supabase, account.id)
+      if (!latest) {
+        if (accountLookupAttempt === 0) continue
+        return null
+      }
+      if (!credentialsNeedRefresh(latest)) {
+        return resolvedCredentialShape(latest, account)
+      }
+      if (!latest.refreshToken) {
+        throw new Error(`${channel} access token expired and there is no refresh token. Reconnect the account.`)
+      }
+
+      const refreshed = await getConnectorAdapter(channel).refreshAccessToken(channel, latest.refreshToken)
+
+      try {
+        // Persist before any caller receives the new access token. Some
+        // providers rotate refresh tokens, so after this external call the old
+        // refresh token may already be dead.
+        await saveSocialCredentials(supabase, account.id, {
+          accessToken: refreshed.accessToken,
+          refreshToken: refreshed.refreshToken ?? latest.refreshToken,
+          expiresAt: refreshed.expiresAt,
+          scopes: refreshed.scopes,
+        })
+      } catch (cause) {
+        const detail = cause instanceof Error ? cause.message : 'unknown error'
+        throw new Error(
+          `${channel} token was refreshed but could not be saved (${detail}). Reconnect the account — the old refresh token may no longer be valid.`,
+        )
+      }
+
+      return {
+        accessToken: refreshed.accessToken,
+        handle: account.handle ?? undefined,
+        externalAccountId: account.external_account_id ?? undefined,
+      }
+    } finally {
+      // A lock-cleanup DB hiccup must not turn a successfully persisted token
+      // refresh into a false user-visible failure; ownership tokens make a
+      // stale cleanup harmless, and the row becomes reclaimable after 2 min.
+      await releaseSocialCredentialRefresh(supabase, account.id, refreshClaimToken).catch((cause) => {
+        console.error(`Failed to release credential refresh claim for social account ${account.id}:`, cause)
+      })
+    }
   }
 
-  if (!stored.refreshToken) {
-    throw new Error(`${channel} access token expired and there is no refresh token. Reconnect the account.`)
-  }
-
-  const refreshed = await getConnectorAdapter(channel).refreshAccessToken(channel, stored.refreshToken)
-
-  try {
-    // Persisted immediately, before this token is used for anything else:
-    // some providers (X) rotate refresh tokens, so the one just used is
-    // already invalid at the provider. If this save fails, the old token in
-    // the DB is now dead too — there is no way to make this atomic with an
-    // external API call, so the best we can do is fail loudly and specifically
-    // rather than silently keep using a refresh token that no longer works.
-    await saveSocialCredentials(supabase, account.id, {
-      accessToken: refreshed.accessToken,
-      refreshToken: refreshed.refreshToken ?? stored.refreshToken,
-      expiresAt: refreshed.expiresAt,
-      scopes: refreshed.scopes,
-    })
-  } catch (cause) {
-    const detail = cause instanceof Error ? cause.message : 'unknown error'
-    throw new Error(
-      `${channel} token was refreshed but could not be saved (${detail}). Reconnect the account — the old refresh token may no longer be valid.`,
-    )
-  }
-
-  return { accessToken: refreshed.accessToken, handle: account.handle, externalAccountId: account.external_account_id ?? undefined }
+  return null
 }
 
 export interface PublishableJob {
@@ -237,7 +358,10 @@ async function resolvePublishMediaMetadata(
     .eq('seed_id', seedId)
     .in('type', ['image', 'video'])
 
-  if (error || !rows || rows.length === 0) return null
+  if (error) {
+    throw new Error(`Seed assets for ${seedId} could not be read: ${error.message}`)
+  }
+  if (!rows || rows.length === 0) return null
 
   // Respect per-asset channel assignments (empty/null means all channels).
   const candidates = (rows as AssetRow[]).filter((row) => {
@@ -253,7 +377,12 @@ async function resolvePublishMediaMetadata(
     .from('assets')
     .createSignedUrl(chosen.storage_path, SIGNED_URL_TTL_SECONDS)
 
-  if (signError || !signedData?.signedUrl) return null
+  if (signError) {
+    throw new Error(`Signed media URL for asset ${chosen.id} could not be created: ${signError.message}`)
+  }
+  if (!signedData?.signedUrl) {
+    throw new Error(`Signed media URL for asset ${chosen.id} was empty`)
+  }
 
   return {
     mediaUrl: signedData.signedUrl,
@@ -269,8 +398,8 @@ async function resolvePublishMediaMetadata(
  * not lost.
  */
 export async function processPublishJob(supabase: SupabaseClient, job: PublishableJob): Promise<ProcessJobResult> {
-  const claimed = await claimPublishJob(supabase, job.id)
-  if (!claimed) {
+  const claimToken = await claimPublishJob(supabase, job.id)
+  if (!claimToken) {
     // Someone else (another admin's "Publish now", or an overlapping Worker
     // tick) is already actively working this job — never attempt a second,
     // possibly duplicate, real platform call.
@@ -284,7 +413,7 @@ export async function processPublishJob(supabase: SupabaseClient, job: Publishab
     // its success attempt, then failed while updating publish_jobs. Reconcile
     // that durable success before ever calling the external platform again.
     if (await hasSuccessfulPublishAttempt(supabase, job.id)) {
-      await releasePublishJobClaim(supabase, job.id, {
+      await releasePublishJobClaim(supabase, job.id, claimToken, {
         status: 'published',
         published_at: new Date().toISOString(),
         error_message: null,
@@ -304,13 +433,9 @@ export async function processPublishJob(supabase: SupabaseClient, job: Publishab
     // manually), it takes precedence over the automatic resolution.
     let resolvedMetadata: Record<string, unknown> = { ...job.revision.metadata }
     if (job.seedId && !resolvedMetadata.mediaUrl) {
-      const media = await resolvePublishMediaMetadata(supabase, job.seedId, job.channel).catch((cause) => {
-        // Media resolution is best-effort: a missing signed URL means the
-        // adapter will throw its own "requires a media URL" error, which is
-        // clearer to the user and already classified as a validation failure.
-        console.warn(`Media resolution for job ${job.id} failed:`, cause)
-        return null
-      })
+      // Infra/DB/storage failures must surface as retryable network errors —
+      // never as a silent "no media" validation failure.
+      const media = await resolvePublishMediaMetadata(supabase, job.seedId, job.channel)
       if (media) {
         resolvedMetadata = { ...resolvedMetadata, mediaUrl: media.mediaUrl, mediaType: media.mediaType }
       }
@@ -338,10 +463,15 @@ export async function processPublishJob(supabase: SupabaseClient, job: Publishab
       externalUrl: result.externalUrl,
     })
 
-    // If a human cancelled after the real publish began, this deliberately
-    // leaves the cancellation intact. The success attempt still records what
-    // happened externally, and future workers will not call the platform again.
-    await releasePublishJobClaim(supabase, job.id, { status: 'published', published_at: new Date().toISOString(), error_message: null })
+    // If a human cancelled after the real publish began, or a newer Worker
+    // reclaimed this job after our claim became stale, the token-gated release
+    // deliberately leaves that newer/terminal state intact. The durable success
+    // attempt still records what happened externally.
+    await releasePublishJobClaim(supabase, job.id, claimToken, {
+      status: 'published',
+      published_at: new Date().toISOString(),
+      error_message: null,
+    })
 
     await supabase.from('audit_logs').insert({
       workspace_id: job.workspaceId,
@@ -369,7 +499,7 @@ export async function processPublishJob(supabase: SupabaseClient, job: Publishab
             externalUrl: confirmedPublish.externalUrl,
           })
         }
-        await releasePublishJobClaim(supabase, job.id, {
+        await releasePublishJobClaim(supabase, job.id, claimToken, {
           status: 'published',
           published_at: new Date().toISOString(),
           error_message: null,
@@ -377,6 +507,18 @@ export async function processPublishJob(supabase: SupabaseClient, job: Publishab
         return { success: true }
       } catch (reconciliationError) {
         console.error(`Confirmed publish for job ${job.id} could not be reconciled:`, reconciliationError)
+        // Leave a durable unsafe marker so cancel/retry cannot open a second
+        // platform call while the post may already exist externally.
+        const unknownMessage =
+          'EXTERNAL_RESULT_UNKNOWN: The platform may already have accepted this publish, but local bookkeeping failed. Inspect the channel before publishing again.'
+        try {
+          await releasePublishJobClaim(supabase, job.id, claimToken, {
+            status: 'failed',
+            error_message: unknownMessage,
+          })
+        } catch (markerError) {
+          console.error(`Failed to persist EXTERNAL_RESULT_UNKNOWN for publish job ${job.id}:`, markerError)
+        }
         return { success: false }
       }
     }
@@ -396,7 +538,7 @@ export async function processPublishJob(supabase: SupabaseClient, job: Publishab
         errorMessage: message,
       })
 
-      await releasePublishJobClaim(supabase, job.id, { status: 'failed', error_message: message })
+      await releasePublishJobClaim(supabase, job.id, claimToken, { status: 'failed', error_message: message })
 
       await supabase.from('audit_logs').insert({
         workspace_id: job.workspaceId,

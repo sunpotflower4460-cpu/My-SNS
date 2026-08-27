@@ -33,7 +33,8 @@ export default function BrandProfilePage() {
     setAvoidedTerms(defaultBrandProfile.avoidedTerms.join('\n'))
     setDefaultCallToAction(defaultBrandProfile.defaultCallToAction ?? '')
     setLanguage(defaultBrandProfile.language)
-  }, [defaultBrandProfile])
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- identity/updatedAt only
+  }, [defaultBrandProfile?.id, defaultBrandProfile?.updatedAt])
 
   const handleSave = async () => {
     const validation = validateBrandProfile({ name, language })

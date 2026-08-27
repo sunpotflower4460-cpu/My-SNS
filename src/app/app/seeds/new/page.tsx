@@ -9,6 +9,7 @@ import PageHeader from '@/components/ui/PageHeader'
 import { PUBLISHING_CHANNEL_CONFIG } from '@/lib/channels/config'
 import { formatBytes, inferAssetType, normalizeTags } from '@/lib/seeds/input'
 import { useApp } from '@/lib/app/app-provider'
+import { hasPermission } from '@/lib/permissions'
 import { getSeedIdFromAssetPersistenceError } from '@/lib/storage/asset-persistence-error'
 import {
   CORE_PUBLISHING_CHANNELS,
@@ -45,7 +46,8 @@ export default function NewSeedPage() {
   const router = useRouter()
   const fileInputRef = useRef<HTMLInputElement | null>(null)
   const assetsRef = useRef<PendingAsset[]>([])
-  const { brandProfiles, createSeedItem, currentWorkspace, defaultBrandProfile } = useApp()
+  const { brandProfiles, createSeedItem, currentMember, currentWorkspace, defaultBrandProfile } = useApp()
+  const canCreateSeeds = Boolean(currentMember && hasPermission(currentMember.role, 'create_seeds'))
 
   const [title, setTitle] = useState('')
   const [sourceText, setSourceText] = useState('')
@@ -75,7 +77,8 @@ export default function NewSeedPage() {
 
   useEffect(() => {
     if (!brandProfileId && defaultBrandProfile) setBrandProfileId(defaultBrandProfile.id)
-  }, [brandProfileId, defaultBrandProfile])
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- only react when the default profile id appears/changes
+  }, [brandProfileId, defaultBrandProfile?.id])
 
   useEffect(() => {
     assetsRef.current = assets
@@ -124,6 +127,10 @@ export default function NewSeedPage() {
   }
 
   const handleSave = async (status: SeedStatus) => {
+    if (!canCreateSeeds) {
+      setError('あなたの役割ではシードを作成できません。')
+      return
+    }
     if (persistedSeedId) {
       setError('このシード本体はすでに保存されています。重複作成を避けるため、保存済みシードの素材画面から続きを行ってください。')
       return
@@ -353,8 +360,8 @@ export default function NewSeedPage() {
           </div>
 
           <div className="flex flex-col gap-3">
-            <button type="button" disabled={isSaving || Boolean(persistedSeedId)} onClick={() => void handleSave('ready')} className="rounded-full bg-[color:var(--accent)] px-4 py-3 text-sm font-medium text-white shadow-[0_14px_32px_rgba(109,93,246,0.24)] transition duration-200 ease-[var(--ease-out-premium)] hover:bg-[color:var(--accent-hover)] active:scale-[0.985] disabled:cursor-not-allowed disabled:opacity-60">{isSaving ? '保存中…' : '準備完了として保存'}</button>
-            <button type="button" disabled={isSaving || Boolean(persistedSeedId)} onClick={() => void handleSave('captured')} className="rounded-full border border-[color:var(--border-default)] bg-white/90 px-4 py-3 text-sm font-medium text-[color:var(--text-strong)] transition duration-200 ease-[var(--ease-out-premium)] hover:bg-white active:scale-[0.985] disabled:cursor-not-allowed disabled:opacity-60">取り込み済みとして保存</button>
+            <button type="button" disabled={!canCreateSeeds || isSaving || Boolean(persistedSeedId)} onClick={() => void handleSave('ready')} className="rounded-full bg-[color:var(--accent)] px-4 py-3 text-sm font-medium text-white shadow-[0_14px_32px_rgba(109,93,246,0.24)] transition duration-200 ease-[var(--ease-out-premium)] hover:bg-[color:var(--accent-hover)] active:scale-[0.985] disabled:cursor-not-allowed disabled:opacity-60">{isSaving ? '保存中…' : '準備完了として保存'}</button>
+            <button type="button" disabled={!canCreateSeeds || isSaving || Boolean(persistedSeedId)} onClick={() => void handleSave('captured')} className="rounded-full border border-[color:var(--border-default)] bg-white/90 px-4 py-3 text-sm font-medium text-[color:var(--text-strong)] transition duration-200 ease-[var(--ease-out-premium)] hover:bg-white active:scale-[0.985] disabled:cursor-not-allowed disabled:opacity-60">取り込み済みとして保存</button>
           </div>
         </aside>
       </div>

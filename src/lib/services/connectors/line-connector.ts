@@ -19,6 +19,13 @@ import type {
 
 const BOT_INFO_URL = 'https://api.line.me/v2/bot/info'
 const PUSH_URL = 'https://api.line.me/v2/bot/message/push'
+const LINE_REQUEST_TIMEOUT_MS = 30_000
+
+// Persisted on reply_jobs.error_message by reply-worker. A retry route must
+// recognize this exact prefix: the POST may have reached LINE even though this
+// process never received a trustworthy result, so blindly sending again can
+// duplicate a real DM.
+export const LINE_RESULT_UNKNOWN_PREFIX = 'EXTERNAL_RESULT_UNKNOWN: LINE push'
 
 function requireEnv(name: string): string {
   const value = process.env[name]?.trim()
@@ -37,12 +44,17 @@ interface BotInfoResponse {
   pictureUrl?: string
 }
 
+export function isLineResultUnknownError(message: string | null | undefined): boolean {
+  return Boolean(message?.startsWith(LINE_RESULT_UNKNOWN_PREFIX))
+}
+
 export class LineConnectorAdapter implements SocialConnectorAdapter {
   async connect(): Promise<ConnectedAccount> {
     const channelToken = requireEnv('LINE_CHANNEL_ACCESS_TOKEN')
 
     const response = await fetch(BOT_INFO_URL, {
       headers: { Authorization: `Bearer ${channelToken}` },
+      signal: AbortSignal.timeout(LINE_REQUEST_TIMEOUT_MS),
     })
     if (!response.ok) {
       const detail = await response.text().catch(() => '')
@@ -78,25 +90,60 @@ export class LineConnectorAdapter implements SocialConnectorAdapter {
   }
 
   async sendMessage(request: SendMessageRequest): Promise<SendMessageResult> {
-    // Push message (not a reply-token reply): reply tokens expire ~1 minute
-    // after the inbound event and are single-use, but our sends are scheduled
-    // (possibly hours later) and always flow through the reply Worker — so we
-    // push to the recipient's userId instead. See docs and the webhook mapper,
-    // which deliberately never persists the replyToken.
-    const response = await fetch(PUSH_URL, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${request.accessToken}`,
-      },
-      body: JSON.stringify({
-        to: request.target,
-        messages: [{ type: 'text', text: request.text }],
-      }),
-    })
+    // LINE explicitly recommends sending X-Line-Retry-Key on the FIRST push,
+    // not only after an error. The reply job UUID is stable across Worker
+    // retries, so provider-side idempotency closes the otherwise unavoidable
+    // gap where LINE accepted a push but every DB bookkeeping write failed.
+    if (!request.retryKey) {
+      throw new Error('LINE push retry key is required for duplicate-safe delivery.')
+    }
+
+    let response: Response
+    try {
+      response = await fetch(PUSH_URL, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${request.accessToken}`,
+          'X-Line-Retry-Key': request.retryKey,
+        },
+        body: JSON.stringify({
+          to: request.target,
+          messages: [{ type: 'text', text: request.text }],
+        }),
+        signal: AbortSignal.timeout(LINE_REQUEST_TIMEOUT_MS),
+      })
+    } catch (cause) {
+      const detail = cause instanceof Error ? cause.message : 'network error'
+      throw new Error(
+        `${LINE_RESULT_UNKNOWN_PREFIX}: the request may have reached LINE but no response was received (${detail}). The same retry key must be reused to reconcile safely.`,
+      )
+    }
+
+    // LINE returns 409 when this retry key was already accepted by an earlier
+    // successful push. That is a positive idempotency reconciliation, not a
+    // send failure: use the accepted request id as the durable external id.
+    if (response.status === 409) {
+      const acceptedRequestId = response.headers.get('x-line-accepted-request-id')
+      if (acceptedRequestId) {
+        return { externalMessageId: acceptedRequestId }
+      }
+      const detail = await response.text().catch(() => '')
+      throw new Error(
+        `${LINE_RESULT_UNKNOWN_PREFIX}: LINE returned 409 without x-line-accepted-request-id, so the previous delivery cannot be reconciled safely. Detail: ${detail.slice(0, 200)}`,
+      )
+    }
 
     if (!response.ok) {
       const detail = await response.text().catch(() => '')
+      // A provider 5xx after an irreversible POST is not proof that the message
+      // was rejected. Treat it like a lost response. 4xx/429 are explicit
+      // request rejection and remain ordinarily retryable after correction.
+      if (response.status >= 500) {
+        throw new Error(
+          `${LINE_RESULT_UNKNOWN_PREFIX}: LINE returned ${response.status} after the push request, so delivery cannot be proven either way. The same retry key must be reused to reconcile safely. Detail: ${detail.slice(0, 200)}`,
+        )
+      }
       throw new Error(`LINE push failed (${response.status}): ${detail.slice(0, 300)}`)
     }
 

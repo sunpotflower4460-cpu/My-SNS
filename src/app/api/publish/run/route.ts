@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import type { SupabaseClient } from '@supabase/supabase-js'
 import { createServiceClient } from '@/lib/supabase/service'
 import { processPublishJob, type PublishableJob } from '@/lib/services/publish-worker'
 import { getPublishingStrategy } from '@/lib/channels/config'
@@ -45,7 +46,13 @@ export async function GET(request: NextRequest) {
     })
   }
 
-  const supabase = createServiceClient()
+  let supabase: SupabaseClient
+  try {
+    supabase = createServiceClient()
+  } catch (cause) {
+    console.error('Publish worker service client is unavailable:', cause)
+    return NextResponse.json({ error: 'Worker database configuration is unavailable.' }, { status: 503 })
+  }
 
   const { data: dueJobs, error: dueJobsError } = await supabase
     .from('publish_jobs')
@@ -53,10 +60,13 @@ export async function GET(request: NextRequest) {
     .eq('status', 'scheduled')
     .eq('publish_mode', 'auto')
     .lte('scheduled_at', new Date().toISOString())
+    .order('scheduled_at', { ascending: true })
+    .order('created_at', { ascending: true })
     .limit(BATCH_SIZE)
 
   if (dueJobsError) {
-    return NextResponse.json({ error: dueJobsError.message }, { status: 500 })
+    console.error('Failed to load due publish jobs:', dueJobsError)
+    return NextResponse.json({ error: 'Worker could not load due publish jobs.' }, { status: 503 })
   }
 
   let succeeded = 0
@@ -84,9 +94,6 @@ export async function GET(request: NextRequest) {
       else if (result.success) succeeded += 1
       else failed += 1
     } catch (cause) {
-      // processPublishJob is designed to contain per-job failures, but its
-      // initial claim itself can still fail on a transient database error.
-      // Never let one such failure abort the remaining due jobs in this tick.
       failed += 1
       console.error(`Unhandled publish worker error for job ${rawJob.id}:`, cause)
     }

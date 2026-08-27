@@ -89,6 +89,7 @@ interface AppContextValue {
   replyJobs: ReplyJob[]
   calendarEvents: CalendarEvent[]
   myCreatorStatus: CreatorStatus | null
+  workspaceDataError: string | null
   setActiveWorkspaceId: (workspaceId: string) => void
   refreshWorkspaceData: () => Promise<void>
   createSeedItem: (input: {
@@ -196,6 +197,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const [calendarEvents, setCalendarEvents] = useState<CalendarEvent[]>([])
   const [myCreatorStatus, setMyCreatorStatusState] = useState<CreatorStatus | null>(null)
   const [isReady, setIsReady] = useState(false)
+  const [workspaceDataError, setWorkspaceDataError] = useState<string | null>(null)
 
   // Load user workspaces
   useEffect(() => {
@@ -208,6 +210,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       try {
         const userWorkspaces = await workspacesRepo.getUserWorkspaces(currentUserId!)
         setWorkspaces(userWorkspaces)
+        setWorkspaceDataError(null)
 
         // Set active workspace
         if (userWorkspaces.length > 0) {
@@ -217,6 +220,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         }
       } catch (error) {
         console.error('Error loading workspaces:', error)
+        setWorkspaceDataError(
+          error instanceof Error
+            ? error.message
+            : 'ワークスペース一覧の読み込みに失敗しました。未所属として扱わず、再読み込みしてください。',
+        )
       } finally {
         setIsReady(true)
       }
@@ -300,8 +308,14 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       setReplyJobs(replyJobsList)
       setCalendarEvents(calendarEventsList)
       setMyCreatorStatusState(myCreatorStatusResult)
+      setWorkspaceDataError(null)
     } catch (error) {
       console.error('Error loading workspace data:', error)
+      setWorkspaceDataError(
+        error instanceof Error
+          ? error.message
+          : 'ワークスペースデータの読み込みに失敗しました。表示中のデータは古いか不完全な可能性があります。',
+      )
     }
   }, [activeWorkspaceId, currentUserId])
 
@@ -313,17 +327,12 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }, [activeWorkspaceId, refreshWorkspaceData])
 
   const workspaceMemberships = useMemo(() => {
-    return workspaces.map(workspace => {
-      const member = members.find(m => m.workspaceId === workspace.id && m.userId === currentUserId)
-      return member || ({
-        id: '',
-        workspaceId: workspace.id,
-        userId: currentUserId || '',
-        role: 'viewer' as WorkspaceRole,
-        joinedAt: '',
-      })
-    })
-  }, [workspaces, members, currentUserId])
+    // `members` is scoped to the active workspace. Never invent a fake
+    // `viewer` row for other workspaces — WorkspaceSwitcher loads real roles
+    // itself, and fabricating viewer here misrepresents authorization.
+    if (!currentUserId) return []
+    return members.filter((member) => member.userId === currentUserId)
+  }, [members, currentUserId])
 
   const value = useMemo<AppContextValue>(() => {
     const assetStorage = new SupabaseAssetStorage()
@@ -388,6 +397,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       replyJobs,
       calendarEvents,
       myCreatorStatus,
+      workspaceDataError,
       setActiveWorkspaceId,
       refreshWorkspaceData,
 
@@ -824,10 +834,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ workspaceId: currentWorkspace.id, jobId }),
         })
-        const payload = await response.json()
-        if (!response.ok) throw new Error(payload.error ?? '返信を送信できませんでした。')
-
+        const payload = await response.json().catch(() => ({} as { error?: string }))
         await refreshWorkspaceData()
+        if (!response.ok) throw new Error(payload.error ?? '返信を送信できませんでした。')
       },
 
       cancelReplyJob: async (jobId) => {
@@ -1096,10 +1105,12 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ workspaceId: currentWorkspace.id, jobId }),
         })
-        const payload = await response.json()
+        const payload = await response.json().catch(() => ({} as { error?: string; success?: boolean }))
+        // processPublishJob may have already persisted a failed/published attempt
+        // before returning a non-2xx. Always reconcile local queue state first.
+        await refreshWorkspaceData()
         if (!response.ok) throw new Error(payload.error ?? 'この投稿を公開できませんでした。')
 
-        await refreshWorkspaceData()
         return payload as { success: boolean }
       },
 
@@ -1265,6 +1276,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     replyJobs,
     calendarEvents,
     myCreatorStatus,
+    workspaceDataError,
     currentUserId,
     refreshWorkspaceData,
   ])

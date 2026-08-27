@@ -45,8 +45,7 @@ export async function listReplyJobAttempts(workspaceId: string, replyJobId: stri
     .order('attempt_number', { ascending: false })
 
   if (error) {
-    console.error('Error fetching reply attempts:', error)
-    return []
+    throw new Error(`返信試行履歴を読み込めませんでした。空として扱わず、再読み込みしてください: ${error.message}`)
   }
 
   return (data ?? []).map((row) => mapAttempt(row as ReplyAttemptRow))

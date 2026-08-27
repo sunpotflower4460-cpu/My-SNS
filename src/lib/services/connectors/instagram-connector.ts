@@ -7,6 +7,7 @@ import type {
   SendMessageResult,
   SocialConnectorAdapter,
 } from '../interfaces'
+import { assertTrustedPublishMediaUrl } from '@/lib/security/trusted-publish-media-url'
 
 // Instagram via the Meta Graph API. Publishing requires an Instagram
 // Business or Creator account linked to a Facebook Page — there is no
@@ -17,12 +18,21 @@ const GRAPH_VERSION = 'v21.0'
 const GRAPH_URL = `https://graph.facebook.com/${GRAPH_VERSION}`
 const AUTHORIZE_URL = 'https://www.facebook.com/v21.0/dialog/oauth'
 const SCOPES = ['instagram_basic', 'instagram_content_publish', 'pages_show_list', 'pages_read_engagement', 'business_management']
+const GRAPH_REQUEST_TIMEOUT_MS = 30_000
 
-// Instagram enforces a rolling publish quota per account (25/day at the
-// time of writing) surfaced via this endpoint — see content_publishing_limit
-// in docs/master-plan.md §3. We only read it to fail with a clear reason,
-// never to silently drop a scheduled job.
+// Instagram enforces a rolling publish quota per account surfaced via this
+// endpoint. We read the provider's current quota rather than hard-coding one.
 const PUBLISHING_LIMIT_FIELDS = 'config,quota_usage'
+
+// Reels/video containers are processed asynchronously. Meta's publishing flow
+// requires waiting until status_code=FINISHED before media_publish. Keep the
+// polling bounded so a serverless invocation cannot wait indefinitely.
+const REEL_STATUS_POLL_ATTEMPTS = 15
+const REEL_STATUS_POLL_INTERVAL_MS = 2_000
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms))
+}
 
 function requireEnv(name: string): string {
   const value = process.env[name]?.trim()
@@ -59,7 +69,10 @@ async function graphPost<T>(path: string, params: Record<string, string>): Promi
 }
 
 async function graphFetch(url: string, init?: RequestInit): Promise<unknown> {
-  const response = await fetch(url, init)
+  const response = await fetch(url, {
+    ...init,
+    signal: init?.signal ?? AbortSignal.timeout(GRAPH_REQUEST_TIMEOUT_MS),
+  })
   const payload = await response.json().catch(() => null)
 
   if (!response.ok) {
@@ -68,6 +81,74 @@ async function graphFetch(url: string, init?: RequestInit): Promise<unknown> {
   }
 
   return payload
+}
+
+/**
+ * media_publish is the irreversible public side effect. A network exception,
+ * 5xx, unreadable success body, or success body without an id cannot prove the
+ * post was rejected; classify those as EXTERNAL_RESULT_UNKNOWN so callers block
+ * automatic/manual retry instead of potentially publishing the same media twice.
+ */
+async function publishInstagramContainer(
+  igUserId: string,
+  creationId: string,
+  accessToken: string,
+): Promise<{ id: string }> {
+  let response: Response
+  try {
+    response = await fetch(`${GRAPH_URL}/${igUserId}/media_publish`, {
+      method: 'POST',
+      body: new URLSearchParams({ access_token: accessToken, creation_id: creationId }),
+      signal: AbortSignal.timeout(GRAPH_REQUEST_TIMEOUT_MS),
+    })
+  } catch (cause) {
+    const detail = cause instanceof Error ? cause.message : 'network error'
+    throw new Error(
+      `EXTERNAL_RESULT_UNKNOWN: Instagram media_publish lost its response (${detail}). The post may already be live, so automatic retry is blocked.`,
+    )
+  }
+
+  const payload = await response.json().catch(() => null)
+  if (!response.ok) {
+    const message = (payload as { error?: { message?: string } } | null)?.error?.message ?? 'unknown error'
+    if (response.status >= 500) {
+      throw new Error(
+        `EXTERNAL_RESULT_UNKNOWN: Instagram media_publish returned ${response.status} after the publish request. Delivery cannot be proven either way, so automatic retry is blocked. Detail: ${message}`,
+      )
+    }
+    throw new Error(`Instagram Graph API error (${response.status}): ${message}`)
+  }
+
+  const id = (payload as { id?: unknown } | null)?.id
+  if (typeof id !== 'string' || !id) {
+    throw new Error(
+      'EXTERNAL_RESULT_UNKNOWN: Instagram media_publish returned success without a post id. The post may already be live, so automatic retry is blocked.',
+    )
+  }
+
+  return { id }
+}
+
+async function waitForReelContainerReady(containerId: string, accessToken: string): Promise<void> {
+  for (let attempt = 0; attempt < REEL_STATUS_POLL_ATTEMPTS; attempt += 1) {
+    const status = await graphGet<{ status_code?: string; status?: string }>(`/${containerId}`, {
+      fields: 'status_code,status',
+      access_token: accessToken,
+    })
+
+    if (status.status_code === 'FINISHED' || status.status_code === 'PUBLISHED') return
+    if (status.status_code === 'ERROR' || status.status_code === 'EXPIRED') {
+      throw new Error(`Instagram Reel container ${status.status_code.toLowerCase()}: ${status.status ?? 'no detail returned'}`)
+    }
+
+    if (attempt < REEL_STATUS_POLL_ATTEMPTS - 1) {
+      await sleep(REEL_STATUS_POLL_INTERVAL_MS)
+    }
+  }
+
+  throw new Error(
+    `Instagram Reel is still processing after ${(REEL_STATUS_POLL_ATTEMPTS * REEL_STATUS_POLL_INTERVAL_MS) / 1000}s. Retry later; no post has been published yet.`,
+  )
 }
 
 interface ShortLivedTokenResponse {
@@ -134,11 +215,14 @@ export class InstagramConnectorAdapter implements SocialConnectorAdapter {
 
     const { pageAccessToken, igUserId, igUsername } = await resolveLinkedInstagramAccount(longLived.access_token)
 
+    // Store the Page access token, not the user long-lived token. Page tokens
+    // do not inherit the user token's ~60-day expiry; inventing one would make
+    // resolveCredentials call refreshAccessToken() and falsely fail auth after
+    // that window. Mirror LINE: omit expiresAt so the stored token is used
+    // until Meta rejects it or the creator reconnects.
     return {
-      // The page access token is what actually publishes to the linked IG
-      // account, so that — not the short-lived user token — is what we keep.
       accessToken: pageAccessToken,
-      expiresAt: new Date(Date.now() + longLived.expires_in * 1000).toISOString(),
+      expiresAt: undefined,
       scopes: SCOPES,
       externalAccountId: igUserId,
       handle: igUsername,
@@ -151,9 +235,6 @@ export class InstagramConnectorAdapter implements SocialConnectorAdapter {
   }
 
   async refreshAccessToken(): Promise<ConnectedAccount> {
-    // Meta long-lived Page access tokens do not expire as long as the
-    // linked user token stays valid, and Meta has no refresh_token grant —
-    // re-connecting (a fresh OAuth round trip) is the only renewal path.
     throw new Error('Instagram tokens cannot be silently refreshed. Reconnect the account from Settings.')
   }
 
@@ -165,11 +246,9 @@ export class InstagramConnectorAdapter implements SocialConnectorAdapter {
 
     const mediaUrl = request.metadata.mediaUrl
     if (typeof mediaUrl !== 'string' || !mediaUrl) {
-      // Honest gap: no PR has built Seed-asset-to-Revision media attachment
-      // yet (drafts/Revisions are text-only through PR3). Fail closed with a
-      // clear reason rather than attempting a request Instagram will reject.
-      throw new Error('Instagram requires a media URL. Attach one to this draft before scheduling (not yet built).')
+      throw new Error('Instagram requires a media URL. Attach an image or video to this Seed (or set mediaUrl on the Revision) before scheduling.')
     }
+    const trustedMediaUrl = assertTrustedPublishMediaUrl(mediaUrl).toString()
 
     await this.assertWithinPublishingLimit(igUserId, request.accessToken)
 
@@ -180,31 +259,31 @@ export class InstagramConnectorAdapter implements SocialConnectorAdapter {
       access_token: request.accessToken,
       caption,
       ...(isVideo
-        ? { video_url: mediaUrl, media_type: 'REELS' }
-        : { image_url: mediaUrl }),
+        ? { video_url: trustedMediaUrl, media_type: 'REELS' }
+        : { image_url: trustedMediaUrl }),
     })
 
-    const published = await graphPost<{ id: string }>(`/${igUserId}/media_publish`, {
-      access_token: request.accessToken,
-      creation_id: creation.id,
-    })
+    if (isVideo) {
+      await waitForReelContainerReady(creation.id, request.accessToken)
+    }
 
-    // media_publish above already confirmed the post on Instagram's side — a
-    // failure looking up its permalink must not throw away that confirmed id,
-    // or the caller will record this as a failed publish and a retry will
-    // publish the media a second time. Fall back to no URL instead.
-    let permalink: string | undefined
+    const published = await publishInstagramContainer(igUserId, creation.id, request.accessToken)
+
+    // media_publish is the irreversible side effect. A later permalink lookup
+    // is only enrichment; if it fails, the post still exists. Never throw here
+    // and turn a confirmed real publish into a retryable failed job.
+    let externalUrl: string | undefined
     try {
-      const result = await graphGet<{ permalink?: string }>(`/${published.id}`, {
+      const permalink = await graphGet<{ permalink?: string }>(`/${published.id}`, {
         fields: 'permalink',
         access_token: request.accessToken,
       })
-      permalink = result.permalink
-    } catch {
-      permalink = undefined
+      externalUrl = permalink.permalink
+    } catch (cause) {
+      console.warn(`Instagram post ${published.id} published, but permalink lookup failed:`, cause)
     }
 
-    return { externalPostId: published.id, externalUrl: permalink }
+    return { externalPostId: published.id, externalUrl }
   }
 
   private async assertWithinPublishingLimit(igUserId: string, accessToken: string): Promise<void> {
@@ -214,23 +293,20 @@ export class InstagramConnectorAdapter implements SocialConnectorAdapter {
     )
 
     const usage = limit.data[0]
-    if (usage && usage.quota_usage >= usage.config.quota_total) {
+    if (!usage || typeof usage.quota_usage !== 'number' || typeof usage.config?.quota_total !== 'number') {
+      throw new Error(
+        'Instagram publishing quota could not be verified (empty or malformed content_publishing_limit response). Refusing to publish until Meta returns a usable quota row.',
+      )
+    }
+    if (usage.quota_usage >= usage.config.quota_total) {
       throw new Error(`Instagram publishing limit reached (${usage.quota_usage}/${usage.config.quota_total} in 24h).`)
     }
   }
 
   async sendMessage(): Promise<SendMessageResult> {
-    // Honest gap (Phase 1 = receive-only for Instagram DM): sending a DM reply
-    // needs the Instagram messaging scopes (pages_messaging / human_agent) and
-    // Meta App Review, neither of which this app requests. Inbound DMs still
-    // arrive via the Meta webhook; only sending is deferred.
     throw new Error('Instagram DMの送信はMessaging権限（pages_messaging等）とMeta App Reviewが必要なため未対応です。Phase 1は受信のみ対応です。')
   }
 
-  // Comments and DMs arrive via webhook push (see src/app/api/webhooks/meta),
-  // not a pull sync — there is no on-demand backfill endpoint implemented in
-  // this app, so these methods exist to fail closed rather than silently
-  // return nothing.
   async fetchInbox(): Promise<InboundInboxEvent[]> {
     throw new Error('Instagram inbox items arrive via webhook push (see /api/webhooks/meta) — no pull/backfill endpoint is implemented.')
   }
@@ -240,9 +316,6 @@ export class InstagramConnectorAdapter implements SocialConnectorAdapter {
   }
 
   async fetchMentions(): Promise<InboundInboxEvent[]> {
-    // A documented, honest gap: Meta's `mentions` webhook field only carries
-    // a media_id/comment_id pointer, not the comment text itself — resolving
-    // it needs an extra authenticated Graph API call this app does not make.
     throw new Error('Instagram mention sync is not available: resolving a mention webhook to its comment text requires an extra Graph API call not yet implemented.')
   }
 
@@ -251,11 +324,6 @@ export class InstagramConnectorAdapter implements SocialConnectorAdapter {
   }
 
   async fetchMetrics(): Promise<PostMetrics> {
-    // Honest gap: Meta's media Insights API (impressions/reach/likes/comments)
-    // needs the instagram_manage_insights scope, which this app does not
-    // currently request (see SCOPES above) — adding it means every account
-    // must reconnect, and depending on Meta's current API version may also
-    // need Advanced Access review. Not attempted speculatively.
     throw new Error('Instagram metrics are not available: reading Insights requires the instagram_manage_insights scope, which this app does not yet request.')
   }
 

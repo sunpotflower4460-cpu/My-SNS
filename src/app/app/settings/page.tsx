@@ -45,7 +45,8 @@ export default function SettingsPage() {
   useEffect(() => {
     setWorkspaceName(currentWorkspace?.name ?? '')
     setWorkspaceSlug(currentWorkspace?.slug ?? '')
-  }, [currentWorkspace])
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- workspace id/updatedAt only
+  }, [currentWorkspace?.id, currentWorkspace?.updatedAt])
 
   useEffect(() => {
     const connected = searchParams.get('connected')

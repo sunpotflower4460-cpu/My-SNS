@@ -1,8 +1,10 @@
 'use client'
 
-import { useMemo, useState } from 'react'
-import type { Workspace } from '@/lib/domain/types'
+import { useEffect, useMemo, useState } from 'react'
+import type { Workspace, WorkspaceRole } from '@/lib/domain/types'
 import { useCurrentWorkspace } from '@/hooks/useCurrentWorkspace'
+import { useAuth } from '@/lib/auth/auth-provider'
+import { createClient } from '@/lib/supabase/client'
 import RoleBadge, { ROLE_LABELS } from '@/components/ui/RoleBadge'
 
 interface WorkspaceSwitcherProps {
@@ -11,14 +13,54 @@ interface WorkspaceSwitcherProps {
 
 export default function WorkspaceSwitcher({ workspace }: WorkspaceSwitcherProps) {
   const [open, setOpen] = useState(false)
+  const { currentUserId } = useAuth()
   const { workspaces, currentMember, workspaceMemberships, setActiveWorkspaceId } = useCurrentWorkspace()
-  const membershipsByWorkspaceId = useMemo(
+  const fallbackMembershipsByWorkspaceId = useMemo(
     () =>
       Object.fromEntries(
         workspaceMemberships.map((membership) => [membership.workspaceId, membership.role]),
-      ),
+      ) as Record<string, WorkspaceRole>,
     [workspaceMemberships],
   )
+  const [rolesByWorkspaceId, setRolesByWorkspaceId] = useState<Record<string, WorkspaceRole>>(fallbackMembershipsByWorkspaceId)
+
+  useEffect(() => {
+    setRolesByWorkspaceId(fallbackMembershipsByWorkspaceId)
+  }, [fallbackMembershipsByWorkspaceId])
+
+  // AppProvider's `members` collection is intentionally scoped to the active
+  // workspace, so deriving every switcher role from it makes all non-active
+  // workspaces look like `viewer`. Query this user's own memberships across the
+  // visible workspace ids instead; this is display-only and still RLS-scoped.
+  useEffect(() => {
+    if (!currentUserId || workspaces.length === 0) return
+
+    let cancelled = false
+    const supabase = createClient()
+    const workspaceIds = workspaces.map((item) => item.id)
+
+    void supabase
+      .from('workspace_members')
+      .select('workspace_id, role')
+      .eq('user_id', currentUserId)
+      .in('workspace_id', workspaceIds)
+      .then(({ data, error }) => {
+        if (cancelled) return
+        if (error) {
+          console.error('Failed to load workspace roles for switcher:', error)
+          return
+        }
+        if (!data) return
+        const next = Object.fromEntries(
+          data.map((membership) => [membership.workspace_id, membership.role as WorkspaceRole]),
+        ) as Record<string, WorkspaceRole>
+        setRolesByWorkspaceId(next)
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [currentUserId, workspaces])
 
   return (
     <div className="relative">
@@ -67,7 +109,11 @@ export default function WorkspaceSwitcher({ workspace }: WorkspaceSwitcherProps)
                 <p className="truncate text-xs text-gray-500">{ws.slug}</p>
               </div>
               <div className="flex items-center gap-2">
-                <RoleBadge role={membershipsByWorkspaceId[ws.id] ?? 'viewer'} />
+                {rolesByWorkspaceId[ws.id] ? (
+                  <RoleBadge role={rolesByWorkspaceId[ws.id]} />
+                ) : (
+                  <span className="rounded-full border border-stone-200 px-2 py-0.5 text-[11px] text-gray-400">役割不明</span>
+                )}
                 {ws.id === workspace.id && <span className="text-violet-500">✓</span>}
               </div>
             </button>
