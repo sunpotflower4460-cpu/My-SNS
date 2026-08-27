@@ -47,8 +47,9 @@ export default function DraftEditorCard({ draft, onEdit, onApprove, onRegenerate
   }
 
   const handleApprove = () => {
+    // Keep isDirty until the parent confirms via an updated draft prop.
+    // Clearing it eagerly would hide "未保存" if approval fails.
     onApprove?.(draft.id, text)
-    setIsDirty(false)
   }
 
   const handleSchedule = () => {

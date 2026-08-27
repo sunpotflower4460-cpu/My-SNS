@@ -828,10 +828,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ workspaceId: currentWorkspace.id, jobId }),
         })
-        const payload = await response.json()
-        if (!response.ok) throw new Error(payload.error ?? '返信を送信できませんでした。')
-
+        const payload = await response.json().catch(() => ({} as { error?: string }))
         await refreshWorkspaceData()
+        if (!response.ok) throw new Error(payload.error ?? '返信を送信できませんでした。')
       },
 
       cancelReplyJob: async (jobId) => {
@@ -1100,10 +1099,12 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ workspaceId: currentWorkspace.id, jobId }),
         })
-        const payload = await response.json()
+        const payload = await response.json().catch(() => ({} as { error?: string; success?: boolean }))
+        // processPublishJob may have already persisted a failed/published attempt
+        // before returning a non-2xx. Always reconcile local queue state first.
+        await refreshWorkspaceData()
         if (!response.ok) throw new Error(payload.error ?? 'この投稿を公開できませんでした。')
 
-        await refreshWorkspaceData()
         return payload as { success: boolean }
       },
 
