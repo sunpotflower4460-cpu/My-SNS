@@ -88,17 +88,26 @@ export async function POST(request: NextRequest) {
     .eq('workspace_id', workspaceId)
     .single()
 
-  if (seedError || !seedRow) {
+  if (seedError) {
+    return NextResponse.json({ error: 'シードを確認できませんでした。少し後でもう一度お試しください。' }, { status: 503 })
+  }
+  if (!seedRow) {
     return NextResponse.json({ error: 'シードが見つかりません。' }, { status: 404 })
   }
 
   const seed = mapSeed(seedRow as unknown as SeedRow)
   const typedChannels = channels as PublishingChannel[]
   const typedLength = length as 'short' | 'medium' | 'long'
-  const styleExamples = await listRecentAiRevisionsForStyleLearning(supabase, workspaceId, typedChannels).catch((cause) => {
+  let styleExamples
+  try {
+    styleExamples = await listRecentAiRevisionsForStyleLearning(supabase, workspaceId, typedChannels)
+  } catch (cause) {
     console.error('Failed to load style examples for draft generation:', cause)
-    return []
-  })
+    return NextResponse.json(
+      { error: 'スタイル学習データを読み込めなかったため、安全のため下書き生成を中止しました。少し待ってから再試行してください。' },
+      { status: 503 },
+    )
+  }
   const context = {
     createdBy: user.id,
     brandProfile: seed.brandProfile ?? null,

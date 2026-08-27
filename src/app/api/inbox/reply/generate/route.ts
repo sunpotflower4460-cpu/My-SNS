@@ -144,19 +144,45 @@ export async function POST(request: NextRequest) {
     .eq('id', inboxItemId)
     .eq('workspace_id', workspaceId)
     .maybeSingle()
-  if (itemError || !item) return NextResponse.json({ error: '受信メッセージが見つかりません。' }, { status: 404 })
+  if (itemError) {
+    return NextResponse.json({ error: '受信メッセージを確認できませんでした。少し後でもう一度お試しください。' }, { status: 503 })
+  }
+  if (!item) return NextResponse.json({ error: '受信メッセージが見つかりません。' }, { status: 404 })
 
-  const brandProfile = await getDefaultBrandProfileForClient(supabase, workspaceId).catch((cause) => {
+  let brandProfile
+  try {
+    brandProfile = await getDefaultBrandProfileForClient(supabase, workspaceId)
+  } catch (cause) {
     console.error('Failed to load Brand Profile for reply generation:', cause)
-    return null
-  })
-  const styleExamples = item.contact_id
-    ? await listContactReplyExamples(supabase, workspaceId, item.contact_id).catch((cause) => {
-        console.error('Failed to load per-contact reply examples:', cause)
-        return []
-      })
-    : []
-  const status = await getMyCreatorStatus(supabase, workspaceId, user.id).catch(() => null)
+    return NextResponse.json(
+      { error: 'ブランドプロフィールを読み込めなかったため、安全のため返信案の生成を中止しました。少し待ってから再試行してください。' },
+      { status: 503 },
+    )
+  }
+
+  let styleExamples: Awaited<ReturnType<typeof listContactReplyExamples>> = []
+  if (item.contact_id) {
+    try {
+      styleExamples = await listContactReplyExamples(supabase, workspaceId, item.contact_id)
+    } catch (cause) {
+      console.error('Failed to load per-contact reply examples:', cause)
+      return NextResponse.json(
+        { error: '返信スタイルの学習データを読み込めなかったため、安全のため返信案の生成を中止しました。少し待ってから再試行してください。' },
+        { status: 503 },
+      )
+    }
+  }
+
+  let status
+  try {
+    status = await getMyCreatorStatus(supabase, workspaceId, user.id)
+  } catch (cause) {
+    console.error('Failed to load creator status for reply generation:', cause)
+    return NextResponse.json(
+      { error: 'クリエイター状態を読み込めなかったため、安全のため返信案の生成を中止しました。少し待ってから再試行してください。' },
+      { status: 503 },
+    )
+  }
   const creatorStatus = status?.shareWithContacts ? { mood: status.mood, note: status.note } : undefined
 
   let serviceClient: SupabaseClient

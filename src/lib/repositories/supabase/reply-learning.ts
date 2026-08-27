@@ -71,8 +71,8 @@ export function buildStyleExamples(rows: ReplyExampleRow[], limit = 3): ReplySty
 /**
  * A contact's most recent approved replies as few-shot style examples. Uses the
  * caller's request-scoped client (RLS: reply_jobs / ai_reply_suggestions /
- * inbox_items are all member-readable in-workspace). Best-effort — a failure
- * here must never block reply generation, so the caller catches.
+ * inbox_items are all member-readable in-workspace). Failures throw — callers
+ * must not silently collapse a read error into "no examples exist".
  */
 export async function listContactReplyExamples(
   supabase: SupabaseClient,

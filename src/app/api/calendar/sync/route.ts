@@ -65,7 +65,10 @@ export async function POST(request: NextRequest) {
     .eq('workspace_id', workspaceId)
     .maybeSingle()
 
-  if (eventError || !event) {
+  if (eventError) {
+    return NextResponse.json({ error: '予定を確認できませんでした。少し後でもう一度お試しください。' }, { status: 503 })
+  }
+  if (!event) {
     return NextResponse.json({ error: '予定が見つかりません。' }, { status: 404 })
   }
 
@@ -113,8 +116,12 @@ export async function POST(request: NextRequest) {
       .eq('provider', provider)
       .maybeSingle()
 
-    if (existingError || !existing) {
+    if (existingError) {
       outcomes.push({ provider, status: 'failed', error: '既存の同期状態を確認できませんでした。安全のため再作成していません。' })
+      continue
+    }
+    if (!existing) {
+      outcomes.push({ provider, status: 'failed', error: '同期クレーム後の状態が見つかりませんでした。安全のため再作成していません。' })
       continue
     }
 

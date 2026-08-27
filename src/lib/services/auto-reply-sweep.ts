@@ -87,14 +87,12 @@ async function loadWorkspaceContext(
 ): Promise<WorkspaceContext> {
   const usageIncidentSince = new Date(now.getTime() - AI_USAGE_INCIDENT_COOLDOWN_HOURS * 60 * 60 * 1000).toISOString()
   const [
-    { data: owner },
-    { data: account },
-    brandProfile,
+    { data: owner, error: ownerError },
+    { data: account, error: accountError },
     { data: usageIncident, error: usageIncidentError },
   ] = await Promise.all([
     supabase.from('workspace_members').select('user_id').eq('workspace_id', workspaceId).eq('role', 'owner').limit(1).maybeSingle(),
     supabase.from('social_accounts').select('id').eq('workspace_id', workspaceId).eq('platform', 'line').eq('connected', true).limit(1).maybeSingle(),
-    getDefaultBrandProfileForClient(supabase, workspaceId).catch(() => null),
     supabase
       .from('audit_logs')
       .select('id')
@@ -106,12 +104,22 @@ async function loadWorkspaceContext(
       .maybeSingle(),
   ])
 
+  if (ownerError) {
+    throw new Error(`Could not load workspace owner for auto-reply: ${ownerError.message}`)
+  }
+  if (accountError) {
+    throw new Error(`Could not verify LINE connection for auto-reply: ${accountError.message}`)
+  }
   if (usageIncidentError) {
     throw new Error(`Could not verify automatic AI usage-ledger safety state: ${usageIncidentError.message}`)
   }
 
+  // Brand Profile is optional (null when unset) but a DB read failure must not
+  // silently become "no brand voice".
+  const brandProfile = await getDefaultBrandProfileForClient(supabase, workspaceId)
+
   const ownerId = (owner?.user_id as string | undefined) ?? null
-  const status = ownerId ? await getMyCreatorStatus(supabase, workspaceId, ownerId).catch(() => null) : null
+  const status = ownerId ? await getMyCreatorStatus(supabase, workspaceId, ownerId) : null
   const creatorStatus = status?.shareWithContacts ? { mood: status.mood, note: status.note } : undefined
 
   return {
@@ -263,8 +271,24 @@ export async function runAutoReplySweep(supabase: SupabaseClient, now: Date = ne
 
     let context = workspaceContexts.get(row.workspace_id)
     if (!context) {
-      context = await loadWorkspaceContext(supabase, row.workspace_id, now)
-      workspaceContexts.set(row.workspace_id, context)
+      try {
+        context = await loadWorkspaceContext(supabase, row.workspace_id, now)
+        workspaceContexts.set(row.workspace_id, context)
+      } catch (cause) {
+        console.error(`Auto-reply workspace context failed for ${row.workspace_id}:`, cause)
+        // Cache a blocked context so we do not retry the same failing reads for
+        // every remaining item in this workspace during the same sweep.
+        context = {
+          ownerId: null,
+          lineConnected: false,
+          brandProfile: null,
+          creatorStatus: undefined,
+          autoAiUsageBlocked: true,
+        }
+        workspaceContexts.set(row.workspace_id, context)
+        skipped += 1
+        continue
+      }
     }
 
     const ownerId = context.ownerId
@@ -310,7 +334,14 @@ export async function runAutoReplySweep(supabase: SupabaseClient, now: Date = ne
         }
       }
 
-      const styleExamples = await listContactReplyExamples(supabase, row.workspace_id, contact.id).catch(() => [])
+      let styleExamples
+      try {
+        styleExamples = await listContactReplyExamples(supabase, row.workspace_id, contact.id)
+      } catch (cause) {
+        console.error(`Could not load reply style examples for contact ${contact.id}:`, cause)
+        skipped += 1
+        continue
+      }
       generationId = randomUUID()
       const result = await generateReplyWithAnthropic(row.text, {
         brandProfile: context.brandProfile,

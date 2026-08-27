@@ -154,7 +154,10 @@ export async function POST(request: NextRequest) {
     .eq('workspace_id', workspaceId)
     .single()
 
-  if (jobError || !job) {
+  if (jobError) {
+    return NextResponse.json({ error: 'ジョブを確認できませんでした。少し後でもう一度お試しください。' }, { status: 503 })
+  }
+  if (!job) {
     return NextResponse.json({ error: 'ジョブが見つかりません。' }, { status: 404 })
   }
   if (job.publish_mode === 'manual' || job.publish_mode === 'owned') {
