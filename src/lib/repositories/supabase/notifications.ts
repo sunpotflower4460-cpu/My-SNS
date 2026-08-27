@@ -89,8 +89,15 @@ export async function createNotifications(supabase: SupabaseClient, inputs: Crea
 
 export async function markNotificationRead(notificationId: string): Promise<void> {
   const supabase = createClient()
-  const { error } = await supabase.from('notifications').update({ is_read: true }).eq('id', notificationId)
+  const { data, error } = await supabase
+    .from('notifications')
+    .update({ is_read: true })
+    .eq('id', notificationId)
+    .select('id')
+    .maybeSingle()
+
   if (error) throw new Error(error.message)
+  if (!data) throw new Error('この通知を更新できませんでした（見つからないか、権限がありません）。')
 }
 
 export async function markAllNotificationsRead(workspaceId: string): Promise<void> {
