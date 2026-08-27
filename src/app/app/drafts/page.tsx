@@ -171,11 +171,11 @@ export default function DraftsPage() {
                     `${PUBLISHING_CHANNEL_CONFIG[target.channel].label}の下書きを承認し、承認版（Revision）として記録しました。`,
                   )
                 } : undefined}
-                onRegenerate={(id) => {
+                onRegenerate={canEditDrafts ? (id) => {
                   if (!selectedSeed) return
                   setGeneratedDrafts((current) => current.map((entry) => entry.id === id ? { ...entry, draftText: resetTemplateDraft(entry, selectedSeed), updatedAt: new Date().toISOString() } : entry))
                   setFeedback('この下書きを元のテンプレートに戻しました。')
-                }}
+                } : undefined}
               />
             ))}
           </div>
