@@ -48,8 +48,7 @@ export async function listWorkspaceCalendarEvents(workspaceId: string): Promise<
     .order('starts_at', { ascending: true })
 
   if (error) {
-    console.error('Error fetching calendar events:', error)
-    return []
+    throw new Error(`カレンダー予定を読み込めませんでした。空として扱わず、再読み込みしてください: ${error.message}`)
   }
 
   return (data ?? []).map((row) => mapCalendarEvent(row as CalendarEventRow))

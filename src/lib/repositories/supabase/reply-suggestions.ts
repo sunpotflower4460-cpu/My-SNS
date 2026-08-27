@@ -47,8 +47,7 @@ export async function listWorkspaceReplySuggestions(
     .limit(limit)
 
   if (error) {
-    console.error('Error fetching reply suggestions:', error)
-    return []
+    throw new Error(`返信案を読み込めませんでした。空として扱わず、再読み込みしてください: ${error.message}`)
   }
 
   return (data ?? []).map((row) => mapReplySuggestion(row as AiReplySuggestionRow))

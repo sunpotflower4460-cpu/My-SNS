@@ -14,8 +14,7 @@ export async function listWorkspaceInbox(workspaceId: string): Promise<InboxItem
     .order('received_at', { ascending: false })
 
   if (error) {
-    console.error('Error fetching inbox:', error)
-    return []
+    throw new Error(`受信箱を読み込めませんでした。空の受信箱として扱わず、再読み込みしてください: ${error.message}`)
   }
 
   return (data || []).map((item) => {
@@ -119,8 +118,7 @@ export async function listInboxNotes(
     .order('created_at', { ascending: true })
 
   if (error) {
-    console.error('Error fetching inbox notes:', error)
-    return []
+    throw new Error(`受信箱メモを読み込めませんでした。空として扱わず、再読み込みしてください: ${error.message}`)
   }
 
   return (data || []).map((n) => ({
@@ -141,8 +139,7 @@ export async function listWorkspaceInboxNotes(workspaceId: string): Promise<Inbo
     .order('created_at', { ascending: true })
 
   if (error) {
-    console.error('Error fetching workspace inbox notes:', error)
-    return []
+    throw new Error(`受信箱メモを読み込めませんでした。空として扱わず、再読み込みしてください: ${error.message}`)
   }
 
   return (data || []).map((note) => ({

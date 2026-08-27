@@ -72,8 +72,7 @@ export async function listWorkspaceBrandProfiles(workspaceId: string): Promise<B
     .order('created_at', { ascending: true })
 
   if (error) {
-    console.error('Error fetching Brand Profiles:', error)
-    return []
+    throw new Error(`ブランドプロフィールを読み込めませんでした。空として扱わず、再読み込みしてください: ${error.message}`)
   }
 
   return (data ?? []).map((row) => mapBrandProfile(row as BrandProfileRow))

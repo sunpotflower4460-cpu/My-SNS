@@ -195,6 +195,54 @@ export async function cancelPublishJob(
 ): Promise<PublishJob> {
   const supabase = createClient()
 
+  // A confirmed external success may exist while the job row is still
+  // scheduled/failed (DB update after the platform call was lost). Cancelling
+  // that row would hide a live post and can leave the Revision fence blocking
+  // a clean reschedule — reconcile to published instead.
+  const { data: successAttempt, error: successError } = await supabase
+    .from('publish_attempts')
+    .select('id, external_url, created_at')
+    .eq('workspace_id', workspaceId)
+    .eq('publish_job_id', jobId)
+    .eq('status', 'success')
+    .order('created_at', { ascending: false })
+    .limit(1)
+    .maybeSingle()
+
+  if (successError) {
+    throw new Error(`投稿成功記録を確認できないため、安全のため取り消しを中止しました: ${successError.message}`)
+  }
+
+  if (successAttempt) {
+    const { data: reconciled, error: reconcileError } = await supabase
+      .from('publish_jobs')
+      .update({
+        status: 'published',
+        published_at: successAttempt.created_at ?? new Date().toISOString(),
+        error_message: null,
+        claimed_at: null,
+        claim_token: null,
+      })
+      .eq('id', jobId)
+      .eq('workspace_id', workspaceId)
+      .not('status', 'in', '(published,cancelled)')
+      .select()
+      .maybeSingle()
+
+    if (reconcileError) throw new Error(reconcileError.message)
+    if (reconciled) return mapJob(reconciled as PublishJobRow)
+
+    const { data: current, error: currentError } = await supabase
+      .from('publish_jobs')
+      .select('*')
+      .eq('id', jobId)
+      .eq('workspace_id', workspaceId)
+      .maybeSingle()
+    if (currentError) throw new Error(currentError.message)
+    if (current?.status === 'published') return mapJob(current as PublishJobRow)
+    throw new Error('この公開予定は外部投稿が成功済みのため取り消せません。状態を再読み込みしてください。')
+  }
+
   // Only mutable, not-yet-terminal states may be cancelled. This protects a
   // published job from being rewritten to cancelled (which could otherwise
   // make the same Revision look eligible for a fresh schedule and re-publish).

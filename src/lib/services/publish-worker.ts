@@ -358,7 +358,10 @@ async function resolvePublishMediaMetadata(
     .eq('seed_id', seedId)
     .in('type', ['image', 'video'])
 
-  if (error || !rows || rows.length === 0) return null
+  if (error) {
+    throw new Error(`Seed assets for ${seedId} could not be read: ${error.message}`)
+  }
+  if (!rows || rows.length === 0) return null
 
   // Respect per-asset channel assignments (empty/null means all channels).
   const candidates = (rows as AssetRow[]).filter((row) => {
@@ -374,7 +377,12 @@ async function resolvePublishMediaMetadata(
     .from('assets')
     .createSignedUrl(chosen.storage_path, SIGNED_URL_TTL_SECONDS)
 
-  if (signError || !signedData?.signedUrl) return null
+  if (signError) {
+    throw new Error(`Signed media URL for asset ${chosen.id} could not be created: ${signError.message}`)
+  }
+  if (!signedData?.signedUrl) {
+    throw new Error(`Signed media URL for asset ${chosen.id} was empty`)
+  }
 
   return {
     mediaUrl: signedData.signedUrl,
@@ -425,13 +433,9 @@ export async function processPublishJob(supabase: SupabaseClient, job: Publishab
     // manually), it takes precedence over the automatic resolution.
     let resolvedMetadata: Record<string, unknown> = { ...job.revision.metadata }
     if (job.seedId && !resolvedMetadata.mediaUrl) {
-      const media = await resolvePublishMediaMetadata(supabase, job.seedId, job.channel).catch((cause) => {
-        // Media resolution is best-effort: a missing signed URL means the
-        // adapter will throw its own "requires a media URL" error, which is
-        // clearer to the user and already classified as a validation failure.
-        console.warn(`Media resolution for job ${job.id} failed:`, cause)
-        return null
-      })
+      // Infra/DB/storage failures must surface as retryable network errors —
+      // never as a silent "no media" validation failure.
+      const media = await resolvePublishMediaMetadata(supabase, job.seedId, job.channel)
       if (media) {
         resolvedMetadata = { ...resolvedMetadata, mediaUrl: media.mediaUrl, mediaType: media.mediaType }
       }

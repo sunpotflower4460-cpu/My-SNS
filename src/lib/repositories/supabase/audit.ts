@@ -18,8 +18,7 @@ export async function listWorkspaceAuditLogs(
     .limit(limit)
 
   if (error) {
-    console.error('Error fetching audit logs:', error)
-    return []
+    throw new Error(`監査ログを読み込めませんでした。空として扱わず、再読み込みしてください: ${error.message}`)
   }
 
   return (data || []).map((log) => {

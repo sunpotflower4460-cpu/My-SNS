@@ -215,9 +215,14 @@ export class InstagramConnectorAdapter implements SocialConnectorAdapter {
 
     const { pageAccessToken, igUserId, igUsername } = await resolveLinkedInstagramAccount(longLived.access_token)
 
+    // Store the Page access token, not the user long-lived token. Page tokens
+    // do not inherit the user token's ~60-day expiry; inventing one would make
+    // resolveCredentials call refreshAccessToken() and falsely fail auth after
+    // that window. Mirror LINE: omit expiresAt so the stored token is used
+    // until Meta rejects it or the creator reconnects.
     return {
       accessToken: pageAccessToken,
-      expiresAt: new Date(Date.now() + longLived.expires_in * 1000).toISOString(),
+      expiresAt: undefined,
       scopes: SCOPES,
       externalAccountId: igUserId,
       handle: igUsername,
@@ -241,7 +246,7 @@ export class InstagramConnectorAdapter implements SocialConnectorAdapter {
 
     const mediaUrl = request.metadata.mediaUrl
     if (typeof mediaUrl !== 'string' || !mediaUrl) {
-      throw new Error('Instagram requires a media URL. Attach one to this draft before scheduling (not yet built).')
+      throw new Error('Instagram requires a media URL. Attach an image or video to this Seed (or set mediaUrl on the Revision) before scheduling.')
     }
     const trustedMediaUrl = assertTrustedPublishMediaUrl(mediaUrl).toString()
 
@@ -288,7 +293,12 @@ export class InstagramConnectorAdapter implements SocialConnectorAdapter {
     )
 
     const usage = limit.data[0]
-    if (usage && usage.quota_usage >= usage.config.quota_total) {
+    if (!usage || typeof usage.quota_usage !== 'number' || typeof usage.config?.quota_total !== 'number') {
+      throw new Error(
+        'Instagram publishing quota could not be verified (empty or malformed content_publishing_limit response). Refusing to publish until Meta returns a usable quota row.',
+      )
+    }
+    if (usage.quota_usage >= usage.config.quota_total) {
       throw new Error(`Instagram publishing limit reached (${usage.quota_usage}/${usage.config.quota_total} in 24h).`)
     }
   }

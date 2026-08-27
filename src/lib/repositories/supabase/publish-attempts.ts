@@ -45,8 +45,7 @@ export async function listJobAttempts(workspaceId: string, jobId: string): Promi
     .order('attempt_number', { ascending: false })
 
   if (error) {
-    console.error('Error fetching publish attempts:', error)
-    return []
+    throw new Error(`投稿試行履歴を読み込めませんでした。空として扱わず、再読み込みしてください: ${error.message}`)
   }
 
   return (data ?? []).map((row) => mapAttempt(row as PublishAttemptRow))
@@ -70,8 +69,7 @@ export async function listWorkspacePublishAttempts(workspaceId: string, limit = 
     .limit(limit)
 
   if (error) {
-    console.error('Error fetching workspace publish attempts:', error)
-    return []
+    throw new Error(`投稿試行履歴を読み込めませんでした。空として扱わず、再読み込みしてください: ${error.message}`)
   }
 
   return (data ?? []).map((row) => mapAttempt(row as PublishAttemptRow))

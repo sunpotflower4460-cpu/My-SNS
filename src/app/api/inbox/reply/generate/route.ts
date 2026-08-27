@@ -33,7 +33,12 @@ interface ExistingSuggestionRow {
   source: 'template' | 'ai'
   assumptions: string[] | null
   ai_generation_id: string | null
+  created_at: string
 }
+
+/** Lost-HTTP idempotency window: reuse a just-written suggestion, but allow
+ *  intentional manual regenerates after the window (and after auto-job cancel). */
+const SUGGESTION_REUSE_WINDOW_MS = 2 * 60 * 1000
 
 async function persistReplyArtifacts(
   serviceClient: SupabaseClient,
@@ -211,11 +216,13 @@ export async function POST(request: NextRequest) {
     }
 
     // A lost HTTP response after a committed suggestion INSERT must not cause a
-    // second paid model call. Once the message claim is ours, a durable existing
-    // suggestion is the idempotent result of that earlier request.
+    // second paid model call. Once the message claim is ours, a *recent*
+    // durable suggestion is treated as that earlier request's result. Older
+    // suggestions are left in place as history; a new generate creates a fresh
+    // row so "生成" after cancel/edit is not permanently stuck on the first draft.
     const { data: existingRaw, error: existingError } = await serviceClient
       .from('ai_reply_suggestions')
-      .select('id, suggested_text, tone, source, assumptions, ai_generation_id')
+      .select('id, suggested_text, tone, source, assumptions, ai_generation_id, created_at')
       .eq('workspace_id', workspaceId)
       .eq('inbox_item_id', inboxItemId)
       .order('created_at', { ascending: false })
@@ -227,18 +234,21 @@ export async function POST(request: NextRequest) {
     }
     if (existingRaw) {
       const existing = existingRaw as ExistingSuggestionRow
-      return NextResponse.json({
-        source: existing.source === 'ai' ? 'ai' : 'template-fallback',
-        reason: existing.source === 'template' ? '保存済みの定型返信案を再利用しました。' : undefined,
-        summary: (item.ai_summary as string | null) ?? '',
-        reply: existing.suggested_text,
-        tone: existing.tone,
-        assumptions: existing.assumptions ?? [],
-        priority: (item.ai_priority as 'high' | 'normal' | 'low' | null) ?? 'normal',
-        suggestionId: existing.id,
-        aiGenerationId: existing.ai_generation_id ?? undefined,
-        reused: true,
-      })
+      const ageMs = Date.now() - new Date(existing.created_at).getTime()
+      if (Number.isFinite(ageMs) && ageMs >= 0 && ageMs < SUGGESTION_REUSE_WINDOW_MS) {
+        return NextResponse.json({
+          source: existing.source === 'ai' ? 'ai' : 'template-fallback',
+          reason: existing.source === 'template' ? '保存済みの定型返信案を再利用しました。' : undefined,
+          summary: (item.ai_summary as string | null) ?? '',
+          reply: existing.suggested_text,
+          tone: existing.tone,
+          assumptions: existing.assumptions ?? [],
+          priority: (item.ai_priority as 'high' | 'normal' | 'low' | null) ?? 'normal',
+          suggestionId: existing.id,
+          aiGenerationId: existing.ai_generation_id ?? undefined,
+          reused: true,
+        })
+      }
     }
 
     if (!isAnthropicConfigured()) {

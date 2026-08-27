@@ -131,8 +131,7 @@ export async function listWorkspaceAiGenerations(workspaceId: string, limit = WO
     .limit(limit)
 
   if (error) {
-    console.error('Error fetching workspace AI generations:', error)
-    return []
+    throw new Error(`AI利用履歴を読み込めませんでした。空として扱わず、再読み込みしてください: ${error.message}`)
   }
 
   return (data ?? []).map((row) => mapGeneration(row as AiGenerationRow))
@@ -143,6 +142,9 @@ export async function listWorkspaceAiGenerations(workspaceId: string, limit = WO
  * month in UTC. Only sums rows already recorded — exact call cost is known only
  * after Anthropic returns usage, so the configured cap can prevent the next
  * call after the limit is reached but cannot predict a single call's final cost.
+ *
+ * Uses a SQL aggregate so PostgREST row caps cannot silently undercount spend
+ * and fail-open the monthly budget.
  */
 export async function getWorkspaceMonthlyAiCost(supabase: SupabaseClient, workspaceId: string): Promise<number> {
   const now = new Date()
@@ -150,10 +152,17 @@ export async function getWorkspaceMonthlyAiCost(supabase: SupabaseClient, worksp
 
   const { data, error } = await supabase
     .from('ai_generations')
-    .select('cost_usd')
+    .select('cost_usd.sum()')
     .eq('workspace_id', workspaceId)
     .gte('created_at', startOfMonth)
+    .maybeSingle()
 
   if (error) throw new Error(error.message)
-  return (data ?? []).reduce((sum, row) => sum + Number((row as { cost_usd: number }).cost_usd ?? 0), 0)
+
+  const sum = (data as { sum?: number | string | null } | null)?.sum
+  const numeric = typeof sum === 'number' ? sum : Number(sum ?? 0)
+  if (!Number.isFinite(numeric)) {
+    throw new Error('AI monthly cost aggregate returned a non-numeric value')
+  }
+  return numeric
 }

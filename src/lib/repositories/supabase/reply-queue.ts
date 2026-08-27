@@ -150,6 +150,52 @@ export async function createReplyJob(supabase: SupabaseClient, input: CreateRepl
 export async function cancelReplyJob(workspaceId: string, jobId: string): Promise<ReplyJob> {
   const supabase = createClient()
 
+  // Mirror publish cancel: a durable success attempt means LINE may already
+  // have accepted the message. Reconcile to sent instead of cancelling.
+  const { data: successAttempt, error: successError } = await supabase
+    .from('reply_attempts')
+    .select('id, created_at')
+    .eq('workspace_id', workspaceId)
+    .eq('reply_job_id', jobId)
+    .eq('status', 'success')
+    .order('created_at', { ascending: false })
+    .limit(1)
+    .maybeSingle()
+
+  if (successError) {
+    throw new Error(`送信成功記録を確認できないため、安全のため取り消しを中止しました: ${successError.message}`)
+  }
+
+  if (successAttempt) {
+    const { data: reconciled, error: reconcileError } = await supabase
+      .from('reply_jobs')
+      .update({
+        status: 'sent',
+        sent_at: successAttempt.created_at ?? new Date().toISOString(),
+        error_message: null,
+        claimed_at: null,
+        claim_token: null,
+      })
+      .eq('id', jobId)
+      .eq('workspace_id', workspaceId)
+      .not('status', 'in', '(sent,cancelled)')
+      .select()
+      .maybeSingle()
+
+    if (reconcileError) throw new Error(reconcileError.message)
+    if (reconciled) return mapReplyJob(reconciled as ReplyJobRow)
+
+    const { data: current, error: currentError } = await supabase
+      .from('reply_jobs')
+      .select('*')
+      .eq('id', jobId)
+      .eq('workspace_id', workspaceId)
+      .maybeSingle()
+    if (currentError) throw new Error(currentError.message)
+    if (current?.status === 'sent') return mapReplyJob(current as ReplyJobRow)
+    throw new Error('この返信は外部送信が成功済みのため取り消せません。状態を再読み込みしてください。')
+  }
+
   const { data, error } = await supabase
     .from('reply_jobs')
     .update({ status: 'cancelled', claimed_at: null, claim_token: null })

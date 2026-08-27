@@ -89,6 +89,7 @@ interface AppContextValue {
   replyJobs: ReplyJob[]
   calendarEvents: CalendarEvent[]
   myCreatorStatus: CreatorStatus | null
+  workspaceDataError: string | null
   setActiveWorkspaceId: (workspaceId: string) => void
   refreshWorkspaceData: () => Promise<void>
   createSeedItem: (input: {
@@ -196,6 +197,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const [calendarEvents, setCalendarEvents] = useState<CalendarEvent[]>([])
   const [myCreatorStatus, setMyCreatorStatusState] = useState<CreatorStatus | null>(null)
   const [isReady, setIsReady] = useState(false)
+  const [workspaceDataError, setWorkspaceDataError] = useState<string | null>(null)
 
   // Load user workspaces
   useEffect(() => {
@@ -300,8 +302,14 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       setReplyJobs(replyJobsList)
       setCalendarEvents(calendarEventsList)
       setMyCreatorStatusState(myCreatorStatusResult)
+      setWorkspaceDataError(null)
     } catch (error) {
       console.error('Error loading workspace data:', error)
+      setWorkspaceDataError(
+        error instanceof Error
+          ? error.message
+          : 'ワークスペースデータの読み込みに失敗しました。表示中のデータは古いか不完全な可能性があります。',
+      )
     }
   }, [activeWorkspaceId, currentUserId])
 
@@ -313,17 +321,12 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }, [activeWorkspaceId, refreshWorkspaceData])
 
   const workspaceMemberships = useMemo(() => {
-    return workspaces.map(workspace => {
-      const member = members.find(m => m.workspaceId === workspace.id && m.userId === currentUserId)
-      return member || ({
-        id: '',
-        workspaceId: workspace.id,
-        userId: currentUserId || '',
-        role: 'viewer' as WorkspaceRole,
-        joinedAt: '',
-      })
-    })
-  }, [workspaces, members, currentUserId])
+    // `members` is scoped to the active workspace. Never invent a fake
+    // `viewer` row for other workspaces — WorkspaceSwitcher loads real roles
+    // itself, and fabricating viewer here misrepresents authorization.
+    if (!currentUserId) return []
+    return members.filter((member) => member.userId === currentUserId)
+  }, [members, currentUserId])
 
   const value = useMemo<AppContextValue>(() => {
     const assetStorage = new SupabaseAssetStorage()
@@ -388,6 +391,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       replyJobs,
       calendarEvents,
       myCreatorStatus,
+      workspaceDataError,
       setActiveWorkspaceId,
       refreshWorkspaceData,
 
@@ -1265,6 +1269,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     replyJobs,
     calendarEvents,
     myCreatorStatus,
+    workspaceDataError,
     currentUserId,
     refreshWorkspaceData,
   ])

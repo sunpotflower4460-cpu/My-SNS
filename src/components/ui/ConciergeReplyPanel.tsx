@@ -49,6 +49,7 @@ export default function ConciergeReplyPanel({ item }: { item: InboxItem }) {
   const contact = item.contactId ? getMessagingContact(item.contactId) : null
 
   const [replyText, setReplyText] = useState(suggestion?.suggestedText ?? '')
+  const [replyDirty, setReplyDirty] = useState(false)
   const [timing, setTiming] = useState<'recommended' | 'now'>('recommended')
   const [busy, setBusy] = useState<null | 'generate' | 'send' | 'trigger' | 'cancel' | 'autosend' | 'schedule' | number>(null)
   const [error, setError] = useState('')
@@ -74,7 +75,11 @@ export default function ConciergeReplyPanel({ item }: { item: InboxItem }) {
 
   if (suggestion && suggestion.id !== seededFrom) {
     setSeededFrom(suggestion.id)
-    setReplyText(suggestion.suggestedText)
+    // Never clobber in-progress edits when a background auto-reply / refresh
+    // installs a newer suggestion id into context.
+    if (!replyDirty) {
+      setReplyText(suggestion.suggestedText)
+    }
   }
 
   const resetMessages = () => {
@@ -90,6 +95,7 @@ export default function ConciergeReplyPanel({ item }: { item: InboxItem }) {
       const result = await generateInboxReply(item.id)
       const usageWarning = (result as typeof result & { usageWarning?: string }).usageWarning
       setReplyText(result.reply)
+      setReplyDirty(false)
       setSeededFrom(result.suggestionId)
       setWarning(usageWarning ?? '')
       if (result.source === 'template-fallback') {
@@ -271,7 +277,10 @@ export default function ConciergeReplyPanel({ item }: { item: InboxItem }) {
 
           <textarea
             value={replyText}
-            onChange={(event) => setReplyText(event.target.value)}
+            onChange={(event) => {
+              setReplyText(event.target.value)
+              setReplyDirty(true)
+            }}
             rows={4}
             disabled={!canReply}
             className="mt-2 w-full rounded-2xl border border-stone-200 bg-white px-4 py-3 text-sm leading-6 focus:outline-none focus:ring-2 focus:ring-violet-300 disabled:bg-stone-50 disabled:text-gray-500"

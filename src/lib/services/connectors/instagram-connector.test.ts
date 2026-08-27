@@ -87,4 +87,27 @@ describe('InstagramConnectorAdapter.publish', () => {
     const publishCallUrl = fetchMock.mock.calls[4][0] as string
     expect(publishCallUrl).toContain('/media_publish')
   })
+
+  it('fails closed when Instagram publishing quota cannot be verified', async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(response(true, 200, { data: [] }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    await expect(
+      new InstagramConnectorAdapter().publish({
+        platform: 'instagram',
+        accessToken: 'token',
+        externalAccountId: 'ig-user',
+        body: 'caption',
+        hashtags: [],
+        metadata: {
+          mediaUrl: 'https://project.supabase.co/storage/v1/object/sign/assets/workspace/image.jpg?token=abc',
+          mediaType: 'image',
+        },
+      }),
+    ).rejects.toThrow(/quota could not be verified/i)
+
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+  })
 })

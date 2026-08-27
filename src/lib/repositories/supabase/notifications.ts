@@ -44,8 +44,7 @@ export async function listMyNotifications(workspaceId: string, limit = 50): Prom
     .limit(limit)
 
   if (error) {
-    console.error('Error fetching notifications:', error)
-    return []
+    throw new Error(`通知を読み込めませんでした。空として扱わず、再読み込みしてください: ${error.message}`)
   }
 
   return (data ?? []).map((row) => mapNotification(row as NotificationRow))

@@ -228,10 +228,23 @@ export async function runAutoReplySweep(supabase: SupabaseClient, now: Date = ne
   if (rows.length === 0) return { scheduled: 0, skipped: 0 }
 
   const itemIds = rows.map((row) => row.id)
-  const [{ data: existingJobs }, { data: existingSuggestions }] = await Promise.all([
+  const [
+    { data: existingJobs, error: existingJobsError },
+    { data: existingSuggestions, error: existingSuggestionsError },
+  ] = await Promise.all([
     supabase.from('reply_jobs').select('inbox_item_id').in('inbox_item_id', itemIds),
     supabase.from('ai_reply_suggestions').select('inbox_item_id').in('inbox_item_id', itemIds),
   ])
+  if (existingJobsError || existingSuggestionsError) {
+    return {
+      scheduled: 0,
+      skipped: 0,
+      reason:
+        existingJobsError?.message ??
+        existingSuggestionsError?.message ??
+        '既存の自動返信状態を確認できないため、安全のためスイープを中止しました。',
+    }
+  }
   const alreadyHandled = new Set<string>([
     ...((existingJobs ?? []) as Array<{ inbox_item_id: string }>).map((r) => r.inbox_item_id),
     ...((existingSuggestions ?? []) as Array<{ inbox_item_id: string }>).map((r) => r.inbox_item_id),
