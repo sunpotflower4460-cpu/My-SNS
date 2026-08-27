@@ -1,12 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
+import { isNextResponse, requireWorkspaceMember } from '@/lib/api/workspace-access'
 import { createServiceClient } from '@/lib/supabase/service'
 import { createReplyJob, findNonCancelledReplyJob } from '@/lib/repositories/supabase/reply-queue'
 import { processReplyJob } from '@/lib/services/reply-worker'
 import { isLineResultUnknownError } from '@/lib/services/connectors/line-connector'
 import { computeRecipientSendTime } from '@/lib/services/reply-timing'
-import { hasPermission } from '@/lib/permissions'
-import type { ReplyJob, WorkspaceRole } from '@/lib/domain/types'
+import type { ReplyJob } from '@/lib/domain/types'
 
 // Approve a suggested reply and enqueue it for sending. The human's edited text
 // is captured as an immutable snapshot on the reply_job; the send target and an
@@ -54,17 +54,8 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'ログインしていません。' }, { status: 401 })
   }
 
-  const { data: member } = await supabase
-    .from('workspace_members')
-    .select('role')
-    .eq('workspace_id', workspaceId)
-    .eq('user_id', user.id)
-    .maybeSingle()
-
-  const role = member?.role as WorkspaceRole | undefined
-  if (!role || !hasPermission(role, 'reply_inbox')) {
-    return NextResponse.json({ error: 'このワークスペースで返信する権限がありません。' }, { status: 403 })
-  }
+  const membership = await requireWorkspaceMember(supabase, workspaceId, user.id, 'reply_inbox', 'このワークスペースで返信する権限がありません。')
+  if (isNextResponse(membership)) return membership
 
   const { data: item, error: itemError } = await supabase
     .from('inbox_items')

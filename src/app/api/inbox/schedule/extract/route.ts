@@ -2,10 +2,9 @@ import { randomUUID } from 'node:crypto'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
+import { isNextResponse, requireWorkspaceMember } from '@/lib/api/workspace-access'
 import { createServiceClient } from '@/lib/supabase/service'
 import { getWorkspaceMonthlyAiCost, recordAiGeneration } from '@/lib/repositories/supabase/ai-generations'
-import { hasPermission } from '@/lib/permissions'
-import type { WorkspaceRole } from '@/lib/domain/types'
 import { AnthropicScheduleGenerationError, extractScheduleWithAnthropic } from '@/lib/services/anthropic-schedule'
 import { calculateGenerationCost, isAnthropicConfigured } from '@/lib/services/anthropic-draft'
 import {
@@ -13,6 +12,7 @@ import {
   configuredMonthlyAiBudgetUsd,
   releaseWorkspaceAiBudget,
 } from '@/lib/services/ai-generation-claims'
+import { hasUnrecordedAiUsageIncident } from '@/lib/services/ai-usage-incidents'
 
 // Extracts proposed calendar events from one inbound DM. Proposal-only: it
 // returns events for the human to approve — it never writes to the calendar.
@@ -41,16 +41,8 @@ export async function POST(request: NextRequest) {
   } = await supabase.auth.getUser()
   if (!user) return NextResponse.json({ error: 'ログインしていません。' }, { status: 401 })
 
-  const { data: member } = await supabase
-    .from('workspace_members')
-    .select('role')
-    .eq('workspace_id', workspaceId)
-    .eq('user_id', user.id)
-    .maybeSingle()
-  const role = member?.role as WorkspaceRole | undefined
-  if (!role || !hasPermission(role, 'manage_calendar')) {
-    return NextResponse.json({ error: 'このワークスペースでカレンダーを編集する権限がありません。' }, { status: 403 })
-  }
+  const membership = await requireWorkspaceMember(supabase, workspaceId, user.id, 'manage_calendar', 'このワークスペースでカレンダーを編集する権限がありません。')
+  if (isNextResponse(membership)) return membership
 
   const { data: item, error: itemError } = await supabase
     .from('inbox_items')
@@ -94,6 +86,21 @@ export async function POST(request: NextRequest) {
   }
 
   try {
+    try {
+      if (await hasUnrecordedAiUsageIncident(serviceClient, workspaceId)) {
+        return NextResponse.json(
+          {
+            error:
+              '直近のAI使用量を台帳に記録できなかったため、安全のため追加のAI生成を停止しています。管理者に使用量台帳の確認を依頼してください。',
+          },
+          { status: 503 },
+        )
+      }
+    } catch (cause) {
+      console.error('Failed to verify AI usage-ledger safety state:', cause)
+      return NextResponse.json({ error: 'AI使用量台帳の安全状態を確認できないため、生成を停止しました。' }, { status: 503 })
+    }
+
     if (monthlyBudgetUsd !== null) {
       let spentUsd: number
       try {
@@ -146,7 +153,19 @@ export async function POST(request: NextRequest) {
         usageRecorded = true
       } catch (recordError) {
         console.error('Schedule extraction succeeded but AI usage ledger persistence failed:', recordError)
-        usageWarning = '予定抽出は成功しましたが、AI使用量の記録だけ保存できませんでした。抽出結果はそのまま利用できます。'
+        usageWarning = '予定抽出は成功しましたが、AI使用量の記録だけ保存できませんでした。予算の過小計上を防ぐため、台帳が復旧するまで追加のAI生成は停止します。'
+        const { error: incidentAuditError } = await supabase.from('audit_logs').insert({
+          workspace_id: workspaceId,
+          actor_id: user.id,
+          action: 'schedule_ai_extracted',
+          target_type: 'inbox_item',
+          target_id: inboxItemId,
+          metadata: {
+            model: result.model,
+            usageRecorded: false,
+          },
+        })
+        if (incidentAuditError) console.error('Failed to persist schedule AI usage incident:', incidentAuditError)
       }
 
       return NextResponse.json({

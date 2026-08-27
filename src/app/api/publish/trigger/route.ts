@@ -1,13 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { createClient } from '@/lib/supabase/server'
+import { isNextResponse, requireWorkspaceMember } from '@/lib/api/workspace-access'
 import { createServiceClient } from '@/lib/supabase/service'
 import { recordPublishAttempt } from '@/lib/repositories/supabase/publish-attempts'
 import { processPublishJob, resolveCredentials, type PublishableJob } from '@/lib/services/publish-worker'
 import { checkTikTokPublishStatus, parseTikTokPendingPublishId } from '@/lib/services/connectors/tiktok-connector'
 import { getPublishingStrategy } from '@/lib/channels/config'
-import { hasPermission } from '@/lib/permissions'
-import type { WorkspaceRole } from '@/lib/domain/types'
 
 // Manually attempts one API-first job right now. In zero-cost mode this route
 // refuses before touching external connectors, so an old assisted/draft job or
@@ -35,7 +34,8 @@ interface TriggerJob {
 function isUnsafeExternalRetry(errorMessage: string | null): boolean {
   return Boolean(
     errorMessage?.startsWith('PARTIAL_EXTERNAL_SUCCESS:')
-      || errorMessage?.startsWith('EXTERNAL_RESULT_UNKNOWN:'),
+      || errorMessage?.startsWith('EXTERNAL_RESULT_UNKNOWN:')
+      || errorMessage?.startsWith('TIKTOK_PENDING:'),
   )
 }
 
@@ -137,17 +137,8 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'ログインしていません。' }, { status: 401 })
   }
 
-  const { data: member } = await supabase
-    .from('workspace_members')
-    .select('role')
-    .eq('workspace_id', workspaceId)
-    .eq('user_id', user.id)
-    .maybeSingle()
-
-  const role = member?.role as WorkspaceRole | undefined
-  if (!role || !hasPermission(role, 'manage_queue')) {
-    return NextResponse.json({ error: 'このワークスペースで公開する権限がありません。' }, { status: 403 })
-  }
+  const membership = await requireWorkspaceMember(supabase, workspaceId, user.id, 'manage_queue', 'この公開予定を実行する権限がありません。')
+  if (isNextResponse(membership)) return membership
 
   if (getPublishingStrategy() === 'zero-cost') {
     return NextResponse.json(

@@ -26,6 +26,8 @@ export default function DraftsPage() {
   const { currentMember, drafts, generateChannelDrafts, getDraftsForSeed, saveAndApproveDraft, saveDraft, scheduleDraft, seeds } = useApp()
   const canApprove = Boolean(currentMember && hasPermission(currentMember.role, 'approve_drafts'))
   const canManageQueue = Boolean(currentMember && hasPermission(currentMember.role, 'manage_queue'))
+  const canCreateDrafts = Boolean(currentMember && hasPermission(currentMember.role, 'create_drafts'))
+  const canEditDrafts = Boolean(currentMember && hasPermission(currentMember.role, 'edit_drafts'))
   const requestedSeedId = searchParams.get('seed')
   const [seedId, setSeedId] = useState(requestedSeedId ?? seeds[0]?.id ?? '')
   const [selectedChannels, setSelectedChannels] = useState<PublishingChannel[]>([])
@@ -141,7 +143,7 @@ export default function DraftsPage() {
 
           <div className="mt-4"><label className="mb-2 block text-sm font-medium text-gray-700">このシードの媒体</label><div className="flex flex-wrap gap-2">{CORE_PUBLISHING_CHANNELS.map((channel) => <button key={channel} type="button" onClick={() => toggleChannel(channel)} className={`rounded-full transition ${selectedChannels.includes(channel) ? 'ring-2 ring-violet-400 ring-offset-2' : 'opacity-50 hover:opacity-80'}`}><ChannelBadge channel={channel} /></button>)}</div></div>
           {selectedChannels.includes('note') && <p className="mt-3 text-xs text-emerald-700">noteは引き続き「確認してコピー」のみに対応しています。このアプリが自動投稿を行うことはありません。</p>}
-          <button onClick={() => void handleGenerate()} disabled={loading || selectedChannels.length === 0 || !selectedSeed} className="mt-5 rounded-2xl bg-violet-600 px-5 py-2.5 text-sm font-medium text-white transition hover:bg-violet-700 disabled:opacity-50">{loading ? '作成中…' : '下書きを作成'}</button>
+          <button onClick={() => void handleGenerate()} disabled={!canCreateDrafts || loading || selectedChannels.length === 0 || !selectedSeed} className="mt-5 rounded-2xl bg-violet-600 px-5 py-2.5 text-sm font-medium text-white transition hover:bg-violet-700 disabled:opacity-50">{loading ? '作成中…' : canCreateDrafts ? '下書きを作成' : '作成権限がありません'}</button>
         </div>
       )}
 
@@ -153,11 +155,11 @@ export default function DraftsPage() {
               <DraftEditorCard
                 key={draft.id}
                 draft={draft}
-                onEdit={(id, text) => {
+                onEdit={canEditDrafts ? (id, text) => {
                   const target = generatedDrafts.find((entry) => entry.id === id)
                   setGeneratedDrafts((current) => current.map((entry) => entry.id === id ? { ...entry, draftText: text, updatedAt: new Date().toISOString() } : entry))
                   if (target) void runDraftAction(() => persistDraft({ ...target, draftText: text }), `${PUBLISHING_CHANNEL_CONFIG[target.channel].label}の下書きを保存しました。`)
-                }}
+                } : undefined}
                 onApprove={canApprove ? (id, text) => {
                   const target = generatedDrafts.find((entry) => entry.id === id)
                   if (!target) return
@@ -184,7 +186,7 @@ export default function DraftsPage() {
         <div className="mb-3 flex items-center justify-between gap-3"><h2 className="text-base font-semibold text-gray-900">保存済みの下書き</h2>{selectedSeed && <span className="text-sm text-gray-500">{selectedSeed.title}</span>}</div>
         {existingDrafts.length === 0 ? <EmptyState title="まだ下書きがありません" description="テンプレートを作成し、残しておきたいバージョンを保存してください。" /> : (
           <div className="space-y-6">
-            {Object.entries(draftsByChannel).map(([channel, channelDrafts]) => <section key={channel}><div className="mb-3 flex items-center justify-between"><h3 className="text-sm font-semibold text-gray-700">{PUBLISHING_CHANNEL_CONFIG[channel as PublishingChannel].label}</h3><span className="text-xs text-gray-400">{channelDrafts.length}件保存済み</span></div><div className="grid grid-cols-1 gap-4 xl:grid-cols-2">{channelDrafts.map((draft) => <DraftEditorCard key={draft.id} draft={draft} onEdit={(id, text) => { const target = existingDrafts.find((entry) => entry.id === id); if (target) void runDraftAction(() => persistDraft({ ...target, draftText: text }), `${PUBLISHING_CHANNEL_CONFIG[target.channel].label}の下書きを保存しました。`) }} onApprove={canApprove ? (id, text) => { const target = existingDrafts.find((entry) => entry.id === id); if (!target) return; void runDraftAction(() => saveAndApproveDraft({ ...toDraftInput(target), draftText: text, id: target.id }), '下書きを承認し、承認版として記録しました。') } : undefined} onRegenerate={(id) => { if (!selectedSeed) return; const target = existingDrafts.find((entry) => entry.id === id); if (target) void runDraftAction(() => persistDraft({ ...target, draftText: resetTemplateDraft(target, selectedSeed) }), '元のテンプレートに戻して保存しました。') }} onSchedule={canManageQueue ? (id, scheduledAt) => { void runDraftAction(() => scheduleDraft(id, scheduledAt), '予約しました。公開キューから確認できます。') } : undefined} />)}</div></section>)}
+            {Object.entries(draftsByChannel).map(([channel, channelDrafts]) => <section key={channel}><div className="mb-3 flex items-center justify-between"><h3 className="text-sm font-semibold text-gray-700">{PUBLISHING_CHANNEL_CONFIG[channel as PublishingChannel].label}</h3><span className="text-xs text-gray-400">{channelDrafts.length}件保存済み</span></div><div className="grid grid-cols-1 gap-4 xl:grid-cols-2">{channelDrafts.map((draft) => <DraftEditorCard key={draft.id} draft={draft} onEdit={canEditDrafts ? (id, text) => { const target = existingDrafts.find((entry) => entry.id === id); if (target) void runDraftAction(() => persistDraft({ ...target, draftText: text }), `${PUBLISHING_CHANNEL_CONFIG[target.channel].label}の下書きを保存しました。`) } : undefined} onApprove={canApprove ? (id, text) => { const target = existingDrafts.find((entry) => entry.id === id); if (!target) return; void runDraftAction(() => saveAndApproveDraft({ ...toDraftInput(target), draftText: text, id: target.id }), '下書きを承認し、承認版として記録しました。') } : undefined} onRegenerate={canEditDrafts ? (id) => { if (!selectedSeed) return; const target = existingDrafts.find((entry) => entry.id === id); if (target) void runDraftAction(() => persistDraft({ ...target, draftText: resetTemplateDraft(target, selectedSeed) }), '元のテンプレートに戻して保存しました。') } : undefined} onSchedule={canManageQueue ? (id, scheduledAt) => { void runDraftAction(() => scheduleDraft(id, scheduledAt), '予約しました。公開キューから確認できます。') } : undefined} />)}</div></section>)}
           </div>
         )}
       </section>

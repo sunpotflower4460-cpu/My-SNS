@@ -227,6 +227,18 @@ export async function processReplyJob(supabase: SupabaseClient, job: ReplyableJo
         return { success: true }
       } catch (reconciliationError) {
         console.error(`Confirmed reply for job ${job.id} could not be reconciled:`, reconciliationError)
+        // Leave a durable unsafe marker so cancel cannot open a new send with a
+        // fresh job UUID / LINE retry key while this push may already exist.
+        const unknownMessage =
+          'EXTERNAL_RESULT_UNKNOWN: LINE may already have accepted this reply, but local bookkeeping failed. Inspect LINE before sending again.'
+        try {
+          await releaseReplyJobClaim(supabase, job.id, claimToken, {
+            status: 'failed',
+            error_message: unknownMessage,
+          })
+        } catch (markerError) {
+          console.error(`Failed to persist EXTERNAL_RESULT_UNKNOWN for reply job ${job.id}:`, markerError)
+        }
         return { success: false }
       }
     }

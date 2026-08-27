@@ -45,7 +45,12 @@ export default function WorkspaceSwitcher({ workspace }: WorkspaceSwitcherProps)
       .eq('user_id', currentUserId)
       .in('workspace_id', workspaceIds)
       .then(({ data, error }) => {
-        if (cancelled || error || !data) return
+        if (cancelled) return
+        if (error) {
+          console.error('Failed to load workspace roles for switcher:', error)
+          return
+        }
+        if (!data) return
         const next = Object.fromEntries(
           data.map((membership) => [membership.workspace_id, membership.role as WorkspaceRole]),
         ) as Record<string, WorkspaceRole>
@@ -104,7 +109,11 @@ export default function WorkspaceSwitcher({ workspace }: WorkspaceSwitcherProps)
                 <p className="truncate text-xs text-gray-500">{ws.slug}</p>
               </div>
               <div className="flex items-center gap-2">
-                <RoleBadge role={rolesByWorkspaceId[ws.id] ?? 'viewer'} />
+                {rolesByWorkspaceId[ws.id] ? (
+                  <RoleBadge role={rolesByWorkspaceId[ws.id]} />
+                ) : (
+                  <span className="rounded-full border border-stone-200 px-2 py-0.5 text-[11px] text-gray-400">役割不明</span>
+                )}
                 {ws.id === workspace.id && <span className="text-violet-500">✓</span>}
               </div>
             </button>

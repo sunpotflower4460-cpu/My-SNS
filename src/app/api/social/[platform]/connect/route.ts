@@ -38,12 +38,17 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
     return NextResponse.redirect(settingsUrl)
   }
 
-  const { data: member } = await supabase
+  const { data: member, error: memberError } = await supabase
     .from('workspace_members')
     .select('role')
     .eq('workspace_id', workspaceId)
     .eq('user_id', user.id)
     .maybeSingle()
+
+  if (memberError) {
+    settingsUrl.searchParams.set('error', 'メンバーシップを確認できないため、安全のため接続を中止しました。少し待ってから再試行してください。')
+    return NextResponse.redirect(settingsUrl)
+  }
 
   const role = member?.role as WorkspaceRole | undefined
   if (!role || !hasPermission(role, 'manage_social_accounts')) {

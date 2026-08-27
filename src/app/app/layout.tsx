@@ -51,6 +51,18 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
     )
   }
 
+  // Workspaces exist but active workspace detail has not loaded yet — do not
+  // flash a false "no workspace" empty state during bootstrap.
+  if (workspaces.length > 0 && (!currentWorkspace || !currentMember)) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-stone-50 px-6">
+        <div className="rounded-3xl border border-stone-200 bg-white px-6 py-5 text-sm text-gray-500 shadow-sm">
+          ワークスペースを読み込み中…
+        </div>
+      </div>
+    )
+  }
+
   if (!currentWorkspace || !currentMember) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-stone-50 px-6">

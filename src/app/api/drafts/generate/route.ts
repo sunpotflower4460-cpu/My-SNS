@@ -2,13 +2,13 @@ import { randomUUID } from 'node:crypto'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
+import { isNextResponse, requireWorkspaceMember } from '@/lib/api/workspace-access'
 import { createServiceClient } from '@/lib/supabase/service'
 import { mapSeed, SEED_SELECT, type SeedRow } from '@/lib/repositories/supabase/seeds'
 import { getWorkspaceMonthlyAiCost, recordAiGeneration } from '@/lib/repositories/supabase/ai-generations'
 import { listRecentAiRevisionsForStyleLearning } from '@/lib/repositories/supabase/draft-revisions'
 import { PUBLISHING_CHANNEL_CONFIG } from '@/lib/channels/config'
-import { hasPermission } from '@/lib/permissions'
-import type { PublishingChannel, WorkspaceRole } from '@/lib/domain/types'
+import type { PublishingChannel } from '@/lib/domain/types'
 import { CORE_PUBLISHING_CHANNELS } from '@/lib/domain/types'
 import { TemplateDraftGeneratorService } from '@/lib/services/ai-draft'
 import {
@@ -22,6 +22,7 @@ import {
   configuredMonthlyAiBudgetUsd,
   releaseWorkspaceAiBudget,
 } from '@/lib/services/ai-generation-claims'
+import { hasUnrecordedAiUsageIncident } from '@/lib/services/ai-usage-incidents'
 
 const VALID_CHANNELS = new Set(Object.keys(PUBLISHING_CHANNEL_CONFIG))
 const VALID_LENGTHS = new Set(['short', 'medium', 'long'])
@@ -77,17 +78,8 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'ログインしていません。' }, { status: 401 })
   }
 
-  const { data: member } = await supabase
-    .from('workspace_members')
-    .select('role')
-    .eq('workspace_id', workspaceId)
-    .eq('user_id', user.id)
-    .maybeSingle()
-
-  const role = member?.role as WorkspaceRole | undefined
-  if (!role || !hasPermission(role, 'create_drafts')) {
-    return NextResponse.json({ error: 'このワークスペースで下書きを生成する権限がありません。' }, { status: 403 })
-  }
+  const membership = await requireWorkspaceMember(supabase, workspaceId, user.id, 'create_drafts', 'このワークスペースで下書きを作成する権限がありません。')
+  if (isNextResponse(membership)) return membership
 
   const { data: seedRow, error: seedError } = await supabase
     .from('seeds')
@@ -152,6 +144,21 @@ export async function POST(request: NextRequest) {
   }
 
   try {
+    try {
+      if (await hasUnrecordedAiUsageIncident(serviceClient, workspaceId)) {
+        return NextResponse.json(
+          {
+            error:
+              '直近のAI使用量を台帳に記録できなかったため、安全のため追加のAI生成を停止しています。管理者に使用量台帳の確認を依頼してください。',
+          },
+          { status: 503 },
+        )
+      }
+    } catch (cause) {
+      console.error('Failed to verify AI usage-ledger safety state:', cause)
+      return NextResponse.json({ error: 'AI使用量台帳の安全状態を確認できないため、生成を停止しました。' }, { status: 503 })
+    }
+
     if (monthlyBudgetUsd !== null) {
       let spentUsd: number
       try {
@@ -193,7 +200,8 @@ export async function POST(request: NextRequest) {
         recordedGenerationId = generation.id
       } catch (recordError) {
         console.error('AI draft generation succeeded but usage ledger persistence failed:', recordError)
-        usageWarning = 'AI生成は成功しましたが、使用量の記録だけ保存できませんでした。生成結果はそのまま利用できます。'
+        usageWarning =
+          'AI生成は成功しましたが、使用量の記録だけ保存できませんでした。予算の過小計上を防ぐため、台帳が復旧するまで追加のAI生成は停止します。'
       }
 
       const { error: auditError } = await supabase.from('audit_logs').insert({

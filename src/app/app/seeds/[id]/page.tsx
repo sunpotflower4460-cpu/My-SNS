@@ -13,6 +13,7 @@ import { describeAuditLog, getAuditLogMeta } from '@/lib/audit/presenter'
 import { PUBLISHING_CHANNEL_CONFIG } from '@/lib/channels/config'
 import { formatBytes, normalizeTags } from '@/lib/seeds/input'
 import { useApp } from '@/lib/app/app-provider'
+import { hasPermission } from '@/lib/permissions'
 import {
   CORE_PUBLISHING_CHANNELS,
   type PublishingChannel,
@@ -36,7 +37,8 @@ const SEED_KIND_LABELS: Record<SeedKind, string> = {
 
 export default function SeedDetailPage() {
   const params = useParams<{ id: string }>()
-  const { brandProfiles, currentWorkspace, getSeedDetail, updateSeedItem } = useApp()
+  const { brandProfiles, currentMember, currentWorkspace, getSeedDetail, updateSeedItem } = useApp()
+  const canEditSeeds = Boolean(currentMember && hasPermission(currentMember.role, 'edit_seeds'))
   const detail = getSeedDetail(params.id)
 
   const [title, setTitle] = useState('')
@@ -227,7 +229,7 @@ export default function SeedDetailPage() {
             <div className="flex items-center justify-between"><h2 className="text-base font-semibold text-gray-900">準備状況</h2><span className="text-2xl font-semibold text-violet-700">{readiness.score}%</span></div>
             <div className="mt-3 h-2 overflow-hidden rounded-full bg-stone-100"><div className="h-full bg-violet-500" style={{ width: `${readiness.score}%` }} /></div>
             <p className="mt-4 text-sm leading-6 text-gray-500">{readiness.isReady ? 'レビュー済みの媒体向け提案を作成できます。' : `残り${readiness.missingFields.length}件の文脈項目があります。準備完了にする前に、取り込み済みのままにするか項目を満たしてください。`}</p>
-            <button onClick={() => void handleSave()} disabled={isSaving} className="mt-5 w-full rounded-2xl bg-violet-600 px-4 py-2.5 text-sm font-medium text-white disabled:opacity-60">{isSaving ? '保存中…' : '変更を保存'}</button>
+            <button onClick={() => void handleSave()} disabled={!canEditSeeds || isSaving} className="mt-5 w-full rounded-2xl bg-violet-600 px-4 py-2.5 text-sm font-medium text-white disabled:opacity-60">{isSaving ? '保存中…' : canEditSeeds ? '変更を保存' : '編集権限がありません'}</button>
           </div>
 
           <div className="rounded-[2rem] border border-stone-200 bg-white p-6 shadow-sm shadow-stone-100/80">
