@@ -61,6 +61,15 @@ async function reconcilePendingTikTokPublish(
   }
 
   if (check.state === 'complete') {
+    // Persist the success attempt before (or without relying on) the job-row
+    // update. Never return reconciled success when the durable ledger write fails.
+    await recordPublishAttempt(serviceClient, {
+      workspaceId: job.workspace_id,
+      publishJobId: job.id,
+      status: 'success',
+      externalPostId: check.postId ?? publishId,
+    })
+
     const publishedAt = new Date().toISOString()
     const { data: completed, error } = await serviceClient
       .from('publish_jobs')
@@ -89,13 +98,6 @@ async function reconcilePendingTikTokPublish(
       if (current?.status === 'published') return NextResponse.json({ success: true, reconciled: true })
       return NextResponse.json({ error: 'この投稿の状態が変更されました。公開予定を再読み込みしてください。' }, { status: 409 })
     }
-
-    await recordPublishAttempt(serviceClient, {
-      workspaceId: job.workspace_id,
-      publishJobId: job.id,
-      status: 'success',
-      externalPostId: check.postId ?? publishId,
-    }).catch((cause) => console.error(`Failed to record reconciled TikTok success for ${job.id}:`, cause))
 
     await serviceClient.from('audit_logs').insert({
       workspace_id: job.workspace_id,

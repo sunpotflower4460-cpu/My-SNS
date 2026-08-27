@@ -240,7 +240,7 @@ export class TikTokConnectorAdapter implements SocialConnectorAdapter {
   async publish(request: PublishRequest): Promise<PublishResult> {
     const mediaUrl = request.metadata.mediaUrl
     if (typeof mediaUrl !== 'string' || !mediaUrl) {
-      throw new Error('TikTok requires a video URL. Attach one to this draft before scheduling (not yet built).')
+      throw new Error('TikTok requires a video URL. Attach a video to this Seed (or set mediaUrl on the Revision) before scheduling.')
     }
     const trustedMediaUrl = assertTrustedPublishMediaUrl(mediaUrl).toString()
 

@@ -134,11 +134,18 @@ async function resolveAssetUrls(rows: AssetRow[]): Promise<Asset[]> {
     const { data, error } = await supabase.storage.from('assets').createSignedUrls(storagePaths, 60 * 60)
 
     if (error) {
-      console.error('Error creating signed asset URLs:', error)
-    } else {
-      for (const entry of data ?? []) {
-        if (entry.path && entry.signedUrl) signedUrlByPath.set(entry.path, entry.signedUrl)
-      }
+      throw new Error(`アセットの署名URLを発行できませんでした。空のURLとして扱わず、再読み込みしてください: ${error.message}`)
+    }
+
+    for (const entry of data ?? []) {
+      if (entry.path && entry.signedUrl) signedUrlByPath.set(entry.path, entry.signedUrl)
+    }
+
+    const missing = storagePaths.filter((path) => !signedUrlByPath.has(path))
+    if (missing.length > 0) {
+      throw new Error(
+        `アセットの署名URLを一部発行できませんでした（${missing.length}件）。空のURLとして扱わず、再読み込みしてください。`,
+      )
     }
   }
 
