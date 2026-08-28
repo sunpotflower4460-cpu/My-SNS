@@ -38,7 +38,7 @@ export async function POST(request: NextRequest) {
     .select('id, channel')
     .eq('id', jobId)
     .eq('workspace_id', workspaceId)
-    .single()
+    .maybeSingle()
   if (jobError) {
     return NextResponse.json({ error: 'ジョブを確認できませんでした。少し後でもう一度お試しください。' }, { status: 503 })
   }

@@ -86,7 +86,7 @@ export async function POST(request: NextRequest) {
     .select(SEED_SELECT)
     .eq('id', seedId)
     .eq('workspace_id', workspaceId)
-    .single()
+    .maybeSingle()
 
   if (seedError) {
     return NextResponse.json({ error: 'シードを確認できませんでした。少し後でもう一度お試しください。' }, { status: 503 })
