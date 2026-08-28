@@ -35,8 +35,8 @@ async function downloadAsset(asset: Asset): Promise<void> {
 }
 
 export default function QueueMediaKit({ seedId, assets }: QueueMediaKitProps) {
-  const [busyAssetId, setBusyAssetId] = useState<string | null>(null)
-  const [errorAssetId, setErrorAssetId] = useState<string | null>(null)
+  const [busyAssetIds, setBusyAssetIds] = useState<ReadonlySet<string>>(new Set())
+  const [errorAssetIds, setErrorAssetIds] = useState<ReadonlySet<string>>(new Set())
 
   if (assets.length === 0) {
     return (
@@ -65,8 +65,8 @@ export default function QueueMediaKit({ seedId, assets }: QueueMediaKitProps) {
         {assets.map((asset) => {
           const Icon = TYPE_ICON[asset.type]
           const usable = hasUsableAssetUrl(asset)
-          const busy = busyAssetId === asset.id
-          const failed = errorAssetId === asset.id
+          const busy = busyAssetIds.has(asset.id)
+          const failed = errorAssetIds.has(asset.id)
 
           return (
             <div key={asset.id} className="flex min-w-0 items-center gap-3 rounded-lg border border-stone-200 bg-white p-2.5">
@@ -102,11 +102,20 @@ export default function QueueMediaKit({ seedId, assets }: QueueMediaKitProps) {
                     disabled={!usable || busy}
                     onClick={() => {
                       const assetId = asset.id
-                      setBusyAssetId(assetId)
-                      setErrorAssetId((current) => (current === assetId ? null : current))
+                      setBusyAssetIds((current) => new Set(current).add(assetId))
+                      setErrorAssetIds((current) => {
+                        if (!current.has(assetId)) return current
+                        const next = new Set(current)
+                        next.delete(assetId)
+                        return next
+                      })
                       void downloadAsset(asset)
-                        .catch(() => setErrorAssetId(assetId))
-                        .finally(() => setBusyAssetId((current) => (current === assetId ? null : current)))
+                        .catch(() => setErrorAssetIds((current) => new Set(current).add(assetId)))
+                        .finally(() => setBusyAssetIds((current) => {
+                          const next = new Set(current)
+                          next.delete(assetId)
+                          return next
+                        }))
                     }}
                   >
                     <Download aria-hidden className="h-3.5 w-3.5" />

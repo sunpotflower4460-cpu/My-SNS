@@ -152,7 +152,7 @@ export async function POST(request: NextRequest) {
     .select('id, workspace_id, channel, created_by, seed_id, publish_mode, status, error_message, draft_revisions!inner(title, body, hashtags, cta, metadata)')
     .eq('id', jobId)
     .eq('workspace_id', workspaceId)
-    .single()
+    .maybeSingle()
 
   if (jobError) {
     return NextResponse.json({ error: 'ジョブを確認できませんでした。少し後でもう一度お試しください。' }, { status: 503 })

@@ -51,7 +51,8 @@ export default function ConciergeReplyPanel({ item }: { item: InboxItem }) {
   const [replyText, setReplyText] = useState(suggestion?.suggestedText ?? '')
   const [replyDirty, setReplyDirty] = useState(false)
   const [timing, setTiming] = useState<'recommended' | 'now'>('recommended')
-  const [busy, setBusy] = useState<null | 'generate' | 'send' | 'trigger' | 'cancel' | 'autosend' | 'schedule' | number>(null)
+  const [busy, setBusy] = useState<null | 'generate' | 'send' | 'trigger' | 'cancel' | 'autosend' | 'schedule'>(null)
+  const [addingProposalIndexes, setAddingProposalIndexes] = useState<Set<number>>(new Set())
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
   const [warning, setWarning] = useState('')
@@ -185,6 +186,7 @@ export default function ConciergeReplyPanel({ item }: { item: InboxItem }) {
       const usageWarning = (result as typeof result & { usageWarning?: string }).usageWarning
       setScheduleProposals(result.proposals)
       setAddedProposals(new Set())
+      setAddingProposalIndexes(new Set())
       setWarning(usageWarning ?? '')
       if (result.source === 'unavailable') {
         setNotice(result.reason ?? 'AIが未設定のため、予定の抽出は利用できません。')
@@ -200,7 +202,7 @@ export default function ConciergeReplyPanel({ item }: { item: InboxItem }) {
 
   const handleAddProposal = async (proposal: ScheduleProposal, index: number) => {
     resetMessages()
-    setBusy(index)
+    setAddingProposalIndexes((prev) => new Set(prev).add(index))
     try {
       await createCalendarEvent({
         title: proposal.title,
@@ -218,7 +220,11 @@ export default function ConciergeReplyPanel({ item }: { item: InboxItem }) {
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'カレンダーに追加できませんでした。')
     } finally {
-      setBusy(null)
+      setAddingProposalIndexes((prev) => {
+        const next = new Set(prev)
+        next.delete(index)
+        return next
+      })
     }
   }
 
@@ -424,10 +430,10 @@ export default function ConciergeReplyPanel({ item }: { item: InboxItem }) {
                     ) : (
                       <button
                         onClick={() => handleAddProposal(proposal, index)}
-                        disabled={busy === index}
+                        disabled={addingProposalIndexes.has(index)}
                         className="shrink-0 rounded-full bg-gray-900 px-3 py-1 text-xs font-medium text-white hover:bg-gray-700 disabled:opacity-50"
                       >
-                        {busy === index ? '追加中…' : 'カレンダーに追加'}
+                        {addingProposalIndexes.has(index) ? '追加中…' : 'カレンダーに追加'}
                       </button>
                     )}
                   </div>

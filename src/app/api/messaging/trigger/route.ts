@@ -48,7 +48,7 @@ export async function POST(request: NextRequest) {
     .select('id, workspace_id, platform, inbox_item_id, send_target, reply_text, created_by, status, error_message')
     .eq('id', jobId)
     .eq('workspace_id', workspaceId)
-    .single()
+    .maybeSingle()
 
   if (jobError) {
     return NextResponse.json({ error: '返信ジョブを確認できませんでした。少し後でもう一度お試しください。' }, { status: 503 })
