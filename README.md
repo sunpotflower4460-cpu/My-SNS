@@ -20,7 +20,7 @@ The app is now backed by **real Supabase infrastructure** while preserving the e
 - **Immutable Revisions**: approving a draft permanently snapshots what was approved into `draft_revisions`; later Seed or Brand Profile edits cannot change history
 - **AI cost/usage tracking** in `ai_generations` (model, token counts, estimated cost)
 - **Scheduling Engine**: schedule an approved draft's Revision to the Publish Queue, a Worker (`/api/publish/run`, run on a schedule — see `vercel.json`) executes due `auto`-mode jobs and records a `publish_attempts` history with classified failure reasons; `note` (and any future manual-copy channel) is `publish_mode: 'manual'` and is completed by a human from the Queue instead
-- **Real X, Instagram, YouTube, and TikTok connectors**: OAuth connect flow from Settings (`/api/social/{platform}/connect` → `/callback`), tokens encrypted at the application layer before storage (never selectable from the browser — see `social_account_credentials`). X/Instagram publish through the scheduled Worker with automatic token refresh; YouTube ('assisted') and TikTok ('draft') are deliberately *not* auto-published — a human clicks **Publish now** from the Queue instead (`/api/publish/trigger`), matching their MVP strategy in `docs/master-plan.md` §3. Instagram/YouTube/TikTok all need a media URL the app doesn't attach to a Revision yet and fail closed with a clear message until that's built.
+- **Real X, Instagram, YouTube, and TikTok connectors**: OAuth connect flow from Settings (`/api/social/{platform}/connect` → `/callback`), tokens encrypted at the application layer before storage (never selectable from the browser — see `social_account_credentials`). In api-first mode, due `auto` jobs (including YouTube and TikTok) run from the scheduled Worker (`/api/publish/run`, every 5 minutes). Queue **今すぐ公開** remains for immediate/unscheduled jobs (`/api/publish/trigger`). Seed assets resolve to signed media URLs at publish time, including optional YouTube custom thumbnails and Instagram Reel covers. TikTok Direct Post stays `SELF_ONLY` until audit — it auto-runs at T but is not faked as a public post.
 - **note handoff**: an approved note Revision is one click away from note.com-ready Markdown (**Copy for note.com** in the Queue) and a **Mark as posted** button records completion — no fake automatic posting, since note has no public posting API.
 - **Webhook ingestion + Unified Inbox (PR6)**: Instagram comments and DMs arrive automatically via a signature-verified webhook (`/api/webhooks/meta`); a **Sync inbox** button in Settings pulls YouTube's real channel comments on demand. Every inbound item dedupes on its platform-native id, so a webhook retry or an overlapping manual sync never creates a duplicate row. X and TikTok's own comment/mention/DM sync are honest, permanent gaps (documented below) rather than guessed-at API calls.
 - **Analytics + AI learning from corrections (PR7)**: a new Analytics page shows real publish success/failure rates per channel, failure-reason breakdowns, AI cost/usage totals, and what fraction of AI proposals humans actually edit before approving — all derived from `publish_attempts`/`ai_generations`/`draft_revisions`, nothing estimated. Live view/like/comment counts are fetched on demand for YouTube and X (both scope-ready with what's already granted); Instagram/TikTok metrics are documented gaps needing a scope this app doesn't yet request. Every AI-sourced draft now freezes an `ai_original_snapshot` the moment it's first saved, so approved edits become few-shot "this creator's actual style" examples fed into the next `/api/drafts/generate` call — a real feedback loop, not a fake ML system.
@@ -31,7 +31,6 @@ The app is now backed by **real Supabase infrastructure** while preserving the e
 
 ## What is still deferred
 
-- Attaching media (image/video) to a draft/Revision — Instagram, YouTube, and TikTok all need this to actually publish; every real connector attempt fails closed with a clear message until it's built
 - X and TikTok comment/mention/DM sync, and their post metrics — both require API access tiers or app reviews this app's current credentials don't have; see Known limitations
 - Instagram post metrics — the Insights API needs a scope (`instagram_manage_insights`) this app does not yet request
 - Resolving an Instagram `mentions` webhook to its actual comment text (the payload only carries a pointer, not the text itself)
@@ -124,7 +123,7 @@ src/
     app/                       Protected app routes
     api/drafts/generate/       Server-only AI draft generation route
     api/publish/run/           Server-only scheduled publish Worker (CRON_SECRET-gated, publish_mode='auto')
-    api/publish/trigger/       Manual "Publish now" for assisted/draft-mode jobs (YouTube/TikTok)
+    api/publish/trigger/       Manual "Publish now" for due or immediate API-first jobs (including YouTube/TikTok)
     api/social/[platform]/     OAuth connect + callback routes (x, instagram, youtube, tiktok)
     api/social/disconnect/     Deletes stored credentials (service-role only)
     api/webhooks/meta/         Instagram webhook receiver (signature-verified, service-role)
@@ -237,8 +236,8 @@ MVP (`docs/master-plan.md` §4) is code-complete as of PR5. What's left is eithe
 
 1. ~~**PR2** — structured AI proposals, missing-information suggestions, and explicit approval~~ ✅
 2. ~~**PR3** — scheduling engine (`publish_attempts`, Worker, retry/cancel, Queue state UI)~~ ✅
-3. ~~**PR4** — X and Instagram adapters~~ ✅ (Instagram publishing still needs media attachment support — see Known limitations)
-4. ~~**PR5** — YouTube and TikTok adapters plus note review/copy handoff~~ ✅ (YouTube/TikTok publishing still needs media attachment support)
+3. ~~**PR4** — X and Instagram adapters~~ ✅
+4. ~~**PR5** — YouTube and TikTok adapters plus note review/copy handoff~~ ✅
 5. ~~**PR6** — Webhook ingestion (Instagram) + Unified Inbox (manual sync for the rest)~~ ✅ (post-MVP; X/TikTok comment sync remain honest gaps — see Known limitations)
 6. ~~**PR7** — Analytics (real publish/AI-cost/edit-rate stats, live YouTube/X metrics) + AI learning from human edit diffs~~ ✅ (post-MVP; Instagram/TikTok metrics remain honest gaps — see Known limitations)
 7. ~~**PR9** — notifications, mobile navigation, workspace data export, AI budget cap~~ ✅ (post-MVP; notifications are poll-on-load, not push — see Known limitations)
@@ -248,10 +247,12 @@ MVP (`docs/master-plan.md` §4) is code-complete as of PR5. What's left is eithe
 
 ## Known limitations
 
-- **Media attachment doesn't exist yet.** Instagram, YouTube, and TikTok all require a video/image URL to actually publish; no PR has wired up attaching one to a Seed/draft/Revision. Every real attempt on these three fails closed with a clear validation error rather than a broken request.
-- YouTube ('assisted') and TikTok ('draft') are intentionally **not** auto-published by the scheduled Worker — a human uses **Publish now** in the Queue (`/api/publish/trigger`) to actually call the connector, matching their §3 MVP strategy (quota/audit review before full automation)
-- TikTok's Direct Post is limited to `SELF_ONLY` visibility until this app passes TikTok's Content Posting API audit; if a post is still processing after a short poll window, the app reports that honestly (never guesses success) — check the TikTok app and use **Mark as posted** once confirmed
-- The Instagram connector picks the first Facebook Page with a linked Instagram Business/Creator account; it can't yet choose among multiple linked Pages
+- YouTube scheduled jobs upload as **public at T via the Worker** (not left private). Native `status.publishAt` is not used, because that would create the video at schedule time rather than at T and complicate cancel. Cron is every 5 minutes (`vercel.json`), so the actual send can land in that window.
+- Custom YouTube thumbnails call `thumbnails.set` after a successful upload. Official docs list `youtube.upload`, but in practice a write scope that can edit the video is safer — OAuth now also requests `youtube.force-ssl`. Already-connected YouTube accounts must **reconnect from Settings**. Missing thumbnail files or missing scopes fail closed before upload; a thumbnail failure after the video exists is `PARTIAL_EXTERNAL_SUCCESS` (no automatic retry).
+- TikTok Direct Post is limited to `SELF_ONLY` visibility until this app passes TikTok's Content Posting API audit. The Worker **does** auto-run at T, but does not pretend the post is public. Custom cover images are not supported by the API (frame timestamp only).
+- Instagram Reels can attach `cover_url` when a still is chosen. A single Facebook login still picks the first Page with a linked IG account; connect another IG account with a separate OAuth to target a second one.
+- A workspace may connect more than one account per platform. `publish_jobs.social_account_id` records the target. Two connected accounts and no selection fail closed. The webhook invariant remains: one real LINE/Instagram account cannot be `connected=true` in two workspaces.
+- 9:16 vs 16:9: Seed media can detect aspect, auto-assign channels, and crop/export a variant in the browser (often WebM). Serverless ffmpeg is not used. A landscape file is never treated as a Short.
 - X requires a **confidential** OAuth 2.0 client (client secret) in the X developer portal, not a public/PKCE-only client
 - AI draft generation requires `ANTHROPIC_API_KEY`; without it, `/api/drafts/generate` returns clearly labeled deterministic templates instead
 - **Instagram `mentions` sync is not implemented.** Meta's mentions webhook field only carries a media_id/comment_id pointer, not the comment text itself — resolving it needs an extra Graph API call this app does not make yet. Comments and DMs (`fetchComments`/`fetchMessages`/the webhook) work; mentions fail closed with a clear reason.

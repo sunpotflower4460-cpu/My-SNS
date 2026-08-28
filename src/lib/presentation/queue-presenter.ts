@@ -42,7 +42,11 @@ export function describeJobStatus(job: PublishJob): string {
   if (job.publishMode === 'assisted' || job.publishMode === 'draft') {
     return 'API-firstモードの確認対象です。「今すぐ公開」から接続済みAPIで処理してください'
   }
-  return job.scheduledAt ? `予約日時: ${formatJst(job.scheduledAt)}` : 'まだ予約されていません'
+  if (job.channel === 'tiktok') {
+    const planned = job.scheduledAt ? `予約日時: ${formatJst(job.scheduledAt)}（最大約5分のずれ）` : 'まだ予約されていません'
+    return `${planned}。TikTokは監査前のため公開範囲はSELF_ONLY（自分のみ）です。タイムライン公開ではありません。`
+  }
+  return job.scheduledAt ? `予約日時: ${formatJst(job.scheduledAt)}（Workerは5分間隔のため、最大約5分遅れることがあります）` : 'まだ予約されていません'
 }
 
 export interface JobActions {
@@ -72,7 +76,7 @@ export function getJobActions(
 
   return {
     openHandoff: active && isThirdPartyChannel && (!apiPublishingEnabled || job.publishMode === 'manual'),
-    publishNow: active && apiPublishingEnabled && (job.publishMode === 'assisted' || job.publishMode === 'draft'),
+    publishNow: active && apiPublishingEnabled && job.publishMode !== 'manual' && job.publishMode !== 'owned',
     completeManually: active && (job.publishMode !== 'auto' || !apiPublishingEnabled),
     retry: job.status === 'failed' && job.publishMode === 'auto' && apiPublishingEnabled,
     cancel: active,

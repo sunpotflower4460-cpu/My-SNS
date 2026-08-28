@@ -235,8 +235,7 @@ describe('getUpcomingPublishJobs', () => {
   it('excludes today and past, keeps future scheduled, soonest first', () => {
     const jobs = [
       publishJob({ id: 'today', status: 'scheduled', scheduledAt: '2026-07-20T09:00:00Z' }),
-      // A past-due scheduled job — e.g. a YouTube (assisted) / TikTok (draft)
-      // job the Worker never auto-runs, left in 'scheduled' with a past time.
+      // A past-due scheduled job left in 'scheduled' with a past time.
       // Must NOT lead the "upcoming" runway.
       publishJob({ id: 'overdue', status: 'scheduled', scheduledAt: '2026-07-18T09:00:00Z' }),
       publishJob({ id: 'far', status: 'scheduled', scheduledAt: '2026-07-25T09:00:00Z' }),

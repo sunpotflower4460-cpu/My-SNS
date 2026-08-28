@@ -58,6 +58,7 @@ export default function QueuePage() {
     publishJobs,
     retryQueueJob,
     seeds,
+    socialAccounts,
     triggerPublishJob,
   } = useApp()
   const canManageQueue = Boolean(currentMember && hasPermission(currentMember.role, 'manage_queue'))
@@ -219,6 +220,11 @@ export default function QueuePage() {
                   </div>
                   <div className="min-w-0 flex-1">
                     <p className="truncate text-sm font-medium text-gray-900">{getSeedTitle(job.seedId)}</p>
+                    {job.socialAccountId && (
+                      <p className="mt-0.5 text-xs text-gray-500">
+                        投稿先: {socialAccounts.find((account) => account.id === job.socialAccountId)?.handle ?? job.socialAccountId}
+                      </p>
+                    )}
                     <p className="mt-1 text-xs text-gray-500">{describeJobStatus(job)}</p>
                     {job.errorMessage && <p className="mt-2 text-xs text-rose-600">{job.errorMessage}</p>}
                     <QueueMediaKit seedId={job.seedId} assets={assets} />

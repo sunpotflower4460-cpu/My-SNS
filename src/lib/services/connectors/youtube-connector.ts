@@ -18,10 +18,29 @@ const AUTHORIZE_URL = 'https://accounts.google.com/o/oauth2/v2/auth'
 const TOKEN_URL = 'https://oauth2.googleapis.com/token'
 const CHANNELS_URL = 'https://www.googleapis.com/youtube/v3/channels'
 const UPLOAD_URL = 'https://www.googleapis.com/upload/youtube/v3/videos'
+const THUMBNAILS_UPLOAD_URL = 'https://www.googleapis.com/upload/youtube/v3/thumbnails'
 const COMMENT_THREADS_URL = 'https://www.googleapis.com/youtube/v3/commentThreads'
 const VIDEOS_URL = 'https://www.googleapis.com/youtube/v3/videos'
 const STUDIO_URL = 'https://studio.youtube.com'
-const SCOPES = ['https://www.googleapis.com/auth/youtube.upload', 'https://www.googleapis.com/auth/youtube.readonly']
+// youtube.upload is listed on thumbnails.set, but setting a custom thumbnail
+// in practice needs a write scope that can edit the uploaded video. Request
+// youtube.force-ssl in addition; already-connected accounts must reconnect.
+export const YOUTUBE_UPLOAD_SCOPE = 'https://www.googleapis.com/auth/youtube.upload'
+export const YOUTUBE_FORCE_SSL_SCOPE = 'https://www.googleapis.com/auth/youtube.force-ssl'
+export const YOUTUBE_READONLY_SCOPE = 'https://www.googleapis.com/auth/youtube.readonly'
+export const YOUTUBE_MANAGE_SCOPE = 'https://www.googleapis.com/auth/youtube'
+const SCOPES = [YOUTUBE_UPLOAD_SCOPE, YOUTUBE_FORCE_SSL_SCOPE, YOUTUBE_READONLY_SCOPE]
+
+const YOUTUBE_THUMBNAIL_SCOPES = [
+  YOUTUBE_FORCE_SSL_SCOPE,
+  YOUTUBE_MANAGE_SCOPE,
+  'https://www.googleapis.com/auth/youtubepartner',
+]
+
+export function youtubeScopesAllowCustomThumbnail(scopes: string[] | undefined): boolean {
+  if (!scopes || scopes.length === 0) return false
+  return scopes.some((scope) => YOUTUBE_THUMBNAIL_SCOPES.includes(scope))
+}
 
 const COMMENT_PAGE_SIZE = 50
 const YOUTUBE_API_TIMEOUT_MS = 30_000
@@ -239,8 +258,43 @@ export class YouTubeConnectorAdapter implements SocialConnectorAdapter {
     }
 
     const trustedMediaUrl = assertTrustedPublishMediaUrl(mediaUrl)
+    const thumbnailUrl = typeof request.metadata.thumbnailUrl === 'string' ? request.metadata.thumbnailUrl : undefined
+    const grantedScopes = Array.isArray(request.metadata.grantedScopes)
+      ? request.metadata.grantedScopes.filter((scope): scope is string => typeof scope === 'string')
+      : undefined
+
+    if (thumbnailUrl && !youtubeScopesAllowCustomThumbnail(grantedScopes)) {
+      throw new Error(
+        'YouTube custom thumbnail requires a reconnect so this account includes the youtube.force-ssl scope. Open Settings, disconnect YouTube, and connect it again before scheduling a thumbnail.',
+      )
+    }
+
+    let thumbnailBytes: ArrayBuffer | undefined
+    let thumbnailContentType = 'image/jpeg'
+    if (thumbnailUrl) {
+      const trustedThumbnailUrl = assertTrustedPublishMediaUrl(thumbnailUrl)
+      const thumbnailResponse = await fetch(trustedThumbnailUrl, { signal: AbortSignal.timeout(FETCH_MEDIA_TIMEOUT_MS) })
+      if (!thumbnailResponse.ok) {
+        throw new Error(`Could not read the YouTube thumbnail image (${thumbnailResponse.status}). Custom thumbnail was requested, so publish stopped before uploading the video.`)
+      }
+      thumbnailContentType = thumbnailResponse.headers.get('content-type') ?? 'image/jpeg'
+      if (!thumbnailContentType.startsWith('image/')) {
+        throw new Error('YouTube custom thumbnail must be a PNG or JPG image. Publish stopped before uploading the video.')
+      }
+      thumbnailBytes = await thumbnailResponse.arrayBuffer()
+    }
 
     const isShort = request.metadata.isShort === true
+    if (isShort && thumbnailBytes) {
+      throw new Error('YouTube Shorts cannot use a custom thumbnail. Remove the thumbnail or publish as a 16:9 long video.')
+    }
+
+    const requestedPrivacy = request.metadata.privacyStatus
+    const privacyStatus =
+      requestedPrivacy === 'private' || requestedPrivacy === 'unlisted' || requestedPrivacy === 'public'
+        ? requestedPrivacy
+        : 'public'
+
     const description = [request.body, request.cta].filter(Boolean).join('\n\n')
     const tags = request.hashtags.slice(0, 500)
 
@@ -257,7 +311,7 @@ export class YouTubeConnectorAdapter implements SocialConnectorAdapter {
           description: isShort ? `${description}\n\n#Shorts`.trim() : description,
           tags,
         },
-        status: { privacyStatus: 'private', selfDeclaredMadeForKids: false },
+        status: { privacyStatus, selfDeclaredMadeForKids: false },
       }),
       signal: AbortSignal.timeout(YOUTUBE_API_TIMEOUT_MS),
     })
@@ -320,6 +374,37 @@ export class YouTubeConnectorAdapter implements SocialConnectorAdapter {
       throw new Error(
         'EXTERNAL_RESULT_UNKNOWN: YouTube accepted the upload but returned no video id. The video may already exist, so automatic retry is blocked.',
       )
+    }
+
+    const actualPrivacy = (payload as { status?: { privacyStatus?: unknown } } | null)?.status?.privacyStatus
+    if (privacyStatus === 'public' && typeof actualPrivacy === 'string' && actualPrivacy !== 'public') {
+      throw new Error(
+        `PARTIAL_EXTERNAL_SUCCESS: YouTube accepted the upload as ${actualPrivacy} instead of public (video ${videoId}). Automatic retry is blocked. Verify the channel and set visibility in Studio: ${STUDIO_URL}.`,
+      )
+    }
+
+    if (thumbnailBytes) {
+      const thumbResponse = await fetch(`${THUMBNAILS_UPLOAD_URL}/set?videoId=${encodeURIComponent(videoId)}&uploadType=media`, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${request.accessToken}`,
+          'Content-Type': thumbnailContentType,
+        },
+        body: thumbnailBytes,
+        signal: AbortSignal.timeout(YOUTUBE_API_TIMEOUT_MS),
+      }).catch((cause) => {
+        const detail = cause instanceof Error ? cause.message : 'network error'
+        throw new Error(
+          `PARTIAL_EXTERNAL_SUCCESS: YouTube video ${videoId} was created but the custom thumbnail request was lost (${detail}). Automatic retry is blocked — set the thumbnail in Studio: ${STUDIO_URL}.`,
+        )
+      })
+
+      if (!thumbResponse.ok) {
+        const detail = await thumbResponse.text().catch(() => '')
+        throw new Error(
+          `PARTIAL_EXTERNAL_SUCCESS: YouTube video ${videoId} was created but the custom thumbnail failed (${thumbResponse.status}). Automatic retry is blocked. ${detail.slice(0, 200)} Set the thumbnail in Studio: ${STUDIO_URL}.`,
+        )
+      }
     }
 
     return { externalPostId: videoId, externalUrl: `https://youtube.com/watch?v=${videoId}` }

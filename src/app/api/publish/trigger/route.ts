@@ -25,6 +25,7 @@ interface TriggerJob {
   channel: PublishableJob['channel']
   created_by: string
   seed_id: string | null
+  social_account_id: string | null
   publish_mode: string
   status: string
   error_message: string | null
@@ -44,7 +45,7 @@ async function reconcilePendingTikTokPublish(
   job: TriggerJob,
   publishId: string,
 ): Promise<NextResponse | null> {
-  const credentials = await resolveCredentials(serviceClient, job.workspace_id, 'tiktok')
+  const credentials = await resolveCredentials(serviceClient, job.workspace_id, 'tiktok', job.social_account_id ?? undefined)
   if (!credentials) {
     return NextResponse.json({ error: 'TikTokアカウントが接続されていません。設定から再接続してください。' }, { status: 409 })
   }
@@ -149,7 +150,7 @@ export async function POST(request: NextRequest) {
 
   const { data: job, error: jobError } = await supabase
     .from('publish_jobs')
-    .select('id, workspace_id, channel, created_by, seed_id, publish_mode, status, error_message, draft_revisions!inner(title, body, hashtags, cta, metadata)')
+    .select('id, workspace_id, channel, created_by, seed_id, social_account_id, publish_mode, status, error_message, draft_revisions!inner(title, body, hashtags, cta, metadata)')
     .eq('id', jobId)
     .eq('workspace_id', workspaceId)
     .maybeSingle()
@@ -221,6 +222,7 @@ export async function POST(request: NextRequest) {
       channel: typedJob.channel,
       createdBy: typedJob.created_by,
       seedId: typedJob.seed_id ?? undefined,
+      socialAccountId: typedJob.social_account_id ?? undefined,
       revision,
     })
   } catch (cause) {

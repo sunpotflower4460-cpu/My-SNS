@@ -1,7 +1,9 @@
 'use client'
 
-import { useEffect, useState } from 'react'
-import type { SocialDraft } from '@/lib/domain/types'
+import { useEffect, useMemo, useState } from 'react'
+import type { Asset, SocialAccount, SocialDraft } from '@/lib/domain/types'
+import { connectedAccountsForPlatform, isSocialPlatformChannel } from '@/lib/publish/account-target'
+import { mergeDraftPublishOptions, parseDraftPublishOptions } from '@/lib/publish/draft-publish-options'
 import ChannelBadge from './ChannelBadge'
 import StatusBadge from './StatusBadge'
 
@@ -13,15 +15,26 @@ function clientScheduleInputValue(): string {
 
 interface DraftEditorCardProps {
   draft: SocialDraft
-  onEdit?: (id: string, text: string) => void
+  connectedAccounts?: SocialAccount[]
+  seedAssets?: Asset[]
+  onEdit?: (id: string, text: string, metadata: Record<string, unknown>) => void
   /** Receives the editor's current text so approve never freezes a stale saved copy. */
-  onApprove?: (id: string, text: string) => void
+  onApprove?: (id: string, text: string, metadata: Record<string, unknown>) => void
   onRegenerate?: (id: string) => void
-  onSchedule?: (id: string, scheduledAt: string) => void
+  onSchedule?: (id: string, scheduledAt: string, metadata: Record<string, unknown>) => void
 }
 
-export default function DraftEditorCard({ draft, onEdit, onApprove, onRegenerate, onSchedule }: DraftEditorCardProps) {
+export default function DraftEditorCard({
+  draft,
+  connectedAccounts = [],
+  seedAssets = [],
+  onEdit,
+  onApprove,
+  onRegenerate,
+  onSchedule,
+}: DraftEditorCardProps) {
   const [text, setText] = useState(draft.draftText)
+  const [metadata, setMetadata] = useState(draft.metadata ?? {})
   const [isDirty, setIsDirty] = useState(false)
   // datetime-local defaults must be client-only: SSR often runs in UTC while the
   // browser uses Asia/Tokyo, which would hydrate with a mismatched value.
@@ -29,12 +42,27 @@ export default function DraftEditorCard({ draft, onEdit, onApprove, onRegenerate
 
   useEffect(() => {
     setText(draft.draftText)
+    setMetadata(draft.metadata ?? {})
     setIsDirty(false)
-  }, [draft.draftText, draft.id])
+  }, [draft.draftText, draft.id, draft.metadata])
 
   useEffect(() => {
     setScheduleInput(clientScheduleInputValue())
   }, [draft.id])
+
+  const publishOptions = parseDraftPublishOptions(metadata)
+  const platformAccounts = isSocialPlatformChannel(draft.channel)
+    ? connectedAccountsForPlatform(connectedAccounts, draft.channel)
+    : []
+  const stills = useMemo(
+    () => seedAssets.filter((asset) => asset.type === 'image'),
+    [seedAssets],
+  )
+
+  const updatePublishOptions = (patch: Parameters<typeof mergeDraftPublishOptions>[1]) => {
+    setMetadata((current) => mergeDraftPublishOptions(current, { ...parseDraftPublishOptions(current), ...patch }))
+    setIsDirty(true)
+  }
 
   const handleChange = (val: string) => {
     setText(val)
@@ -42,21 +70,16 @@ export default function DraftEditorCard({ draft, onEdit, onApprove, onRegenerate
   }
 
   const handleSave = () => {
-    // Keep isDirty until draft.draftText catches up via parent refresh.
-    // Clearing it eagerly would re-enable 予約する against a stale Revision
-    // if persistDraft fails.
-    onEdit?.(draft.id, text)
+    onEdit?.(draft.id, text, metadata)
   }
 
   const handleApprove = () => {
-    // Keep isDirty until the parent confirms via an updated draft prop.
-    // Clearing it eagerly would hide "未保存" if approval fails.
-    onApprove?.(draft.id, text)
+    onApprove?.(draft.id, text, metadata)
   }
 
   const handleSchedule = () => {
     if (isDirty || !scheduleInput) return
-    onSchedule?.(draft.id, new Date(scheduleInput).toISOString())
+    onSchedule?.(draft.id, new Date(scheduleInput).toISOString(), metadata)
   }
 
   return (
@@ -91,6 +114,85 @@ export default function DraftEditorCard({ draft, onEdit, onApprove, onRegenerate
           <ul className="mt-1.5 space-y-1 text-xs leading-5 text-amber-800">
             {draft.assumptions.map((assumption, index) => <li key={index}>• {assumption}</li>)}
           </ul>
+        </div>
+      )}
+
+      {(platformAccounts.length > 0 || stills.length > 0 || draft.channel === 'youtube' || draft.channel === 'tiktok') && (
+        <div className="mt-3 space-y-2 rounded-card border border-[color:var(--border-default)] bg-black/[0.025] p-3">
+          {platformAccounts.length > 0 && (
+            <label className="block text-xs">
+              <span className="font-medium text-[color:var(--text-default)]">投稿するアカウント</span>
+              <select
+                value={publishOptions.socialAccountId ?? (platformAccounts.length === 1 ? platformAccounts[0].id : '')}
+                onChange={(event) => updatePublishOptions({ socialAccountId: event.target.value || undefined })}
+                className="ui-input mt-1 w-full rounded-control px-2.5 py-1.5 text-xs focus:outline-none"
+              >
+                {platformAccounts.length > 1 && <option value="">選択してください</option>}
+                {platformAccounts.map((account) => (
+                  <option key={account.id} value={account.id}>{account.handle}</option>
+                ))}
+              </select>
+              {platformAccounts.length > 1 && !publishOptions.socialAccountId && (
+                <span className="mt-1 block text-[11px] text-amber-700">アカウントが複数あるため、予約前に選んでください。</span>
+              )}
+            </label>
+          )}
+
+          {draft.channel === 'youtube' && (
+            <label className="flex items-center gap-2 text-xs text-[color:var(--text-default)]">
+              <input
+                type="checkbox"
+                checked={publishOptions.isShort === true}
+                onChange={(event) => updatePublishOptions({ isShort: event.target.checked ? true : undefined })}
+              />
+              YouTube Shorts（9:16）として投稿する
+            </label>
+          )}
+
+          {stills.length > 0 && (draft.channel === 'youtube' || draft.channel === 'instagram' || draft.channel === 'note') && (
+            <label className="block text-xs">
+              <span className="font-medium text-[color:var(--text-default)]">
+                {draft.channel === 'youtube' ? 'カスタムサムネイル' : draft.channel === 'instagram' ? 'カバー画像' : 'アイキャッチ画像'}
+              </span>
+              <select
+                value={
+                  draft.channel === 'youtube'
+                    ? (publishOptions.thumbnailAssetId ?? '')
+                    : draft.channel === 'instagram'
+                      ? (publishOptions.coverAssetId ?? '')
+                      : (publishOptions.eyecatchAssetId ?? '')
+                }
+                onChange={(event) => {
+                  const value = event.target.value || undefined
+                  if (draft.channel === 'youtube') updatePublishOptions({ thumbnailAssetId: value })
+                  else if (draft.channel === 'instagram') updatePublishOptions({ coverAssetId: value })
+                  else updatePublishOptions({ eyecatchAssetId: value })
+                }}
+                className="ui-input mt-1 w-full rounded-control px-2.5 py-1.5 text-xs focus:outline-none"
+              >
+                <option value="">指定しない</option>
+                {stills.map((asset) => (
+                  <option key={asset.id} value={asset.id}>{asset.name}</option>
+                ))}
+              </select>
+              {draft.channel === 'youtube' && (
+                <span className="mt-1 block text-[11px] text-[color:var(--text-subtle)]">
+                  テキスト案ではなく実画像です。未接続のYouTubeは設定から再接続（youtube.force-ssl）が必要な場合があります。
+                </span>
+              )}
+              {draft.channel === 'note' && (
+                <span className="mt-1 block text-[11px] text-[color:var(--text-subtle)]">
+                  noteに公式投稿APIはないため、公開予定から画像を保存して手で貼ってください。
+                </span>
+              )}
+            </label>
+          )}
+
+          {draft.channel === 'tiktok' && (
+            <p className="text-[11px] leading-5 text-[color:var(--text-subtle)]">
+              TikTokは監査前のため公開範囲はSELF_ONLY（自分のみ）です。カスタムカバー画像はAPI非対応です。
+            </p>
+          )}
         </div>
       )}
 

@@ -38,6 +38,8 @@ import type { ProviderSyncOutcome } from '@/lib/services/calendar-sync'
 import { useAuth } from '@/lib/auth/auth-provider'
 import { hasPermission } from '@/lib/permissions'
 import { derivePublishMode } from '@/lib/channels/config'
+import { parseDraftPublishOptions } from '@/lib/publish/draft-publish-options'
+import { selectSocialAccountForPublish } from '@/lib/publish/account-target'
 import * as workspacesRepo from '@/lib/repositories/supabase/workspaces'
 import * as socialAccountsRepo from '@/lib/repositories/supabase/social-accounts'
 import * as seedsRepo from '@/lib/repositories/supabase/seeds'
@@ -1042,6 +1044,18 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         if (!revision) throw new Error('この下書きの承認版（Revision）が見つかりません。')
 
         const publishMode = derivePublishMode(draft.channel)
+        let socialAccountId: string | undefined
+        if (draft.channel !== 'note' && draft.channel !== 'website') {
+          const options = parseDraftPublishOptions({ ...revision.metadata, ...draft.metadata })
+          const selected = selectSocialAccountForPublish({
+            accounts: socialAccounts,
+            platform: draft.channel,
+            requestedAccountId: options.socialAccountId,
+          })
+          if (!selected.ok) throw new Error(selected.message)
+          socialAccountId = selected.account.id
+        }
+
         const job = await queueRepo.createPublishJob({
           workspaceId: currentWorkspace.id,
           seedId: draft.seedId,
@@ -1051,6 +1065,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           publishMode,
           scheduledAt,
           createdBy: currentUserId,
+          socialAccountId,
         })
 
         await auditRepo.appendAuditLog({
