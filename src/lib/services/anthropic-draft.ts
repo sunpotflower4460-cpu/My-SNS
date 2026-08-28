@@ -1,6 +1,7 @@
 import Anthropic from '@anthropic-ai/sdk'
 import { PUBLISHING_CHANNEL_CONFIG } from '@/lib/channels/config'
 import type { PublishingChannel, Seed, SocialDraft } from '@/lib/domain/types'
+import { isValidThumbnailHook, shortenThumbnailHook } from '@/lib/media/thumbnail-hook'
 import type { DraftGenerationContext, DraftGeneratorService } from './interfaces'
 
 // Server-only. Never import this file from client components — it reads
@@ -60,7 +61,7 @@ export const DRAFT_PROPOSAL_TOOL_SCHEMA = {
           metadata: {
             type: 'object' as const,
             description:
-              'Channel-specific extras. youtube: {description, chapters?: string[], thumbnailTextIdeas?: string[]}. x: {thread?: string[]}. instagram/tiktok: {coverText?, hook?}. note: {markdown, eyecatchIdeas?: string[]}.',
+              'Channel-specific extras. youtube: {description, chapters?: string[], thumbnailHook?: string}. thumbnailHook MUST be 3–8 Japanese characters of CTR hook text (not a sentence, not thumbnailTextIdeas). x: {thread?: string[]}. instagram/tiktok: {coverText?, hook?}. note: {markdown, eyecatchIdeas?: string[]}.',
           },
         },
         required: ['channel', 'body', 'hashtags', 'assumptions'],
@@ -99,6 +100,7 @@ export function buildDraftGenerationPrompt(
     'If you must fill a gap to write a usable draft, make the smallest reasonable assumption and record it in `assumptions`. Do not silently guess.',
     'Respect the Brand Profile: preferred terms, avoided terms/claims, voice traits, and values are constraints, not suggestions.',
     'If past-edit examples are provided, they show how this specific creator tends to change your proposals — write closer to the "creator approved" style next time, without copying the example\'s facts into an unrelated Seed.',
+    'For YouTube, metadata.thumbnailHook is a 3–8 character Japanese CTR hook that will be burned into a real thumbnail image. Never put a paragraph or slogan list there; that is a proposal the human must confirm.',
     'Call the propose_channel_drafts tool exactly once with one proposal per requested channel.',
   ].join(' ')
 
@@ -178,6 +180,27 @@ export function parseDraftProposals(
       throw new Error(`The model returned an empty body for ${channel}.`)
     }
 
+    const metadata: Record<string, unknown> = { ...(raw.metadata ?? {}) }
+    const assumptions = [...(raw.assumptions ?? [])]
+    if (channel === 'youtube') {
+      const proposed = typeof metadata.thumbnailHook === 'string' ? metadata.thumbnailHook : ''
+      if (proposed && isValidThumbnailHook(proposed.trim())) {
+        metadata.thumbnailHook = proposed.trim().replace(/\s+/g, '')
+        const note = `サムネイルのフック「${metadata.thumbnailHook}」はAIの提案です。画面で確認してください。`
+        if (!assumptions.includes(note)) assumptions.push(note)
+      } else if (proposed) {
+        const looksLikeParagraph = proposed.includes(' ') || proposed.replace(/\s+/g, '').length > 16
+        const shortened = looksLikeParagraph ? '' : shortenThumbnailHook(proposed)
+        if (shortened) {
+          metadata.thumbnailHook = shortened
+          const note = `サムネイルのフック「${shortened}」はAI提案を3〜8文字に短縮したものです。`
+          if (!assumptions.includes(note)) assumptions.push(note)
+        } else {
+          delete metadata.thumbnailHook
+        }
+      }
+    }
+
     return {
       id: `generated-${Date.now()}-${index}`,
       workspaceId: seed.workspaceId,
@@ -187,8 +210,8 @@ export function parseDraftProposals(
       draftText: raw.body.trim(),
       hashtags: raw.hashtags ?? [],
       cta: raw.cta?.trim() || undefined,
-      assumptions: raw.assumptions ?? [],
-      metadata: raw.metadata ?? {},
+      assumptions,
+      metadata,
       source: 'ai' as const,
       tone,
       length,
