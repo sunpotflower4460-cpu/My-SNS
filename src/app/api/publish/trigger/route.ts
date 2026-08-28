@@ -180,16 +180,10 @@ export async function POST(request: NextRequest) {
 
   const typedJob = job as unknown as TriggerJob
 
-  if (typedJob.status === 'failed' && isUnsafeExternalRetry(typedJob.error_message)) {
-    return NextResponse.json(
-      {
-        error:
-          '前回の投稿は外部サービス上で一部成功したか、成功したかどうか判定できない状態です。二重投稿を防ぐため再実行を停止しています。媒体側を確認し、このジョブをキャンセルして、必要なら新しいRevisionから明示的に公開してください。',
-      },
-      { status: 409 },
-    )
-  }
-
+  // A pending TikTok publish must be reconciled against its real status before
+  // the generic unsafe-retry guard below can apply — that guard also matches
+  // the TIKTOK_PENDING: prefix and would otherwise permanently block retry
+  // even after TikTok finishes processing (or actually fails) the post.
   const pendingTikTokId = typedJob.channel === 'tiktok' && typedJob.status === 'failed'
     ? parseTikTokPendingPublishId(typedJob.error_message)
     : null
@@ -198,6 +192,8 @@ export async function POST(request: NextRequest) {
     try {
       const reconciliation = await reconcilePendingTikTokPublish(serviceClient, typedJob, pendingTikTokId)
       if (reconciliation) return reconciliation
+      // reconciliation === null means TikTok confirmed the post actually
+      // failed — safe to fall through and let a fresh publish attempt below.
     } catch (cause) {
       console.error(`Failed to reconcile pending TikTok publish for job ${typedJob.id}:`, cause)
       return NextResponse.json(
@@ -205,6 +201,14 @@ export async function POST(request: NextRequest) {
         { status: 503 },
       )
     }
+  } else if (typedJob.status === 'failed' && isUnsafeExternalRetry(typedJob.error_message)) {
+    return NextResponse.json(
+      {
+        error:
+          '前回の投稿は外部サービス上で一部成功したか、成功したかどうか判定できない状態です。二重投稿を防ぐため再実行を停止しています。媒体側を確認し、このジョブをキャンセルして、必要なら新しいRevisionから明示的に公開してください。',
+      },
+      { status: 409 },
+    )
   }
 
   const revision = typedJob.draft_revisions
