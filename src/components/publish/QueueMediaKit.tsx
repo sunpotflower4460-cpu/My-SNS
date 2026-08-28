@@ -101,11 +101,12 @@ export default function QueueMediaKit({ seedId, assets }: QueueMediaKitProps) {
                     variant="secondary"
                     disabled={!usable || busy}
                     onClick={() => {
-                      setBusyAssetId(asset.id)
-                      setErrorAssetId(null)
+                      const assetId = asset.id
+                      setBusyAssetId(assetId)
+                      setErrorAssetId((current) => (current === assetId ? null : current))
                       void downloadAsset(asset)
-                        .catch(() => setErrorAssetId(asset.id))
-                        .finally(() => setBusyAssetId(null))
+                        .catch(() => setErrorAssetId(assetId))
+                        .finally(() => setBusyAssetId((current) => (current === assetId ? null : current)))
                     }}
                   >
                     <Download aria-hidden className="h-3.5 w-3.5" />

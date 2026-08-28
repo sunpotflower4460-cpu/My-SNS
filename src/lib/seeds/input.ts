@@ -27,5 +27,6 @@ export function inferAssetType(name: string, mimeType?: string): AssetType {
 export function formatBytes(value: number): string {
   if (value >= 1024 * 1024 * 1024) return (value / (1024 * 1024 * 1024)).toFixed(1) + ' GB'
   if (value >= 1024 * 1024) return (value / (1024 * 1024)).toFixed(1) + ' MB'
-  return Math.max(1, Math.round(value / 1024)) + ' KB'
+  if (value < 1024) return Math.max(0, Math.round(value)) + ' B'
+  return Math.round(value / 1024) + ' KB'
 }

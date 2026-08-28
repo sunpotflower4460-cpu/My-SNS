@@ -168,11 +168,16 @@ export class XConnectorAdapter implements SocialConnectorAdapter {
     // Username lookup is only URL enrichment after the irreversible tweets are
     // already live. Do not turn an enrichment failure into a retryable publish.
     if (!username) {
+      // The tweet(s) above are already confirmed on X's side — a failure here
+      // (rate limit, transient error) must not throw away that confirmed
+      // firstId, or the caller will record this as a failed publish and a
+      // retry will post a duplicate tweet. Fall back to no URL instead.
       try {
         const account = await fetchAuthenticatedHandle(request.accessToken)
         username = account.username
       } catch (cause) {
         console.warn(`X tweet ${firstId ?? 'unknown'} published, but username lookup failed:`, cause)
+        username = undefined
       }
     }
 

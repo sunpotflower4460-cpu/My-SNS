@@ -33,6 +33,7 @@ export default function SettingsPage() {
   const [workspaceName, setWorkspaceName] = useState(currentWorkspace?.name ?? '')
   const [workspaceSlug, setWorkspaceSlug] = useState(currentWorkspace?.slug ?? '')
   const [saved, setSaved] = useState(false)
+  const [isSavingWorkspace, setIsSavingWorkspace] = useState(false)
   const [error, setError] = useState('')
   const [platformFeedback, setPlatformFeedback] = useState('')
   const [platformError, setPlatformError] = useState('')
@@ -72,6 +73,7 @@ export default function SettingsPage() {
   }
 
   const handleSaveWorkspace = async () => {
+    setIsSavingWorkspace(true)
     try {
       await saveWorkspaceSettings(workspaceName, workspaceSlug)
       setSaved(true)
@@ -80,6 +82,8 @@ export default function SettingsPage() {
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'ワークスペース設定を保存できませんでした。')
       setSaved(false)
+    } finally {
+      setIsSavingWorkspace(false)
     }
   }
 
@@ -173,7 +177,7 @@ export default function SettingsPage() {
           </div>
           <PermissionGate requiredPermission="edit_settings" currentRole={currentMember?.role ?? 'viewer'}>
             <div className="mt-4">
-              <Button variant="primary" onClick={handleSaveWorkspace}>変更を保存</Button>
+              <Button variant="primary" onClick={() => void handleSaveWorkspace()} loading={isSavingWorkspace}>変更を保存</Button>
             </div>
           </PermissionGate>
         </Card>
