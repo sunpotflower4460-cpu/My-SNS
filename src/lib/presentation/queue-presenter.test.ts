@@ -67,6 +67,18 @@ describe('describeJobStatus', () => {
     expect(describeJobStatus(job({ status: 'scheduled', publishMode: 'auto', scheduledAt: '2026-07-20T02:00:00Z' }))).toContain('予約日時:')
     expect(describeJobStatus(job({ status: 'scheduled', publishMode: 'auto', scheduledAt: undefined }))).toBe('まだ予約されていません')
   })
+
+  it('states TikTok SELF_ONLY honesty and the 5-minute cron window on auto jobs', () => {
+    const line = describeJobStatus(job({
+      channel: 'tiktok',
+      status: 'scheduled',
+      publishMode: 'auto',
+      scheduledAt: '2026-07-20T02:00:00Z',
+    }))
+    expect(line).toContain('SELF_ONLY')
+    expect(line).toContain('5分')
+    expect(line).toContain('タイムライン公開ではありません')
+  })
 })
 
 describe('getJobActions', () => {
@@ -75,20 +87,20 @@ describe('getJobActions', () => {
     expect(Object.values(actions).every((value) => value === false)).toBe(true)
   })
 
-  it('an auto scheduled job can only be cancelled in api-first mode', () => {
+  it('an auto scheduled job can be published now or cancelled in api-first mode', () => {
     expect(getJobActions(job({ status: 'scheduled', publishMode: 'auto' }), true, true)).toEqual({
       openHandoff: false,
-      publishNow: false,
+      publishNow: true,
       completeManually: false,
       retry: false,
       cancel: true,
     })
   })
 
-  it('a failed auto job offers retry + cancel in api-first mode', () => {
+  it('a failed auto job offers retry, publish now, and cancel in api-first mode', () => {
     expect(getJobActions(job({ status: 'failed', publishMode: 'auto' }), true, true)).toEqual({
       openHandoff: false,
-      publishNow: false,
+      publishNow: true,
       completeManually: false,
       retry: true,
       cancel: true,

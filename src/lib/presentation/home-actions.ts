@@ -250,11 +250,10 @@ export function buildTodayTimeline(snapshot: TimelineSnapshot, now: number): Tim
 /**
  * Scheduled publish jobs on a FUTURE (JST) day — the runway. Sorted soonest-
  * first and capped. Distinct from the timeline, which is today only, so nothing
- * overlaps. Strictly-future comparison also drops past-due jobs: an `assisted`
- * (YouTube) or `draft` (TikTok) job the Worker never auto-runs can sit in
- * `scheduled` with a past `scheduledAt` indefinitely, and must not surface at
- * the top of an "upcoming" list. JST date keys are ISO YYYY-MM-DD, so a string
- * `>` compares chronologically.
+ * overlaps. Strictly-future comparison also drops past-due jobs (a missed cron
+ * window or an older assisted/draft YouTube/TikTok job that never auto-ran)
+ * so they do not sit at the top of an "upcoming" list. JST date keys are ISO
+ * YYYY-MM-DD, so a string `>` compares chronologically.
  */
 export function getUpcomingPublishJobs(publishJobs: PublishJob[], now: number, limit = 5): PublishJob[] {
   const todayKey = new Date(now).toLocaleDateString('en-CA', { timeZone: JST })

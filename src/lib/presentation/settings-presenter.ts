@@ -14,10 +14,18 @@ export interface PlatformConnection {
   handle: string
 }
 
+export function listConnectedAccountsForPlatform(platform: SocialPlatform, accounts: SocialAccount[]): SocialAccount[] {
+  return accounts.filter((entry) => entry.platform === platform && entry.connected)
+}
+
 /** The connected account for one platform (if any), plus a display handle. */
 export function getPlatformConnection(platform: SocialPlatform, accounts: SocialAccount[]): PlatformConnection {
-  const account = accounts.find((entry) => entry.platform === platform && entry.connected) ?? null
-  return { connected: Boolean(account), account, handle: account?.handle ?? '未接続' }
+  const connected = listConnectedAccountsForPlatform(platform, accounts)
+  const account = connected[0] ?? null
+  const handle = connected.length > 1
+    ? `${account?.handle ?? '未接続'} ほか${connected.length - 1}件`
+    : (account?.handle ?? '未接続')
+  return { connected: connected.length > 0, account, handle }
 }
 
 /**

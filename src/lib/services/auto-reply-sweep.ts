@@ -88,11 +88,11 @@ async function loadWorkspaceContext(
   const usageIncidentSince = new Date(now.getTime() - AI_USAGE_INCIDENT_COOLDOWN_HOURS * 60 * 60 * 1000).toISOString()
   const [
     { data: owner, error: ownerError },
-    { data: account, error: accountError },
+    { data: lineAccounts, error: accountError },
     { data: usageIncident, error: usageIncidentError },
   ] = await Promise.all([
     supabase.from('workspace_members').select('user_id').eq('workspace_id', workspaceId).eq('role', 'owner').limit(1).maybeSingle(),
-    supabase.from('social_accounts').select('id').eq('workspace_id', workspaceId).eq('platform', 'line').eq('connected', true).limit(1).maybeSingle(),
+    supabase.from('social_accounts').select('id').eq('workspace_id', workspaceId).eq('platform', 'line').eq('connected', true).limit(2),
     supabase
       .from('audit_logs')
       .select('id')
@@ -124,7 +124,7 @@ async function loadWorkspaceContext(
 
   return {
     ownerId,
-    lineConnected: Boolean(account),
+    lineConnected: (lineAccounts ?? []).length === 1,
     brandProfile,
     creatorStatus,
     autoAiUsageBlocked: Boolean(usageIncident),

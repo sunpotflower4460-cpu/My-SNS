@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { YouTubeConnectorAdapter, mapCommentThreads, type CommentThreadsResponse } from './youtube-connector'
+import { YouTubeConnectorAdapter, mapCommentThreads, youtubeScopesAllowCustomThumbnail, type CommentThreadsResponse } from './youtube-connector'
 
-function mockResponse(init: { ok: boolean; status: number; body?: unknown; headers?: Record<string, string>; streamBody?: unknown }): Response {
+function mockResponse(init: { ok: boolean; status: number; body?: unknown; headers?: Record<string, string>; streamBody?: unknown; arrayBuffer?: ArrayBuffer }): Response {
   return {
     ok: init.ok,
     status: init.status,
@@ -9,8 +9,17 @@ function mockResponse(init: { ok: boolean; status: number; body?: unknown; heade
     body: init.streamBody ?? null,
     json: async () => init.body,
     text: async () => JSON.stringify(init.body ?? {}),
+    arrayBuffer: async () => init.arrayBuffer ?? new ArrayBuffer(0),
   } as unknown as Response
 }
+
+describe('youtubeScopesAllowCustomThumbnail', () => {
+  it('accepts force-ssl / manage scopes and rejects upload-only legacy grants', () => {
+    expect(youtubeScopesAllowCustomThumbnail(['https://www.googleapis.com/auth/youtube.force-ssl'])).toBe(true)
+    expect(youtubeScopesAllowCustomThumbnail(['https://www.googleapis.com/auth/youtube.upload'])).toBe(false)
+    expect(youtubeScopesAllowCustomThumbnail([])).toBe(false)
+  })
+})
 
 describe('mapCommentThreads', () => {
   it('maps a comment thread into a comment event', () => {
@@ -128,6 +137,106 @@ describe('YouTubeConnectorAdapter.publish result safety', () => {
         },
       }),
     ).rejects.toThrow(/EXTERNAL_RESULT_UNKNOWN/)
+  })
+
+  it('uploads as public by default so a scheduled Worker run is not stuck private', async () => {
+    process.env.NEXT_PUBLIC_SUPABASE_URL = 'https://project.supabase.co'
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        mockResponse({ ok: true, status: 200, headers: { location: 'https://upload.youtube.test/session' } }),
+      )
+      .mockResolvedValueOnce(
+        mockResponse({
+          ok: true,
+          status: 200,
+          headers: { 'content-type': 'video/mp4' },
+          streamBody: { fake: 'stream' },
+        }),
+      )
+      .mockResolvedValueOnce(mockResponse({ ok: true, status: 200, body: { id: 'video-public', status: { privacyStatus: 'public' } } }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    const result = await new YouTubeConnectorAdapter().publish({
+      platform: 'youtube',
+      accessToken: 'token',
+      title: 'Video',
+      body: 'Description',
+      hashtags: [],
+      metadata: {
+        mediaUrl: 'https://project.supabase.co/storage/v1/object/sign/assets/workspace/video.mp4?token=abc',
+      },
+    })
+
+    expect(result.externalPostId).toBe('video-public')
+    const initBody = JSON.parse(String(fetchMock.mock.calls[0][1]?.body)) as { status: { privacyStatus: string } }
+    expect(initBody.status.privacyStatus).toBe('public')
+  })
+
+  it('sets a custom thumbnail after a successful public upload', async () => {
+    process.env.NEXT_PUBLIC_SUPABASE_URL = 'https://project.supabase.co'
+    const thumbnailBytes = new ArrayBuffer(8)
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        mockResponse({
+          ok: true,
+          status: 200,
+          headers: { 'content-type': 'image/jpeg' },
+          arrayBuffer: thumbnailBytes,
+        }),
+      )
+      .mockResolvedValueOnce(
+        mockResponse({ ok: true, status: 200, headers: { location: 'https://upload.youtube.test/session' } }),
+      )
+      .mockResolvedValueOnce(
+        mockResponse({
+          ok: true,
+          status: 200,
+          headers: { 'content-type': 'video/mp4' },
+          streamBody: { fake: 'stream' },
+        }),
+      )
+      .mockResolvedValueOnce(mockResponse({ ok: true, status: 200, body: { id: 'video-thumb', status: { privacyStatus: 'public' } } }))
+      .mockResolvedValueOnce(mockResponse({ ok: true, status: 200, body: { items: [] } }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    const result = await new YouTubeConnectorAdapter().publish({
+      platform: 'youtube',
+      accessToken: 'token',
+      body: 'Description',
+      hashtags: [],
+      metadata: {
+        mediaUrl: 'https://project.supabase.co/storage/v1/object/sign/assets/workspace/video.mp4?token=abc',
+        thumbnailUrl: 'https://project.supabase.co/storage/v1/object/sign/assets/workspace/thumb.jpg?token=abc',
+        grantedScopes: ['https://www.googleapis.com/auth/youtube.force-ssl'],
+      },
+    })
+
+    expect(result.externalPostId).toBe('video-thumb')
+    const thumbnailCall = fetchMock.mock.calls.find((call) => String(call[0]).includes('/thumbnails/set'))
+    expect(thumbnailCall).toBeTruthy()
+  })
+
+  it('stops before uploading when a custom thumbnail is requested without a thumbnail-capable scope', async () => {
+    process.env.NEXT_PUBLIC_SUPABASE_URL = 'https://project.supabase.co'
+    const fetchMock = vi.fn()
+    vi.stubGlobal('fetch', fetchMock)
+
+    await expect(
+      new YouTubeConnectorAdapter().publish({
+        platform: 'youtube',
+        accessToken: 'token',
+        body: 'Description',
+        hashtags: [],
+        metadata: {
+          mediaUrl: 'https://project.supabase.co/storage/v1/object/sign/assets/workspace/video.mp4?token=abc',
+          thumbnailUrl: 'https://project.supabase.co/storage/v1/object/sign/assets/workspace/thumb.jpg?token=abc',
+          grantedScopes: ['https://www.googleapis.com/auth/youtube.readonly'],
+        },
+      }),
+    ).rejects.toThrow(/reconnect/)
+    expect(fetchMock).not.toHaveBeenCalled()
   })
 
   it('marks a lost final upload response as externally unknown', async () => {

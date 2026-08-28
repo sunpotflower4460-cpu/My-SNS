@@ -131,6 +131,8 @@ export interface Seed {
 
 // ─── Assets ───────────────────────────────────────────────────────────────────
 export type AssetType = 'image' | 'video' | 'audio' | 'document'
+export type AssetAspectRatio = '16:9' | '9:16' | '1:1' | 'other'
+export type AssetMediaRole = 'source' | 'variant' | 'thumbnail' | 'cover' | 'eyecatch'
 
 export interface Asset {
   id: string
@@ -143,6 +145,9 @@ export interface Asset {
   size: number
   uploadedBy: string
   createdAt: string
+  aspectRatio?: AssetAspectRatio
+  mediaRole?: AssetMediaRole
+  sourceAssetId?: string
 }
 
 // ─── Social Drafts ────────────────────────────────────────────────────────────
@@ -246,6 +251,8 @@ export interface PublishJob {
   claimedAt?: string
   createdBy: string
   createdAt: string
+  /** Connected social_accounts row this job publishes to. Required when two accounts exist for the channel. */
+  socialAccountId?: string
 }
 
 // ─── Publish Attempts ─────────────────────────────────────────────────────────

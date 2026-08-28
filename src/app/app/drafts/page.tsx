@@ -23,7 +23,7 @@ const TONE_LABELS: Record<string, string> = {
 
 export default function DraftsPage() {
   const searchParams = useSearchParams()
-  const { currentMember, drafts, generateChannelDrafts, getDraftsForSeed, saveAndApproveDraft, saveDraft, scheduleDraft, seeds } = useApp()
+  const { currentMember, drafts, generateChannelDrafts, getDraftsForSeed, getSeedDetail, saveAndApproveDraft, saveDraft, scheduleDraft, seeds, socialAccounts } = useApp()
   const canApprove = Boolean(currentMember && hasPermission(currentMember.role, 'approve_drafts'))
   const canManageQueue = Boolean(currentMember && hasPermission(currentMember.role, 'manage_queue'))
   const canCreateDrafts = Boolean(currentMember && hasPermission(currentMember.role, 'create_drafts'))
@@ -40,6 +40,7 @@ export default function DraftsPage() {
   const [error, setError] = useState('')
 
   const selectedSeed = useMemo(() => seeds.find((seed) => seed.id === seedId) ?? null, [seedId, seeds])
+  const selectedSeedAssets = selectedSeed ? getSeedDetail(selectedSeed.id).assets : []
   const existingDrafts = useMemo(() => seedId ? getDraftsForSeed(seedId) : drafts, [drafts, getDraftsForSeed, seedId])
   const draftsByChannel = useMemo(
     () => existingDrafts.reduce<Record<string, SocialDraft[]>>((accumulator, draft) => {
@@ -155,18 +156,20 @@ export default function DraftsPage() {
               <DraftEditorCard
                 key={draft.id}
                 draft={draft}
-                onEdit={canEditDrafts ? (id, text) => {
+                connectedAccounts={socialAccounts}
+                seedAssets={selectedSeedAssets}
+                onEdit={canEditDrafts ? (id, text, metadata) => {
                   const target = generatedDrafts.find((entry) => entry.id === id)
-                  setGeneratedDrafts((current) => current.map((entry) => entry.id === id ? { ...entry, draftText: text, updatedAt: new Date().toISOString() } : entry))
-                  if (target) void runDraftAction(() => persistDraft({ ...target, draftText: text }), `${PUBLISHING_CHANNEL_CONFIG[target.channel].label}の下書きを保存しました。`)
+                  setGeneratedDrafts((current) => current.map((entry) => entry.id === id ? { ...entry, draftText: text, metadata, updatedAt: new Date().toISOString() } : entry))
+                  if (target) void runDraftAction(() => persistDraft({ ...target, draftText: text, metadata }), `${PUBLISHING_CHANNEL_CONFIG[target.channel].label}の下書きを保存しました。`)
                 } : undefined}
-                onApprove={canApprove ? (id, text) => {
+                onApprove={canApprove ? (id, text, metadata) => {
                   const target = generatedDrafts.find((entry) => entry.id === id)
                   if (!target) return
                   void runDraftAction(
                     async () => {
-                      await saveAndApproveDraft(toDraftInput({ ...target, draftText: text }))
-                      setGeneratedDrafts((current) => current.map((entry) => entry.id === id ? { ...entry, draftText: text, status: 'approved' } : entry))
+                      await saveAndApproveDraft(toDraftInput({ ...target, draftText: text, metadata }))
+                      setGeneratedDrafts((current) => current.map((entry) => entry.id === id ? { ...entry, draftText: text, metadata, status: 'approved' } : entry))
                     },
                     `${PUBLISHING_CHANNEL_CONFIG[target.channel].label}の下書きを承認し、承認版（Revision）として記録しました。`,
                   )
@@ -186,7 +189,45 @@ export default function DraftsPage() {
         <div className="mb-3 flex items-center justify-between gap-3"><h2 className="text-base font-semibold text-gray-900">保存済みの下書き</h2>{selectedSeed && <span className="text-sm text-gray-500">{selectedSeed.title}</span>}</div>
         {existingDrafts.length === 0 ? <EmptyState title="まだ下書きがありません" description="テンプレートを作成し、残しておきたいバージョンを保存してください。" /> : (
           <div className="space-y-6">
-            {Object.entries(draftsByChannel).map(([channel, channelDrafts]) => <section key={channel}><div className="mb-3 flex items-center justify-between"><h3 className="text-sm font-semibold text-gray-700">{PUBLISHING_CHANNEL_CONFIG[channel as PublishingChannel].label}</h3><span className="text-xs text-gray-400">{channelDrafts.length}件保存済み</span></div><div className="grid grid-cols-1 gap-4 xl:grid-cols-2">{channelDrafts.map((draft) => <DraftEditorCard key={draft.id} draft={draft} onEdit={canEditDrafts ? (id, text) => { const target = existingDrafts.find((entry) => entry.id === id); if (target) void runDraftAction(() => persistDraft({ ...target, draftText: text }), `${PUBLISHING_CHANNEL_CONFIG[target.channel].label}の下書きを保存しました。`) } : undefined} onApprove={canApprove ? (id, text) => { const target = existingDrafts.find((entry) => entry.id === id); if (!target) return; void runDraftAction(() => saveAndApproveDraft({ ...toDraftInput(target), draftText: text, id: target.id }), '下書きを承認し、承認版として記録しました。') } : undefined} onRegenerate={canEditDrafts ? (id) => { if (!selectedSeed) return; const target = existingDrafts.find((entry) => entry.id === id); if (target) void runDraftAction(() => persistDraft({ ...target, draftText: resetTemplateDraft(target, selectedSeed) }), '元のテンプレートに戻して保存しました。') } : undefined} onSchedule={canManageQueue ? (id, scheduledAt) => { void runDraftAction(() => scheduleDraft(id, scheduledAt), '予約しました。公開キューから確認できます。') } : undefined} />)}</div></section>)}
+            {Object.entries(draftsByChannel).map(([channel, channelDrafts]) => (
+              <section key={channel}>
+                <div className="mb-3 flex items-center justify-between">
+                  <h3 className="text-sm font-semibold text-gray-700">{PUBLISHING_CHANNEL_CONFIG[channel as PublishingChannel].label}</h3>
+                  <span className="text-xs text-gray-400">{channelDrafts.length}件保存済み</span>
+                </div>
+                <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
+                  {channelDrafts.map((draft) => (
+                    <DraftEditorCard
+                      key={draft.id}
+                      draft={draft}
+                      connectedAccounts={socialAccounts}
+                      seedAssets={selectedSeedAssets}
+                      onEdit={canEditDrafts ? (id, text, metadata) => {
+                        const target = existingDrafts.find((entry) => entry.id === id)
+                        if (target) void runDraftAction(() => persistDraft({ ...target, draftText: text, metadata }), `${PUBLISHING_CHANNEL_CONFIG[target.channel].label}の下書きを保存しました。`)
+                      } : undefined}
+                      onApprove={canApprove ? (id, text, metadata) => {
+                        const target = existingDrafts.find((entry) => entry.id === id)
+                        if (!target) return
+                        void runDraftAction(() => saveAndApproveDraft({ ...toDraftInput(target), draftText: text, metadata, id: target.id }), '下書きを承認し、承認版として記録しました。')
+                      } : undefined}
+                      onRegenerate={canEditDrafts ? (id) => {
+                        if (!selectedSeed) return
+                        const target = existingDrafts.find((entry) => entry.id === id)
+                        if (target) void runDraftAction(() => persistDraft({ ...target, draftText: resetTemplateDraft(target, selectedSeed) }), '元のテンプレートに戻して保存しました。')
+                      } : undefined}
+                      onSchedule={canManageQueue ? (id, scheduledAt, metadata) => {
+                        void runDraftAction(async () => {
+                          const target = existingDrafts.find((entry) => entry.id === id)
+                          if (target && metadata) await persistDraft({ ...target, metadata })
+                          await scheduleDraft(id, scheduledAt)
+                        }, '予約しました。公開キューから確認できます。')
+                      } : undefined}
+                    />
+                  ))}
+                </div>
+              </section>
+            ))}
           </div>
         )}
       </section>

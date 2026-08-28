@@ -58,6 +58,14 @@ export default function ConnectionRow({
               受信箱を同期
             </Button>
           )}
+          {canManage && connectHref && (
+            <a
+              href={connectHref}
+              className="inline-flex min-h-touch shrink-0 items-center justify-center rounded-full border border-stone-200 bg-white px-3 text-xs font-medium text-gray-700 transition hover:bg-stone-50 sm:min-h-control"
+            >
+              もう1つ接続
+            </a>
+          )}
           {canManage && onDisconnect && (
             <Button size="sm" variant="destructive" onClick={onDisconnect} disabled={busy}>
               接続を解除

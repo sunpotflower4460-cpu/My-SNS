@@ -3,7 +3,7 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 import { createClient } from '@/lib/supabase/server'
 import { isNextResponse, requireWorkspaceMember } from '@/lib/api/workspace-access'
 import { createServiceClient } from '@/lib/supabase/service'
-import { resolveCredentials } from '@/lib/services/publish-worker'
+import { listConnectedSocialAccounts, resolveCredentials } from '@/lib/services/publish-worker'
 import { getConnectorAdapter } from '@/lib/services/connectors'
 import { upsertInboxItems } from '@/lib/repositories/supabase/inbox-ingest'
 import type { SocialPlatform } from '@/lib/domain/types'
@@ -48,28 +48,33 @@ export async function POST(request: NextRequest) {
     )
   }
 
-  let credentials
+  let accounts
   try {
-    credentials = await resolveCredentials(serviceClient, workspaceId, platform)
+    accounts = await listConnectedSocialAccounts(serviceClient, workspaceId, platform)
   } catch (cause) {
-    console.error(`Failed to resolve ${platform} credentials for inbox sync:`, cause)
+    console.error(`Failed to list ${platform} accounts for inbox sync:`, cause)
     return NextResponse.json(
-      { error: 'SNSの認証情報を確認できませんでした。設定画面で接続状態を確認してから再試行してください。' },
+      { error: 'SNSの接続状態を確認できませんでした。設定画面で接続状態を確認してから再試行してください。' },
       { status: 502 },
     )
   }
-  if (!credentials) {
+  if (accounts.length === 0) {
     return NextResponse.json({ error: `このワークスペースには接続済みの${platform}アカウントがありません。` }, { status: 400 })
   }
 
   try {
-    const events = await getConnectorAdapter(platform).fetchInbox({
-      platform,
-      accessToken: credentials.accessToken,
-      externalAccountId: credentials.externalAccountId,
-      handle: credentials.handle,
-    })
-    const ingested = await upsertInboxItems(serviceClient, workspaceId, events)
+    let ingested = 0
+    for (const account of accounts) {
+      const credentials = await resolveCredentials(serviceClient, workspaceId, platform, account.id)
+      if (!credentials) continue
+      const events = await getConnectorAdapter(platform).fetchInbox({
+        platform,
+        accessToken: credentials.accessToken,
+        externalAccountId: credentials.externalAccountId,
+        handle: credentials.handle,
+      })
+      ingested += await upsertInboxItems(serviceClient, workspaceId, events)
+    }
     return NextResponse.json({ ingested })
   } catch (cause) {
     // Connector feature-gap messages are useful to the creator (for example

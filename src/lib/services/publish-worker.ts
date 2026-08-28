@@ -1,5 +1,5 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
-import type { AssetType, PublishFailureReason, SocialPlatform, WorkspaceRole } from '@/lib/domain/types'
+import type { AssetType, PublishFailureReason, PublishingChannel, SocialAccount, SocialPlatform, WorkspaceRole } from '@/lib/domain/types'
 import { recordPublishAttempt } from '@/lib/repositories/supabase/publish-attempts'
 import {
   getSocialCredentials,
@@ -13,11 +13,12 @@ import {
   releaseSocialCredentialRefresh,
 } from '@/lib/services/social-credential-refresh-claim'
 import { hasPermission } from '@/lib/permissions'
+import { selectSocialAccountForPublish } from '@/lib/publish/account-target'
+import { selectPublishMedia, type PublishAssetCandidate } from '@/lib/publish/select-publish-media'
 
 // Shared by the scheduled Worker (/api/publish/run, batches every due
 // publish_mode='auto' job) and the manual trigger route (/api/publish/trigger,
-// one job at a time for assisted/draft-mode channels like YouTube/TikTok that
-// intentionally aren't picked up automatically — see PublishMode's doc comment).
+// one job at a time for immediate / retry / leftover assisted-draft jobs).
 
 // A claim older than this is treated as abandoned (e.g. a serverless
 // function was killed mid-publish before it could clear its own claim) and
@@ -54,12 +55,14 @@ function credentialsNeedRefresh(credentials: StoredCredentials): boolean {
 
 function resolvedCredentialShape(
   credentials: StoredCredentials,
-  account: { handle: string | null; external_account_id: string | null },
+  account: { id: string; handle: string | null; external_account_id: string | null },
 ): ResolvedCredentials {
   return {
     accessToken: credentials.accessToken,
     handle: account.handle ?? undefined,
     externalAccountId: account.external_account_id ?? undefined,
+    socialAccountId: account.id,
+    scopes: credentials.scopes,
   }
 }
 
@@ -188,6 +191,49 @@ export interface ResolvedCredentials {
   accessToken: string
   handle?: string
   externalAccountId?: string
+  socialAccountId: string
+  scopes: string[]
+}
+
+interface ConnectedAccountRow {
+  id: string
+  workspace_id: string
+  platform: SocialPlatform
+  handle: string
+  connected: boolean
+  connected_at: string | null
+  external_account_id: string | null
+  updated_at: string
+}
+
+function mapConnectedAccountRow(row: ConnectedAccountRow): SocialAccount {
+  return {
+    id: row.id,
+    workspaceId: row.workspace_id,
+    platform: row.platform,
+    handle: row.handle,
+    connected: row.connected,
+    connectedAt: row.connected_at ?? undefined,
+    externalAccountId: row.external_account_id ?? undefined,
+    updatedAt: row.updated_at,
+  }
+}
+
+export async function listConnectedSocialAccounts(
+  supabase: SupabaseClient,
+  workspaceId: string,
+  platform: SocialPlatform,
+): Promise<SocialAccount[]> {
+  const { data, error } = await supabase
+    .from('social_accounts')
+    .select('id, workspace_id, platform, handle, connected, connected_at, external_account_id, updated_at')
+    .eq('workspace_id', workspaceId)
+    .eq('platform', platform)
+    .eq('connected', true)
+    .order('connected_at', { ascending: false })
+
+  if (error) throw new Error(error.message)
+  return ((data ?? []) as ConnectedAccountRow[]).map(mapConnectedAccountRow)
 }
 
 /**
@@ -201,21 +247,27 @@ export async function resolveCredentials(
   supabase: SupabaseClient,
   workspaceId: string,
   channel: SocialPlatform,
+  socialAccountId?: string,
 ): Promise<ResolvedCredentials | null> {
   // A reconnect can atomically swap the connected row while this request is
   // waiting on credential refresh. Resolve at most twice so we can follow that
   // new active row without unbounded recursion.
   for (let accountLookupAttempt = 0; accountLookupAttempt < 2; accountLookupAttempt += 1) {
-    const { data: account, error: accountError } = await supabase
-      .from('social_accounts')
-      .select('id, handle, external_account_id')
-      .eq('workspace_id', workspaceId)
-      .eq('platform', channel)
-      .eq('connected', true)
-      .maybeSingle()
-
-    if (accountError) throw new Error(accountError.message)
-    if (!account) return null
+    const connected = await listConnectedSocialAccounts(supabase, workspaceId, channel)
+    const selected = selectSocialAccountForPublish({
+      accounts: connected,
+      platform: channel,
+      requestedAccountId: socialAccountId,
+    })
+    if (!selected.ok) {
+      if (selected.code === 'not_connected' && !socialAccountId) return null
+      throw new Error(selected.message)
+    }
+    const account = {
+      id: selected.account.id,
+      handle: selected.account.handle,
+      external_account_id: selected.account.externalAccountId ?? null,
+    }
 
     const stored = await getSocialCredentials(supabase, account.id)
     if (!stored) {
@@ -239,15 +291,9 @@ export async function resolveCredentials(
       if (refreshedByPeer) return resolvedCredentialShape(refreshedByPeer, account)
 
       // A successful reconnect may have retired this account while we waited.
-      const { data: currentAccount, error: currentAccountError } = await supabase
-        .from('social_accounts')
-        .select('id')
-        .eq('workspace_id', workspaceId)
-        .eq('platform', channel)
-        .eq('connected', true)
-        .maybeSingle()
-      if (currentAccountError) throw new Error(currentAccountError.message)
-      if (currentAccount && currentAccount.id !== account.id && accountLookupAttempt === 0) continue
+      const stillConnected = (await listConnectedSocialAccounts(supabase, workspaceId, channel))
+        .some((entry) => entry.id === account.id)
+      if (!stillConnected && accountLookupAttempt === 0 && !socialAccountId) continue
 
       throw new Error('Credential refresh is still in progress. Try again shortly.')
     }
@@ -290,6 +336,8 @@ export async function resolveCredentials(
         accessToken: refreshed.accessToken,
         handle: account.handle ?? undefined,
         externalAccountId: account.external_account_id ?? undefined,
+        socialAccountId: account.id,
+        scopes: refreshed.scopes,
       }
     } finally {
       // A lock-cleanup DB hiccup must not turn a successfully persisted token
@@ -311,6 +359,8 @@ export interface PublishableJob {
   createdBy: string
   /** Seed that originated this job. Used to resolve media assets at publish time. */
   seedId?: string
+  /** Connected social_accounts row this job must publish to. */
+  socialAccountId?: string
   revision: {
     title: string | null
     body: string
@@ -335,58 +385,77 @@ interface AssetRow {
   id: string
   storage_path: string | null
   type: AssetType
-  publishing_channels: SocialPlatform[] | null
+  publishing_channels: PublishingChannel[] | null
+  aspect_ratio: PublishAssetCandidate['aspectRatio']
+  media_role: PublishAssetCandidate['mediaRole'] | null
+}
+
+async function signAssetUrl(supabase: SupabaseClient, asset: PublishAssetCandidate): Promise<string> {
+  if (!asset.storagePath) {
+    throw new Error(`Signed media URL for asset ${asset.id} was empty`)
+  }
+  const { data: signedData, error: signError } = await supabase.storage
+    .from('assets')
+    .createSignedUrl(asset.storagePath, SIGNED_URL_TTL_SECONDS)
+
+  if (signError) {
+    throw new Error(`Signed media URL for asset ${asset.id} could not be created: ${signError.message}`)
+  }
+  if (!signedData?.signedUrl) {
+    throw new Error(`Signed media URL for asset ${asset.id} was empty`)
+  }
+  return signedData.signedUrl
 }
 
 /**
- * Resolves a signed media URL from the Seed's uploaded assets for the given
- * channel. Returns null when there are no relevant assets or the Seed is not
- * known (e.g. note / text-only channels where mediaUrl is never needed).
- *
- * A fresh signed URL is generated every time so the URL passed to the adapter
- * is always valid for at least one hour regardless of when the job was
- * originally scheduled.
+ * Resolves signed media / thumbnail / cover URLs from the Seed's uploaded
+ * assets for the given channel. A fresh signed URL is generated every time so
+ * the URL passed to the adapter is always valid for at least one hour.
  */
 async function resolvePublishMediaMetadata(
   supabase: SupabaseClient,
   seedId: string,
   channel: SocialPlatform,
-): Promise<{ mediaUrl: string; mediaType: 'image' | 'video' } | null> {
+  metadata: Record<string, unknown>,
+): Promise<Record<string, unknown>> {
   const { data: rows, error } = await supabase
     .from('assets')
-    .select('id, storage_path, type, publishing_channels')
+    .select('id, storage_path, type, publishing_channels, aspect_ratio, media_role')
     .eq('seed_id', seedId)
     .in('type', ['image', 'video'])
 
   if (error) {
     throw new Error(`Seed assets for ${seedId} could not be read: ${error.message}`)
   }
-  if (!rows || rows.length === 0) return null
 
-  // Respect per-asset channel assignments (empty/null means all channels).
-  const candidates = (rows as AssetRow[]).filter((row) => {
-    const channels = row.publishing_channels
-    return !channels || channels.length === 0 || channels.includes(channel)
-  })
+  const assets: PublishAssetCandidate[] = ((rows ?? []) as AssetRow[]).map((row) => ({
+    id: row.id,
+    storagePath: row.storage_path,
+    type: row.type,
+    publishingChannels: row.publishing_channels,
+    aspectRatio: row.aspect_ratio,
+    mediaRole: row.media_role ?? 'source',
+  }))
 
-  // Prefer video over image so the richer format is used when both exist.
-  const chosen = candidates.find((row) => row.type === 'video') ?? candidates.find((row) => row.type === 'image')
-  if (!chosen?.storage_path) return null
+  const selected = selectPublishMedia({ assets, channel, metadata })
+  if (!selected.ok) throw new Error(selected.message)
+  if (!selected.selection) return metadata
 
-  const { data: signedData, error: signError } = await supabase.storage
-    .from('assets')
-    .createSignedUrl(chosen.storage_path, SIGNED_URL_TTL_SECONDS)
-
-  if (signError) {
-    throw new Error(`Signed media URL for asset ${chosen.id} could not be created: ${signError.message}`)
-  }
-  if (!signedData?.signedUrl) {
-    throw new Error(`Signed media URL for asset ${chosen.id} was empty`)
-  }
+  const mediaUrl = await signAssetUrl(supabase, selected.selection.media)
+  const thumbnailUrl = selected.selection.thumbnail
+    ? await signAssetUrl(supabase, selected.selection.thumbnail)
+    : undefined
+  const coverUrl = selected.selection.cover
+    ? await signAssetUrl(supabase, selected.selection.cover)
+    : undefined
 
   return {
-    mediaUrl: signedData.signedUrl,
-    mediaType: chosen.type === 'video' ? 'video' : 'image',
+    ...metadata,
+    mediaUrl,
+    mediaType: selected.selection.mediaType,
+    isShort: selected.selection.isShort,
+    ...(thumbnailUrl ? { thumbnailUrl } : {}),
+    ...(coverUrl ? { coverUrl } : {}),
   }
 }
 
@@ -421,7 +490,7 @@ export async function processPublishJob(supabase: SupabaseClient, job: Publishab
       return { success: true }
     }
 
-    const credentials = await resolveCredentials(supabase, job.workspaceId, job.channel)
+    const credentials = await resolveCredentials(supabase, job.workspaceId, job.channel, job.socialAccountId)
     if (!credentials) {
       throw new Error(`No connected ${job.channel} account for this workspace. Connect one from Settings.`)
     }
@@ -429,16 +498,15 @@ export async function processPublishJob(supabase: SupabaseClient, job: Publishab
     // Resolve a fresh signed URL from the Seed's uploaded assets so the
     // adapter always receives a valid, non-expired mediaUrl at publish time
     // (signed URLs are only 1 hour, too short to store in the revision).
-    // If mediaUrl is already present in the revision metadata (e.g. set
-    // manually), it takes precedence over the automatic resolution.
+    // Seed resolution also attaches thumbnail/cover stills. A leftover
+    // mediaUrl in revision metadata is never treated as a thumbnail.
     let resolvedMetadata: Record<string, unknown> = { ...job.revision.metadata }
-    if (job.seedId && !resolvedMetadata.mediaUrl) {
-      // Infra/DB/storage failures must surface as retryable network errors —
-      // never as a silent "no media" validation failure.
-      const media = await resolvePublishMediaMetadata(supabase, job.seedId, job.channel)
-      if (media) {
-        resolvedMetadata = { ...resolvedMetadata, mediaUrl: media.mediaUrl, mediaType: media.mediaType }
-      }
+    if (job.seedId) {
+      resolvedMetadata = await resolvePublishMediaMetadata(supabase, job.seedId, job.channel, resolvedMetadata)
+    }
+    resolvedMetadata = {
+      ...resolvedMetadata,
+      grantedScopes: credentials.scopes,
     }
 
     const adapter = getConnectorAdapter(job.channel)

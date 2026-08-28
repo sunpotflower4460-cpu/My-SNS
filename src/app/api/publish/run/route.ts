@@ -5,10 +5,11 @@ import { processPublishJob, type PublishableJob } from '@/lib/services/publish-w
 import { getPublishingStrategy } from '@/lib/channels/config'
 import type { SocialPlatform } from '@/lib/domain/types'
 
-// Invoked on a schedule (see vercel.json) to execute due, publish_mode='auto'
-// publish_jobs. The zero-cost strategy hard-disables this external publishing
-// path even if an older auto job still exists in the database. api-first is an
-// explicit opt-in that preserves the OAuth connector behaviour.
+// Invoked on a schedule (see vercel.json, every 5 minutes) to execute due,
+// publish_mode='auto' publish_jobs. A scheduled time T may therefore land in a
+// 5-minute window. The zero-cost strategy hard-disables this external
+// publishing path even if an older auto job still exists in the database.
+// api-first is an explicit opt-in that preserves the OAuth connector behaviour.
 
 const BATCH_SIZE = 20
 
@@ -23,6 +24,7 @@ interface DueJobRow {
   channel: SocialPlatform
   created_by: string
   seed_id: string | null
+  social_account_id: string | null
   draft_revisions: PublishableJob['revision'] | null
 }
 
@@ -56,7 +58,7 @@ export async function GET(request: NextRequest) {
 
   const { data: dueJobs, error: dueJobsError } = await supabase
     .from('publish_jobs')
-    .select('id, workspace_id, channel, created_by, seed_id, draft_revisions!inner(title, body, hashtags, cta, metadata)')
+    .select('id, workspace_id, channel, created_by, seed_id, social_account_id, draft_revisions!inner(title, body, hashtags, cta, metadata)')
     .eq('status', 'scheduled')
     .eq('publish_mode', 'auto')
     .lte('scheduled_at', new Date().toISOString())
@@ -87,6 +89,7 @@ export async function GET(request: NextRequest) {
         channel: rawJob.channel,
         createdBy: rawJob.created_by,
         seedId: rawJob.seed_id ?? undefined,
+        socialAccountId: rawJob.social_account_id ?? undefined,
         revision: rawJob.draft_revisions,
       })
 

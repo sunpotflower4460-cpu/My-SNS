@@ -244,6 +244,12 @@ export class TikTokConnectorAdapter implements SocialConnectorAdapter {
     }
     const trustedMediaUrl = assertTrustedPublishMediaUrl(mediaUrl).toString()
 
+    if (typeof request.metadata.coverUrl === 'string' && request.metadata.coverUrl) {
+      throw new Error(
+        'TikTok Content Posting API does not accept a custom cover image. Remove the cover still or use coverTimestampMs to pick a frame. Publish stopped before creating a post.',
+      )
+    }
+
     const creatorInfo = await tiktokApi<{
       max_video_post_duration_sec: number
       privacy_level_options: string[]
@@ -255,6 +261,9 @@ export class TikTokConnectorAdapter implements SocialConnectorAdapter {
 
     const title = [request.title ?? request.body, request.cta].filter(Boolean).join(' ')
     const isAigcContent = request.metadata.isAigcContent === true
+    const coverTimestampMs = typeof request.metadata.coverTimestampMs === 'number' && Number.isFinite(request.metadata.coverTimestampMs)
+      ? Math.max(0, Math.round(request.metadata.coverTimestampMs))
+      : undefined
 
     const init = await initTikTokPublish(request.accessToken, {
       post_info: {
@@ -263,6 +272,7 @@ export class TikTokConnectorAdapter implements SocialConnectorAdapter {
         disable_duet: false,
         disable_comment: false,
         disable_stitch: false,
+        ...(coverTimestampMs !== undefined ? { video_cover_timestamp_ms: coverTimestampMs } : {}),
         ...(isAigcContent ? { aigc_info: { is_aigc: true } } : {}),
       },
       source_info: {

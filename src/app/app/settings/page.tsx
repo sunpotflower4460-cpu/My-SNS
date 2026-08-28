@@ -11,7 +11,7 @@ import { Button, Card, InlineAlert } from '@/components/ui/kit'
 import { useCurrentUser } from '@/hooks/useCurrentUser'
 import { useApp } from '@/lib/app/app-provider'
 import { hasPermission } from '@/lib/permissions'
-import { getExtraConnectedAccounts, getPlatformConnection } from '@/lib/presentation/settings-presenter'
+import { getExtraConnectedAccounts, getPlatformConnection, listConnectedAccountsForPlatform } from '@/lib/presentation/settings-presenter'
 import type { SocialAccount, SocialPlatform } from '@/lib/domain/types'
 import { CONNECTABLE_PLATFORMS } from '@/lib/services/connectors/platforms'
 import { PUBLISHING_CHANNEL_CONFIG } from '@/lib/channels/config'
@@ -188,21 +188,37 @@ export default function SettingsPage() {
           {platformError && <div className="mb-4"><InlineAlert tone="error">{platformError}</InlineAlert></div>}
           <div className="space-y-3">
             {CONNECTABLE_PLATFORMS.map((platform) => {
-              const { connected, account } = getPlatformConnection(platform, socialAccounts)
-              return (
+              const connectedAccounts = listConnectedAccountsForPlatform(platform, socialAccounts)
+              const connectHref = currentWorkspace ? `/api/social/${platform}/connect?workspaceId=${currentWorkspace.id}` : undefined
+              if (connectedAccounts.length === 0) {
+                return (
+                  <ConnectionRow
+                    key={platform}
+                    icon={PLATFORM_ICONS[platform]}
+                    label={PUBLISHING_CHANNEL_CONFIG[platform].label}
+                    handle="未接続"
+                    connected={false}
+                    busy={busyPlatform === platform}
+                    canManage={canManageSocialAccounts}
+                    connectHref={connectHref}
+                    onSync={() => void handleSync(platform)}
+                  />
+                )
+              }
+              return connectedAccounts.map((account, index) => (
                 <ConnectionRow
-                  key={platform}
+                  key={account.id}
                   icon={PLATFORM_ICONS[platform]}
                   label={PUBLISHING_CHANNEL_CONFIG[platform].label}
-                  handle={account?.handle ?? '未接続'}
-                  connected={connected}
+                  handle={account.handle}
+                  connected
                   busy={busyPlatform === platform}
                   canManage={canManageSocialAccounts}
-                  connectHref={currentWorkspace ? `/api/social/${platform}/connect?workspaceId=${currentWorkspace.id}` : undefined}
-                  onSync={() => void handleSync(platform)}
-                  onDisconnect={account ? () => void handleDisconnect(account) : undefined}
+                  connectHref={index === 0 ? connectHref : undefined}
+                  onSync={index === 0 ? () => void handleSync(platform) : undefined}
+                  onDisconnect={() => void handleDisconnect(account)}
                 />
-              )
+              ))
             })}
             {extraAccounts.map((account) => (
               <ConnectionRow

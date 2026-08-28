@@ -11,6 +11,14 @@ export function assetTypeLabel(type: AssetType): string {
   return TYPE_LABELS[type]
 }
 
+export function assetMediaRoleLabel(role: Asset['mediaRole']): string {
+  if (role === 'variant') return 'バリアント'
+  if (role === 'thumbnail') return 'サムネイル'
+  if (role === 'cover') return 'カバー'
+  if (role === 'eyecatch') return 'アイキャッチ'
+  return 'マスター'
+}
+
 export function formatAssetSize(bytes: number): string {
   if (!Number.isFinite(bytes) || bytes <= 0) return '0 B'
   if (bytes < 1024) return `${Math.round(bytes)} B`

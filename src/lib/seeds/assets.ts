@@ -1,12 +1,17 @@
-import type { Asset } from '@/lib/domain/types'
+import type { Asset, AssetAspectRatio, AssetMediaRole, PublishingChannel } from '@/lib/domain/types'
 import type { AssetUploadInput } from '@/lib/storage/interfaces'
 import { SupabaseAssetStorage } from '@/lib/storage/supabase/supabase-asset-storage'
 import { createClient } from '@/lib/supabase/client'
+import { detectFileAspectRatio, suggestedPublishingChannelsForAspect } from '@/lib/media/aspect'
 
 export async function appendSeedAssets(params: {
   workspaceId: string
   seedId: string
   files: File[]
+  mediaRole?: AssetMediaRole
+  sourceAssetId?: string
+  publishingChannels?: PublishingChannel[]
+  aspectRatio?: AssetAspectRatio
 }): Promise<Asset[]> {
   if (params.files.length === 0) return []
 
@@ -25,11 +30,20 @@ export async function appendSeedAssets(params: {
 
   const saved: Asset[] = []
   for (const preparedAsset of prepared) {
+    const aspectRatio = params.aspectRatio ?? await detectFileAspectRatio(preparedAsset.file)
+    const publishingChannels = params.publishingChannels
+      ?? suggestedPublishingChannelsForAspect(aspectRatio, preparedAsset.type)
     saved.push(await storage.saveAssetMetadata({
       workspaceId: params.workspaceId,
       seedId: params.seedId,
       uploadedBy: user.id,
-      preparedAsset,
+      preparedAsset: {
+        ...preparedAsset,
+        aspectRatio: aspectRatio ?? undefined,
+        mediaRole: params.mediaRole ?? 'source',
+        sourceAssetId: params.sourceAssetId,
+        publishingChannels,
+      },
     }))
   }
 

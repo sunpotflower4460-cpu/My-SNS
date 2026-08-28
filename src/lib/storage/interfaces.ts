@@ -15,6 +15,10 @@ export interface PreparedAssetUpload {
   storagePath: string
   url?: string
   previewUrl?: string
+  aspectRatio?: '16:9' | '9:16' | '1:1' | 'other'
+  mediaRole?: 'source' | 'variant' | 'thumbnail' | 'cover' | 'eyecatch'
+  sourceAssetId?: string
+  publishingChannels?: import('@/lib/domain/types').PublishingChannel[]
 }
 
 export interface AssetStorageAdapter {
