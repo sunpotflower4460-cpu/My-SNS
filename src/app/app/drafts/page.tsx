@@ -12,6 +12,7 @@ import { useApp } from '@/lib/app/app-provider'
 import { CORE_PUBLISHING_CHANNELS, type PublishingChannel, type SocialDraft } from '@/lib/domain/types'
 import { hasPermission } from '@/lib/permissions'
 import { resetTemplateDraft } from '@/lib/services/ai-draft'
+import { generatePerformanceThumbnailsForSeed } from '@/lib/media/thumbnail-pipeline'
 
 const TONES = ['calm', 'casual', 'professional', 'playful']
 const TONE_LABELS: Record<string, string> = {
@@ -23,7 +24,7 @@ const TONE_LABELS: Record<string, string> = {
 
 export default function DraftsPage() {
   const searchParams = useSearchParams()
-  const { currentMember, drafts, generateChannelDrafts, getDraftsForSeed, getSeedDetail, saveAndApproveDraft, saveDraft, scheduleDraft, seeds, socialAccounts } = useApp()
+  const { currentMember, currentWorkspace, drafts, generateChannelDrafts, getDraftsForSeed, getSeedDetail, refreshWorkspaceData, saveAndApproveDraft, saveDraft, scheduleDraft, seeds, socialAccounts } = useApp()
   const canApprove = Boolean(currentMember && hasPermission(currentMember.role, 'approve_drafts'))
   const canManageQueue = Boolean(currentMember && hasPermission(currentMember.role, 'manage_queue'))
   const canCreateDrafts = Boolean(currentMember && hasPermission(currentMember.role, 'create_drafts'))
@@ -38,6 +39,7 @@ export default function DraftsPage() {
   const [feedback, setFeedback] = useState('')
   const [warning, setWarning] = useState('')
   const [error, setError] = useState('')
+  const [thumbFeedback, setThumbFeedback] = useState('')
 
   const selectedSeed = useMemo(() => seeds.find((seed) => seed.id === seedId) ?? null, [seedId, seeds])
   const selectedSeedAssets = selectedSeed ? getSeedDetail(selectedSeed.id).assets : []
@@ -75,10 +77,32 @@ export default function DraftsPage() {
     setLoading(true)
     setError('')
     setWarning('')
+    setThumbFeedback('')
     try {
       const result = await generateChannelDrafts(selectedSeed.id, selectedChannels, tone, length)
       const usageWarning = (result as typeof result & { usageWarning?: string }).usageWarning
-      setGeneratedDrafts(result.drafts)
+      let nextDrafts = result.drafts
+      if (currentWorkspace) {
+        try {
+          const thumbs = await generatePerformanceThumbnailsForSeed({
+            workspaceId: currentWorkspace.id,
+            seedId: selectedSeed.id,
+            seedTitle: selectedSeed.title,
+            assets: getSeedDetail(selectedSeed.id).assets,
+            drafts: nextDrafts,
+          })
+          nextDrafts = thumbs.drafts
+          setThumbFeedback(thumbs.message)
+          if (thumbs.assets.length > 0) await refreshWorkspaceData()
+        } catch (cause) {
+          setThumbFeedback(
+            cause instanceof Error
+              ? cause.message
+              : '文字入りサムネイルの作成に失敗しました。PNG/JPGをアップロードしてください。',
+          )
+        }
+      }
+      setGeneratedDrafts(nextDrafts)
       setWarning(usageWarning ?? '')
       setFeedback(
         result.source === 'ai'
@@ -145,12 +169,14 @@ export default function DraftsPage() {
           <div className="mt-4"><label className="mb-2 block text-sm font-medium text-gray-700">このシードの媒体</label><div className="flex flex-wrap gap-2">{CORE_PUBLISHING_CHANNELS.map((channel) => <button key={channel} type="button" onClick={() => toggleChannel(channel)} className={`rounded-full transition ${selectedChannels.includes(channel) ? 'ring-2 ring-violet-400 ring-offset-2' : 'opacity-50 hover:opacity-80'}`}><ChannelBadge channel={channel} /></button>)}</div></div>
           {selectedChannels.includes('note') && <p className="mt-3 text-xs text-emerald-700">noteは引き続き「確認してコピー」のみに対応しています。このアプリが自動投稿を行うことはありません。</p>}
           <button onClick={() => void handleGenerate()} disabled={!canCreateDrafts || loading || selectedChannels.length === 0 || !selectedSeed} className="mt-5 rounded-2xl bg-violet-600 px-5 py-2.5 text-sm font-medium text-white transition hover:bg-violet-700 disabled:opacity-50">{loading ? '作成中…' : canCreateDrafts ? '下書きを作成' : '作成権限がありません'}</button>
+          {thumbFeedback && <p className="mt-3 text-xs leading-5 text-gray-600">{thumbFeedback}</p>}
         </div>
       )}
 
       {generatedDrafts.length > 0 && (
         <section className="mb-8">
           <h2 className="mb-3 text-base font-semibold text-gray-900">未保存の下書き</h2>
+          <p className="mb-3 text-xs text-gray-500">文字入りサムネイルが2〜3枚ある場合は、YouTube案で一番強い候補が選ばれています。別の候補をクリックして切り替えてください。</p>
           <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
             {generatedDrafts.map((draft) => (
               <DraftEditorCard

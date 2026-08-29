@@ -51,13 +51,40 @@ export default function DraftEditorCard({
   }, [draft.id])
 
   const publishOptions = parseDraftPublishOptions(metadata)
+  const isShort = publishOptions.isShort === true
   const platformAccounts = isSocialPlatformChannel(draft.channel)
     ? connectedAccountsForPlatform(connectedAccounts, draft.channel)
     : []
-  const stills = useMemo(
-    () => seedAssets.filter((asset) => asset.type === 'image'),
-    [seedAssets],
-  )
+  const pickerImages = useMemo(() => {
+    const images = seedAssets.filter((asset) => asset.type === 'image' && asset.url)
+    if (draft.channel === 'youtube' && isShort) {
+      const portraits = images.filter((asset) => asset.aspectRatio === '9:16' || asset.mediaRole === 'cover')
+      return portraits.length > 0 ? portraits : images.filter((asset) => asset.aspectRatio !== '16:9')
+    }
+    if (draft.channel === 'youtube') {
+      const thumbs = images.filter((asset) => asset.mediaRole === 'thumbnail' || asset.aspectRatio === '16:9')
+      return thumbs.length > 0 ? thumbs : images
+    }
+    if (draft.channel === 'instagram' || draft.channel === 'note') {
+      const covers = images.filter((asset) => (
+        asset.mediaRole === 'cover'
+        || asset.mediaRole === 'eyecatch'
+        || asset.aspectRatio === '9:16'
+        || asset.type === 'image'
+      ))
+      return covers
+    }
+    return images
+  }, [draft.channel, isShort, seedAssets])
+  const selectedStillId = draft.channel === 'youtube' && !isShort
+    ? (publishOptions.thumbnailAssetId ?? '')
+    : draft.channel === 'instagram'
+      ? (publishOptions.coverAssetId ?? '')
+      : draft.channel === 'note'
+        ? (publishOptions.eyecatchAssetId ?? '')
+        : draft.channel === 'youtube' && isShort
+          ? (publishOptions.coverAssetId ?? '')
+          : ''
 
   const updatePublishOptions = (patch: Parameters<typeof mergeDraftPublishOptions>[1]) => {
     setMetadata((current) => mergeDraftPublishOptions(current, { ...parseDraftPublishOptions(current), ...patch }))
@@ -117,7 +144,7 @@ export default function DraftEditorCard({
         </div>
       )}
 
-      {(platformAccounts.length > 0 || stills.length > 0 || draft.channel === 'youtube' || draft.channel === 'tiktok') && (
+      {(platformAccounts.length > 0 || pickerImages.length > 0 || draft.channel === 'youtube' || draft.channel === 'tiktok') && (
         <div className="mt-3 space-y-2 rounded-card border border-[color:var(--border-default)] bg-black/[0.025] p-3">
           {platformAccounts.length > 0 && (
             <label className="block text-xs">
@@ -142,42 +169,79 @@ export default function DraftEditorCard({
             <label className="flex items-center gap-2 text-xs text-[color:var(--text-default)]">
               <input
                 type="checkbox"
-                checked={publishOptions.isShort === true}
-                onChange={(event) => updatePublishOptions({ isShort: event.target.checked ? true : undefined })}
+                checked={isShort}
+                onChange={(event) => updatePublishOptions({
+                  isShort: event.target.checked ? true : undefined,
+                  thumbnailAssetId: event.target.checked ? undefined : publishOptions.thumbnailAssetId,
+                })}
               />
               YouTube Shorts（9:16）として投稿する
             </label>
           )}
 
-          {stills.length > 0 && (draft.channel === 'youtube' || draft.channel === 'instagram' || draft.channel === 'note') && (
-            <label className="block text-xs">
+          {draft.channel === 'youtube' && isShort && (
+            <p className="text-[11px] leading-5 text-[color:var(--text-subtle)]">
+              Shortsはカスタムサムネイルに対応していません。9:16の文字入りカバーはReels用です。16:9をレターボックスしません。
+            </p>
+          )}
+
+          {pickerImages.length > 0 && (draft.channel === 'youtube' || draft.channel === 'instagram' || draft.channel === 'note') && (
+            <div className="text-xs">
               <span className="font-medium text-[color:var(--text-default)]">
-                {draft.channel === 'youtube' ? 'カスタムサムネイル' : draft.channel === 'instagram' ? 'カバー画像' : 'アイキャッチ画像'}
+                {draft.channel === 'youtube' && !isShort
+                  ? 'カスタムサムネイル'
+                  : draft.channel === 'instagram' || (draft.channel === 'youtube' && isShort)
+                    ? 'カバー画像'
+                    : 'アイキャッチ画像'}
               </span>
+              <div className="mt-2 flex flex-wrap gap-2">
+                {pickerImages.map((asset) => {
+                  const selected = asset.id === selectedStillId
+                  return (
+                    <button
+                      key={asset.id}
+                      type="button"
+                      onClick={() => {
+                        const value = selected ? undefined : asset.id
+                        if (draft.channel === 'youtube' && !isShort) updatePublishOptions({ thumbnailAssetId: value })
+                        else if (draft.channel === 'instagram' || (draft.channel === 'youtube' && isShort)) {
+                          updatePublishOptions({ coverAssetId: value })
+                        }
+                        else updatePublishOptions({ eyecatchAssetId: value })
+                      }}
+                      className={`overflow-hidden rounded-md border ${selected ? 'border-violet-400 ring-2 ring-violet-300' : 'border-stone-200'}`}
+                    >
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img src={asset.url} alt={asset.name} className="h-14 w-[6.2rem] object-cover" />
+                    </button>
+                  )
+                })}
+              </div>
               <select
-                value={
-                  draft.channel === 'youtube'
-                    ? (publishOptions.thumbnailAssetId ?? '')
-                    : draft.channel === 'instagram'
-                      ? (publishOptions.coverAssetId ?? '')
-                      : (publishOptions.eyecatchAssetId ?? '')
-                }
+                value={selectedStillId}
                 onChange={(event) => {
                   const value = event.target.value || undefined
-                  if (draft.channel === 'youtube') updatePublishOptions({ thumbnailAssetId: value })
-                  else if (draft.channel === 'instagram') updatePublishOptions({ coverAssetId: value })
+                  if (draft.channel === 'youtube' && !isShort) updatePublishOptions({ thumbnailAssetId: value })
+                  else if (draft.channel === 'instagram' || (draft.channel === 'youtube' && isShort)) {
+                    updatePublishOptions({ coverAssetId: value })
+                  }
                   else updatePublishOptions({ eyecatchAssetId: value })
                 }}
-                className="ui-input mt-1 w-full rounded-control px-2.5 py-1.5 text-xs focus:outline-none"
+                className="ui-input mt-2 w-full rounded-control px-2.5 py-1.5 text-xs focus:outline-none"
               >
                 <option value="">指定しない</option>
-                {stills.map((asset) => (
+                {pickerImages.map((asset) => (
                   <option key={asset.id} value={asset.id}>{asset.name}</option>
                 ))}
               </select>
-              {draft.channel === 'youtube' && (
+              {draft.channel === 'youtube' && !isShort && (
                 <span className="mt-1 block text-[11px] text-[color:var(--text-subtle)]">
-                  テキスト案ではなく実画像です。未接続のYouTubeは設定から再接続（youtube.force-ssl）が必要な場合があります。
+                  巨大な文字入りの実画像です。テキスト案ではありません。未接続のYouTubeは設定から再接続（youtube.force-ssl）が必要な場合があります。
+                </span>
+              )}
+              {typeof metadata.thumbnailHook === 'string' && metadata.thumbnailHook && (
+                <span className="mt-1 block text-[11px] text-amber-700">
+                  フック「{String(metadata.thumbnailHook)}」は提案です。気に入らなければ別の候補を選ぶか、素材を差し替えてください。
                 </span>
               )}
               {draft.channel === 'note' && (
@@ -185,7 +249,13 @@ export default function DraftEditorCard({
                   noteに公式投稿APIはないため、公開予定から画像を保存して手で貼ってください。
                 </span>
               )}
-            </label>
+            </div>
+          )}
+
+          {draft.channel === 'youtube' && pickerImages.length === 0 && !isShort && (
+            <p className="text-[11px] leading-5 text-amber-700">
+              文字入りサムネイルがまだありません。下書き作成時に自動生成されます。失敗した場合は素材管理からPNG/JPGを追加してください。
+            </p>
           )}
 
           {draft.channel === 'tiktok' && (

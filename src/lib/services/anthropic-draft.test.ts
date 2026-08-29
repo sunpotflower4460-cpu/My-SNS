@@ -43,6 +43,50 @@ describe('parseDraftProposals', () => {
     expect(drafts.find((d) => d.channel === 'youtube')?.assumptions).toEqual([])
   })
 
+  it('keeps a 3–8 character thumbnailHook as a labeled AI proposal, not a file', () => {
+    const [youtube] = parseDraftProposals(
+      {
+        drafts: [
+          {
+            channel: 'youtube',
+            title: 'New arrangement',
+            body: 'Video body',
+            hashtags: [],
+            assumptions: [],
+            metadata: { thumbnailHook: '今すぐ見る' },
+          },
+        ],
+      },
+      seed,
+      ['youtube'],
+      'calm',
+      'medium',
+    )
+    expect(youtube.metadata.thumbnailHook).toBe('今すぐ見る')
+    expect(youtube.assumptions.some((entry) => entry.includes('AI'))).toBe(true)
+  })
+
+  it('drops a paragraph-shaped thumbnailHook instead of treating it as overlay text', () => {
+    const [youtube] = parseDraftProposals(
+      {
+        drafts: [
+          {
+            channel: 'youtube',
+            body: 'Video body',
+            hashtags: [],
+            assumptions: [],
+            metadata: { thumbnailHook: 'A very long slogan that is not thumbnail type at all.' },
+          },
+        ],
+      },
+      seed,
+      ['youtube'],
+      'calm',
+      'medium',
+    )
+    expect(youtube.metadata.thumbnailHook).toBeUndefined()
+  })
+
   it('throws when the model omits a requested channel instead of silently dropping it', () => {
     expect(() =>
       parseDraftProposals(
