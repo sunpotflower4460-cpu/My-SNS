@@ -95,6 +95,30 @@ describe('selectPublishMedia', () => {
     if (result.ok) expect(result.selection?.thumbnail).toBeUndefined()
   })
 
+  it('does not auto-attach a thumbnail when the draft did not select one', () => {
+    const result = selectPublishMedia({
+      assets: [landscape, thumb],
+      channel: 'youtube',
+    })
+    expect(result.ok).toBe(true)
+    if (result.ok) expect(result.selection?.thumbnail).toBeUndefined()
+  })
+
+  it('does not fail TikTok just because a generated cover still exists', () => {
+    const tiktokCover = asset({
+      id: COVER_ID,
+      type: 'image',
+      mediaRole: 'cover',
+      publishingChannels: ['instagram', 'tiktok', 'youtube'],
+    })
+    const result = selectPublishMedia({
+      assets: [portrait, tiktokCover],
+      channel: 'tiktok',
+    })
+    expect(result.ok).toBe(true)
+    if (result.ok) expect(result.selection?.cover).toBeUndefined()
+  })
+
   it('rejects a TikTok custom cover image because the API cannot attach one', () => {
     const result = selectPublishMedia({
       assets: [portrait, cover],

@@ -68,7 +68,7 @@ describe('describeJobStatus', () => {
     expect(describeJobStatus(job({ status: 'scheduled', publishMode: 'auto', scheduledAt: undefined }))).toBe('まだ予約されていません')
   })
 
-  it('states TikTok SELF_ONLY honesty and the 5-minute cron window on auto jobs', () => {
+  it('states TikTok SELF_ONLY honesty and the daily Hobby cron window on auto jobs', () => {
     const line = describeJobStatus(job({
       channel: 'tiktok',
       status: 'scheduled',
@@ -76,8 +76,21 @@ describe('describeJobStatus', () => {
       scheduledAt: '2026-07-20T02:00:00Z',
     }))
     expect(line).toContain('SELF_ONLY')
-    expect(line).toContain('5分')
+    expect(line).toContain('1日1回')
+    expect(line).not.toContain('5分')
     expect(line).toContain('タイムライン公開ではありません')
+  })
+
+  it('states the daily Hobby cron window on auto X jobs', () => {
+    const line = describeJobStatus(job({
+      status: 'scheduled',
+      publishMode: 'auto',
+      scheduledAt: '2026-07-20T02:00:00Z',
+    }))
+    expect(line).toContain('予約日時:')
+    expect(line).toContain('1日1回')
+    expect(line).toContain('今すぐ公開')
+    expect(line).not.toContain('5分')
   })
 })
 

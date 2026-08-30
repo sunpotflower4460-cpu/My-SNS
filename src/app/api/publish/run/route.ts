@@ -3,15 +3,19 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 import { createServiceClient } from '@/lib/supabase/service'
 import { processPublishJob, type PublishableJob } from '@/lib/services/publish-worker'
 import { getPublishingStrategy } from '@/lib/channels/config'
+import { PUBLISH_WORKER_BATCH_SIZE } from '@/lib/presentation/cron-honesty'
 import type { SocialPlatform } from '@/lib/domain/types'
 
-// Invoked on a schedule (see vercel.json, every 5 minutes) to execute due,
-// publish_mode='auto' publish_jobs. A scheduled time T may therefore land in a
-// 5-minute window. The zero-cost strategy hard-disables this external
-// publishing path even if an older auto job still exists in the database.
-// api-first is an explicit opt-in that preserves the OAuth connector behaviour.
+// Invoked on a schedule (see vercel.json: daily at 00:00 UTC). Vercel Hobby
+// allows at most one cron run per path per day, so a scheduled time T may wait
+// until the next daily tick (up to ~24h). Each run processes at most
+// BATCH_SIZE due jobs; the rest wait for the following day. Queue「今すぐ公開」
+// remains the immediate path. The zero-cost strategy hard-disables this
+// external publishing path even if an older auto job still exists in the
+// database. api-first is an explicit opt-in that preserves the OAuth connector
+// behaviour.
 
-const BATCH_SIZE = 20
+const BATCH_SIZE = PUBLISH_WORKER_BATCH_SIZE
 
 // YouTube uploads can run long. 300s needs a Vercel Pro (or higher) plan —
 // on Hobby a large upload can still exceed platform limits. This duration is

@@ -6,6 +6,7 @@ import type { InboxItem } from '@/lib/domain/types'
 import type { ScheduleProposal } from '@/lib/services/interfaces'
 import { useApp } from '@/lib/app/app-provider'
 import { hasPermission } from '@/lib/permissions'
+import { REPLY_WORKER_DELAY_JA } from '@/lib/presentation/cron-honesty'
 
 const PRIORITY_LABELS: Record<'high' | 'normal' | 'low', string> = {
   high: '優先度: 高',
@@ -328,7 +329,7 @@ export default function ConciergeReplyPanel({ item }: { item: InboxItem }) {
               </div>
               <p className="mt-2 text-[11px] text-gray-400">
                 {timing === 'recommended'
-                  ? '相手の生活時間に合わせた時刻に自動送信します（深夜は避けます）。'
+                  ? `相手の生活時間に合わせた時刻を予約します（深夜は避けます）。${REPLY_WORKER_DELAY_JA}`
                   : 'すぐに送信します。'}
               </p>
             </>

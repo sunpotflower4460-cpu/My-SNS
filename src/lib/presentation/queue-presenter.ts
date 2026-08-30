@@ -1,4 +1,5 @@
 import type { PublishJob, PublishJobStatus, PublishMode } from '@/lib/domain/types'
+import { PUBLISH_WORKER_DELAY_JA } from './cron-honesty'
 
 // Pure presenter for the 公開予定 (Queue) page. The rules for which actions a
 // job offers and what its status line says depend on status × publish mode ×
@@ -43,10 +44,12 @@ export function describeJobStatus(job: PublishJob): string {
     return 'API-firstモードの確認対象です。「今すぐ公開」から接続済みAPIで処理してください'
   }
   if (job.channel === 'tiktok') {
-    const planned = job.scheduledAt ? `予約日時: ${formatJst(job.scheduledAt)}（最大約5分のずれ）` : 'まだ予約されていません'
+    const planned = job.scheduledAt ? `予約日時: ${formatJst(job.scheduledAt)}（${PUBLISH_WORKER_DELAY_JA}）` : 'まだ予約されていません'
     return `${planned}。TikTokは監査前のため公開範囲はSELF_ONLY（自分のみ）です。タイムライン公開ではありません。`
   }
-  return job.scheduledAt ? `予約日時: ${formatJst(job.scheduledAt)}（Workerは5分間隔のため、最大約5分遅れることがあります）` : 'まだ予約されていません'
+  return job.scheduledAt
+    ? `予約日時: ${formatJst(job.scheduledAt)}（${PUBLISH_WORKER_DELAY_JA}）`
+    : 'まだ予約されていません'
 }
 
 export interface JobActions {

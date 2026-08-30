@@ -65,7 +65,10 @@ export async function deleteSeedAsset(params: {
     .eq('seed_id', params.seedId)
     .single()
 
-  if (lookupError || !asset) {
+  if (lookupError) {
+    throw new Error(`削除する素材を確認できませんでした: ${lookupError.message}`)
+  }
+  if (!asset) {
     throw new Error('削除する素材が見つかりません。')
   }
 
