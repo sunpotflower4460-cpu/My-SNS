@@ -72,7 +72,7 @@ export function planThumbnailFile(params: {
       fileName: `${AUTO_COVER_PREFIX}${params.index}-${params.hook}.jpg`,
       mediaRole: 'cover',
       aspectRatio: '9:16',
-      publishingChannels: ['instagram', 'tiktok', 'youtube'],
+      publishingChannels: ['instagram', 'youtube'],
     }
   }
   return {

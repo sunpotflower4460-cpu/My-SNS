@@ -28,7 +28,7 @@ export const PUBLISHING_CHANNEL_CONFIG: Record<PublishingChannel, PublishingChan
     shortLabel: 'YouTube',
     icon: '▶',
     delivery: 'api-later',
-    description: '動画のタイトル・概要欄・補足コピーを作成します。予約時刻になるとWorkerが公開（public）します。',
+    description: '動画のタイトル・概要欄・補足コピーを作成します。予約時刻のあと、日次Workerが公開（public）します（Hobbyでは最大約1日のずれ）。急ぎなら「今すぐ公開」。',
     mvpPublishMode: 'auto',
   },
   note: {

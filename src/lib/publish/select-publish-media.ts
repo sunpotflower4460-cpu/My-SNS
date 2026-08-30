@@ -46,28 +46,24 @@ function findById(assets: PublishAssetCandidate[], id: string | undefined): Publ
 
 function pickStill(params: {
   assets: PublishAssetCandidate[]
-  channel: PublishingChannel
   requestedId?: string
   role: AssetMediaRole
 }): { asset?: PublishAssetCandidate; error?: string } {
-  if (params.requestedId) {
-    const requested = findById(params.assets, params.requestedId)
-    if (!requested) {
-      return { error: `指定された${params.role}画像（asset ${params.requestedId}）が見つかりません。` }
-    }
-    if (!isImage(requested)) {
-      return { error: `指定された${params.role}は画像ではありません。PNG / JPG を選んでください。` }
-    }
-    if (!requested.storagePath) {
-      return { error: `指定された${params.role}画像に保存パスがありません。` }
-    }
-    return { asset: requested }
+  // Only an explicit draft/revision selection counts. Auto-picking a
+  // role-matching still would ignore「指定しない」and, for TikTok, fail the
+  // whole publish because a generated 9:16 cover happened to exist.
+  if (!params.requestedId) return {}
+  const requested = findById(params.assets, params.requestedId)
+  if (!requested) {
+    return { error: `指定された${params.role}画像（asset ${params.requestedId}）が見つかりません。` }
   }
-
-  const roleMatch = params.assets.find(
-    (asset) => asset.mediaRole === params.role && isImage(asset) && assignedToChannel(asset, params.channel) && asset.storagePath,
-  )
-  return { asset: roleMatch }
+  if (!isImage(requested)) {
+    return { error: `指定された${params.role}は画像ではありません。PNG / JPG を選んでください。` }
+  }
+  if (!requested.storagePath) {
+    return { error: `指定された${params.role}画像に保存パスがありません。` }
+  }
+  return { asset: requested }
 }
 
 function channelNeedsNineSixteenVideo(channel: PublishingChannel, isShort: boolean, mediaType: 'image' | 'video'): boolean {
@@ -107,7 +103,6 @@ export function selectPublishMedia(params: {
 
   const thumbnailPick = pickStill({
     assets: params.assets,
-    channel: params.channel,
     requestedId: options.thumbnailAssetId,
     role: 'thumbnail',
   })
@@ -115,7 +110,6 @@ export function selectPublishMedia(params: {
 
   const coverPick = pickStill({
     assets: params.assets,
-    channel: params.channel,
     requestedId: options.coverAssetId,
     role: 'cover',
   })
@@ -123,7 +117,6 @@ export function selectPublishMedia(params: {
 
   const eyecatchPick = pickStill({
     assets: params.assets,
-    channel: params.channel,
     requestedId: options.eyecatchAssetId,
     role: 'eyecatch',
   })

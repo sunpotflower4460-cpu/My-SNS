@@ -314,11 +314,12 @@ export async function generatePerformanceThumbnailsForSeed(params: {
   const reusedMessage = hasDrafts
     ? `既存の文字入りサムネイル（${combined.length}枚）をYouTube案に割り当てました。下書きで切り替えできます。`
     : `文字入りサムネイルはすでに${combined.length}枚あります。`
+  const failureNote = failures.length > 0 ? ` 一部は作れませんでした: ${failures.join(' ')}` : ''
   return {
     ok: true,
     assets: created,
     drafts: assigned,
     hook: resolved.hook,
-    message: reused ? reusedMessage : createdMessage,
+    message: `${reused ? reusedMessage : createdMessage}${failureNote}`,
   }
 }
