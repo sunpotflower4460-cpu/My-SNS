@@ -39,9 +39,26 @@ test('PWA manifest is linked and launches into the publishing dashboard', async 
   expect(manifest.start_url).toBe('/app/dashboard')
   expect(manifest.display).toBe('standalone')
   expect(manifest.icons).toEqual(expect.arrayContaining([
+    expect.objectContaining({ src: '/icons/icon-192.png', sizes: '192x192', type: 'image/png' }),
+    expect.objectContaining({ src: '/icons/icon-512.png', sizes: '512x512', type: 'image/png' }),
+    expect.objectContaining({ src: '/icons/icon-512-maskable.png', purpose: 'maskable' }),
     expect.objectContaining({ src: '/icons/my-sns.svg' }),
     expect.objectContaining({ src: '/icons/my-sns-maskable.svg', purpose: 'maskable' }),
   ]))
+})
+
+test('PWA PNG icons are served as real files, not SVG placeholders', async ({ page, request }) => {
+  const icon512 = await request.get('/icons/icon-512.png')
+  expect(icon512.ok()).toBe(true)
+  expect(icon512.headers()['content-type']).toMatch(/image\/png/)
+
+  const appleIcon = await request.get('/apple-icon.png')
+  expect(appleIcon.ok()).toBe(true)
+  expect(appleIcon.headers()['content-type']).toMatch(/image\/png/)
+
+  await page.goto('/login')
+  const appleTouch = page.locator('link[rel="apple-touch-icon"]')
+  await expect(appleTouch).toHaveCount(1)
 })
 
 test('security headers protect the app without disabling Web Share', async ({ page }) => {
