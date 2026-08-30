@@ -3,6 +3,15 @@
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { useAuth } from '@/lib/auth/auth-provider'
+import {
+  LOGIN_OTP_ALREADY_SENT_MESSAGE,
+  LOGIN_OTP_SENT_MESSAGE,
+  getOtpCooldownUntil,
+  isOtpCooldownActive,
+  mapLoginAuthError,
+  markOtpSent,
+  normalizeLoginEmail,
+} from '@/lib/auth/login-otp'
 import { createClient } from '@/lib/supabase/client'
 
 export const dynamic = 'force-dynamic'
@@ -14,6 +23,7 @@ export default function LoginPage() {
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState('')
   const [success, setSuccess] = useState('')
+  const [cooldownUntil, setCooldownUntil] = useState(0)
 
   useEffect(() => {
     if (isReady && isAuthenticated) {
@@ -21,37 +31,57 @@ export default function LoginPage() {
     }
   }, [isAuthenticated, isReady, router])
 
+  useEffect(() => {
+    const storedUntil = getOtpCooldownUntil(email) ?? 0
+    setCooldownUntil((current) => (current === storedUntil ? current : storedUntil))
+  }, [email])
+
+  useEffect(() => {
+    if (cooldownUntil <= Date.now()) return
+    const timer = window.setTimeout(() => setCooldownUntil(0), cooldownUntil - Date.now())
+    return () => window.clearTimeout(timer)
+  }, [cooldownUntil])
+
+  const isCoolingDown = cooldownUntil > Date.now()
+  const isSubmitDisabled = isLoading || isCoolingDown
+
   if (!isReady) {
     return <div className="flex min-h-screen items-center justify-center bg-stone-50 text-sm text-gray-500">読み込み中…</div>
   }
 
   const handleSignIn = async (event: React.FormEvent) => {
     event.preventDefault()
+    const normalizedEmail = normalizeLoginEmail(email)
+    if (!normalizedEmail) {
+      setError('メールアドレスを入力してください')
+      setSuccess('')
+      return
+    }
+
+    if (isOtpCooldownActive(normalizedEmail) || isCoolingDown) {
+      setError('')
+      setSuccess(LOGIN_OTP_ALREADY_SENT_MESSAGE)
+      return
+    }
+
     setIsLoading(true)
     setError('')
     setSuccess('')
 
-    const normalizedEmail = email.trim().toLowerCase()
-    if (!normalizedEmail) {
-      setError('メールアドレスを入力してください')
-      setIsLoading(false)
-      return
-    }
-
     try {
       const supabase = createClient()
-      const { error } = await supabase.auth.signInWithOtp({
+      const { error: authError } = await supabase.auth.signInWithOtp({
         email: normalizedEmail,
         options: {
           emailRedirectTo: `${window.location.origin}/app/dashboard`,
         },
       })
 
-      if (error) {
-        setError(error.message)
+      if (authError) {
+        setError(mapLoginAuthError(authError))
       } else {
-        setSuccess('メールをご確認ください。マジックリンクをお送りしました。')
-        setEmail('')
+        setSuccess(LOGIN_OTP_SENT_MESSAGE)
+        setCooldownUntil(markOtpSent(normalizedEmail))
       }
     } catch (err) {
       setError('予期しないエラーが発生しました。もう一度お試しください。')
@@ -101,7 +131,7 @@ export default function LoginPage() {
               />
               <button
                 type="submit"
-                disabled={isLoading}
+                disabled={isSubmitDisabled}
                 className="rounded-2xl bg-violet-600 px-5 py-3 text-sm font-medium text-white transition hover:bg-violet-700 disabled:opacity-50"
               >
                 {isLoading ? '送信中...' : 'マジックリンクを送る'}
