@@ -170,7 +170,7 @@ export interface SocialDraft {
   draftText: string
   hashtags: string[]
   cta?: string
-  /** Gaps the AI filled with a guess rather than a confirmed Seed/Brand Profile fact. */
+  /** Guessed facts not in the Seed or Brand Profile. Copy-editing and thumbnail hooks are not listed. */
   assumptions: string[]
   /** Channel-specific extras (YouTube chapters, X thread continuation, note eyecatch ideas, ...). */
   metadata: Record<string, unknown>

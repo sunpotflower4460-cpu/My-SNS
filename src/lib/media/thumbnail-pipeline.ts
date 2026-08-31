@@ -209,21 +209,13 @@ export async function generatePerformanceThumbnailsForSeed(params: {
     }
   }
 
-  const draftsWithAssumption = resolved.assumption
-    ? params.drafts.map((draft) => {
-        if (draft.channel !== 'youtube') return draft
-        if (draft.assumptions.includes(resolved.assumption as string)) return draft
-        return { ...draft, assumptions: [...draft.assumptions, resolved.assumption as string] }
-      })
-    : params.drafts
-
   const landscapeVideo = pickLandscapeVideo(params.assets)
   const portraitVideo = pickPortraitVideo(params.assets)
   if (!landscapeVideo && !portraitVideo) {
     return {
       ok: false,
       assets: [],
-      drafts: draftsWithAssumption,
+      drafts: params.drafts,
       hook: resolved.hook,
       message: '動画がないため、文字入りサムネイルは作っていません。素材管理に動画を追加するか、PNG/JPGをアップロードしてください。',
     }
@@ -297,14 +289,14 @@ export async function generatePerformanceThumbnailsForSeed(params: {
     return {
       ok: false,
       assets: created,
-      drafts: draftsWithAssumption,
+      drafts: params.drafts,
       hook: resolved.hook,
       message: failures[0]
         ?? '動画から静止画を切り出せなかったため、自動サムネイルは作っていません。PNG/JPGをアップロードしてください。',
     }
   }
 
-  const assigned = assignGeneratedThumbnailsToDrafts(draftsWithAssumption, combined)
+  const assigned = assignGeneratedThumbnailsToDrafts(params.drafts, combined)
   const createdCount = created.length
   const reused = createdCount === 0
   const hasDrafts = params.drafts.some((draft) => draft.channel === 'youtube' || draft.channel === 'instagram')

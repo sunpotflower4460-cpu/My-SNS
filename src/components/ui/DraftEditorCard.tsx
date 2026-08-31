@@ -240,8 +240,8 @@ export default function DraftEditorCard({
                 </span>
               )}
               {typeof metadata.thumbnailHook === 'string' && metadata.thumbnailHook && (
-                <span className="mt-1 block text-[11px] text-amber-700">
-                  フック「{String(metadata.thumbnailHook)}」は提案です。気に入らなければ別の候補を選ぶか、素材を差し替えてください。
+                <span className="mt-1 block text-[11px] text-[color:var(--text-subtle)]">
+                  サムネイル文字「{String(metadata.thumbnailHook)}」。別の候補を選ぶか、素材を差し替えできます。
                 </span>
               )}
               {draft.channel === 'note' && (

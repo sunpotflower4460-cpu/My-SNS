@@ -2,6 +2,7 @@ import Anthropic from '@anthropic-ai/sdk'
 import { PUBLISHING_CHANNEL_CONFIG } from '@/lib/channels/config'
 import type { PublishingChannel, Seed, SocialDraft } from '@/lib/domain/types'
 import { isValidThumbnailHook, shortenThumbnailHook } from '@/lib/media/thumbnail-hook'
+import { keepFactualAssumptions } from './draft-assumptions'
 import type { DraftGenerationContext, DraftGeneratorService } from './interfaces'
 
 // Server-only. Never import this file from client components — it reads
@@ -56,7 +57,7 @@ export const DRAFT_PROPOSAL_TOOL_SCHEMA = {
             type: 'array' as const,
             items: { type: 'string' as const },
             description:
-              'Every gap you filled with a guess instead of a confirmed Seed or Brand Profile fact. Empty array if you made no assumptions.',
+              'Guessed facts that are not in the Seed or Brand Profile (a date, a name, a price, a claim). Empty array if you invented no facts. Do not list copy-editing, channel formatting, or thumbnail/cover hook text.',
           },
           metadata: {
             type: 'object' as const,
@@ -97,10 +98,11 @@ export function buildDraftGenerationPrompt(
     'You are a proposal writer for a creator\'s social publishing workspace.',
     'You propose channel-specific copy from a single Seed (the raw source of truth). You are never the final decision maker.',
     'Never invent facts, dates, names, prices, or claims that are not present in the Seed or Brand Profile.',
-    'If you must fill a gap to write a usable draft, make the smallest reasonable assumption and record it in `assumptions`. Do not silently guess.',
+    'If you must fill a factual gap to write a usable draft, make the smallest reasonable assumption and record that fact-gap in `assumptions`. Do not silently invent facts.',
+    '`assumptions` is only for guessed facts. Do not record copy-editing, tone/length adaptation, channel formatting, or thumbnail/cover hook text there. Proofreading the creator\'s own words is not an assumption — listing it makes their work look like an AI guess.',
     'Respect the Brand Profile: preferred terms, avoided terms/claims, voice traits, and values are constraints, not suggestions.',
     'If past-edit examples are provided, they show how this specific creator tends to change your proposals — write closer to the "creator approved" style next time, without copying the example\'s facts into an unrelated Seed.',
-    'For YouTube, metadata.thumbnailHook is a 3–8 character Japanese CTR hook that will be burned into a real thumbnail image. Never put a paragraph or slogan list there; that is a proposal the human must confirm.',
+    'For YouTube, metadata.thumbnailHook is a 3–8 character Japanese CTR hook burned into a real thumbnail image, preferably taken from the Seed title or key points. Never put a paragraph or slogan list there. Do not record the hook in `assumptions`.',
     'Call the propose_channel_drafts tool exactly once with one proposal per requested channel.',
   ].join(' ')
 
@@ -181,20 +183,16 @@ export function parseDraftProposals(
     }
 
     const metadata: Record<string, unknown> = { ...(raw.metadata ?? {}) }
-    const assumptions = [...(raw.assumptions ?? [])]
+    const assumptions = keepFactualAssumptions(raw.assumptions)
     if (channel === 'youtube') {
       const proposed = typeof metadata.thumbnailHook === 'string' ? metadata.thumbnailHook : ''
       if (proposed && isValidThumbnailHook(proposed.trim())) {
         metadata.thumbnailHook = proposed.trim().replace(/\s+/g, '')
-        const note = `サムネイルのフック「${metadata.thumbnailHook}」はAIの提案です。画面で確認してください。`
-        if (!assumptions.includes(note)) assumptions.push(note)
       } else if (proposed) {
         const looksLikeParagraph = proposed.includes(' ') || proposed.replace(/\s+/g, '').length > 16
         const shortened = looksLikeParagraph ? '' : shortenThumbnailHook(proposed)
         if (shortened) {
           metadata.thumbnailHook = shortened
-          const note = `サムネイルのフック「${shortened}」はAI提案を3〜8文字に短縮したものです。`
-          if (!assumptions.includes(note)) assumptions.push(note)
         } else {
           delete metadata.thumbnailHook
         }
