@@ -68,13 +68,12 @@ export type ThumbnailHookSource = 'proposal' | 'title' | 'seed'
 export interface ResolvedThumbnailHook {
   hook: string
   source: ThumbnailHookSource
-  /** Set when the overlay text came from an AI proposal, not Seed facts. */
-  assumption?: string
 }
 
 /**
- * Prefer a 3–8 character AI proposal when it is actually that short.
+ * Prefer a 3–8 character overlay when it is actually that short.
  * Paragraph-shaped `thumbnailTextIdeas` never qualify.
+ * Overlay copy is not an assumption — even when condensed from a proposal.
  */
 export function resolveThumbnailHook(params: {
   proposed?: string | null
@@ -86,7 +85,6 @@ export function resolveThumbnailHook(params: {
     return {
       hook: proposed.replace(/\s+/g, ''),
       source: 'proposal',
-      assumption: `サムネイルのフック「${proposed.replace(/\s+/g, '')}」はAIの提案です。画面で確認してください。`,
     }
   }
 
@@ -98,7 +96,6 @@ export function resolveThumbnailHook(params: {
       return {
         hook: fromProposed,
         source: 'proposal',
-        assumption: `サムネイルのフック「${fromProposed}」はAI提案を${THUMBNAIL_HOOK_MIN}〜${THUMBNAIL_HOOK_MAX}文字に短縮したものです。`,
       }
     }
   }

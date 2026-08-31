@@ -1,6 +1,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import type { DraftRevision, DraftSource, PublishingChannel } from '@/lib/domain/types'
 import type { DraftStyleExample } from '@/lib/services/interfaces'
+import { keepFactualAssumptions } from '@/lib/services/draft-assumptions'
 import { createClient } from '@/lib/supabase/client'
 
 interface DraftRevisionRow {
@@ -34,7 +35,7 @@ function mapRevision(row: DraftRevisionRow): DraftRevision {
     body: row.body,
     hashtags: row.hashtags ?? [],
     cta: row.cta ?? undefined,
-    assumptions: row.assumptions ?? [],
+    assumptions: keepFactualAssumptions(row.assumptions),
     metadata: row.metadata ?? {},
     source: row.source,
     approvedBy: row.approved_by,

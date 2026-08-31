@@ -71,7 +71,7 @@
   - X: `{ thread?: string[] }`
   - Instagram / TikTok: `{ coverText?, hook? }`
   - note: `{ markdown, eyecatchIdeas[] }`
-  - `assumptions[]` は必ずUIに表示し、ユーザーが確認できるようにする。
+  - `assumptions[]` は事実の不足を推測で埋めた場合のみUIに表示する。原文の添削・媒体向け言い換え・サムネHookは載せない。
 - 生成にはBrand Profile（voice/values/preferredTerms/avoidedTerms/defaultCallToAction）とSeedのgoal/keyPoints/CTAをfew-shotとして与える。
 - 承認済み内容は `draft_revisions` に snapshot (jsonb) として保存する。RevisionはSeedおよび生成元のSocialDraftに紐づく。Seedの原文は変更しない。
 - コスト記録: `ai_generations` テーブルに model / tokens / cost を保存する。

@@ -1,4 +1,5 @@
 import type { DraftSource, SocialDraft } from '@/lib/domain/types'
+import { keepFactualAssumptions } from '@/lib/services/draft-assumptions'
 import { createClient } from '@/lib/supabase/client'
 
 interface SocialDraftRow {
@@ -32,7 +33,7 @@ function mapDraft(row: SocialDraftRow): SocialDraft {
     draftText: row.draft_text,
     hashtags: row.hashtags ?? [],
     cta: row.cta ?? undefined,
-    assumptions: row.assumptions ?? [],
+    assumptions: keepFactualAssumptions(row.assumptions),
     metadata: row.metadata ?? {},
     source: row.source,
     tone: row.tone,

@@ -21,11 +21,11 @@ describe('shortenThumbnailHook', () => {
 })
 
 describe('resolveThumbnailHook', () => {
-  it('uses a short AI proposal and labels it as a proposal', () => {
+  it('uses a short overlay from the proposal without labeling it as an AI guess', () => {
     const resolved = resolveThumbnailHook({ proposed: '今すぐ見る', title: 'Unused longer title here', seedTitle: 'Seed' })
     expect(resolved.hook).toBe('今すぐ見る')
     expect(resolved.source).toBe('proposal')
-    expect(resolved.assumption).toMatch(/AI/)
+    expect(resolved).not.toHaveProperty('assumption')
   })
 
   it('does not treat a paragraph-shaped thumbnailTextIdea as overlay text', () => {
@@ -36,6 +36,6 @@ describe('resolveThumbnailHook', () => {
     })
     expect(resolved.hook).toBe('無料公開')
     expect(resolved.source).toBe('title')
-    expect(resolved.assumption).toBeUndefined()
+    expect(resolved).not.toHaveProperty('assumption')
   })
 })

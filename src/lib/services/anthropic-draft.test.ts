@@ -43,7 +43,7 @@ describe('parseDraftProposals', () => {
     expect(drafts.find((d) => d.channel === 'youtube')?.assumptions).toEqual([])
   })
 
-  it('keeps a 3–8 character thumbnailHook as a labeled AI proposal, not a file', () => {
+  it('keeps a 3–8 character thumbnailHook as overlay copy, without labeling it as an AI guess', () => {
     const [youtube] = parseDraftProposals(
       {
         drafts: [
@@ -63,7 +63,57 @@ describe('parseDraftProposals', () => {
       'medium',
     )
     expect(youtube.metadata.thumbnailHook).toBe('今すぐ見る')
-    expect(youtube.assumptions.some((entry) => entry.includes('AI'))).toBe(true)
+    expect(youtube.assumptions).toEqual([])
+  })
+
+  it('drops copy-editing notes from assumptions while keeping guessed facts', () => {
+    const [youtube] = parseDraftProposals(
+      {
+        drafts: [
+          {
+            channel: 'youtube',
+            title: 'New arrangement',
+            body: 'Video body',
+            hashtags: [],
+            assumptions: [
+              '原文をYouTube向けに整えた',
+              'サムネイルのフック「今すぐ見る」はAIの提案です。画面で確認してください。',
+              '開催日がなかったので来週土曜と仮定した',
+            ],
+            metadata: { thumbnailHook: '今すぐ見る' },
+          },
+        ],
+      },
+      seed,
+      ['youtube'],
+      'calm',
+      'medium',
+    )
+    expect(youtube.assumptions).toEqual(['開催日がなかったので来週土曜と仮定した'])
+  })
+
+  it('shortens a slightly-too-long hook without recording it as an assumption', () => {
+    const [youtube] = parseDraftProposals(
+      {
+        drafts: [
+          {
+            channel: 'youtube',
+            body: 'Video body',
+            hashtags: [],
+            assumptions: [],
+            metadata: { thumbnailHook: '新曲無料公開スタート' },
+          },
+        ],
+      },
+      seed,
+      ['youtube'],
+      'calm',
+      'medium',
+    )
+    expect(typeof youtube.metadata.thumbnailHook).toBe('string')
+    expect(String(youtube.metadata.thumbnailHook).length).toBeGreaterThanOrEqual(3)
+    expect(String(youtube.metadata.thumbnailHook).length).toBeLessThanOrEqual(8)
+    expect(youtube.assumptions).toEqual([])
   })
 
   it('drops a paragraph-shaped thumbnailHook instead of treating it as overlay text', () => {
@@ -142,5 +192,11 @@ describe('buildDraftGenerationPrompt style examples (PR7)', () => {
   it('mentions past-edit examples in the system prompt only when relevant guidance is needed either way (always present, harmless when unused)', () => {
     const { system } = buildDraftGenerationPrompt(seed, ['youtube'], 'calm', 'medium')
     expect(system).toContain('past-edit examples')
+  })
+
+  it('tells the model not to list copy-editing or thumbnail hooks as assumptions', () => {
+    const { system } = buildDraftGenerationPrompt(seed, ['youtube'], 'calm', 'medium')
+    expect(system).toContain('Proofreading the creator\'s own words is not an assumption')
+    expect(system).toContain('Do not record the hook in `assumptions`')
   })
 })
