@@ -1,4 +1,4 @@
-import type { AssetType } from '@/lib/domain/types'
+import type { AssetType, SeedKind } from '@/lib/domain/types'
 
 export function normalizeTags(input: string | string[]): string[] {
   const values = Array.isArray(input) ? input : input.split(',')
@@ -22,6 +22,16 @@ export function inferAssetType(name: string, mimeType?: string): AssetType {
   if (extension && ['mp4', 'mov', 'webm', 'm4v'].includes(extension)) return 'video'
   if (extension && ['mp3', 'wav', 'aac', 'm4a', 'flac'].includes(extension)) return 'audio'
   return 'document'
+}
+
+export function inferSeedKindFromFiles(types: AssetType[], hasSourceText: boolean): SeedKind {
+  const unique = new Set(types.filter((type) => type !== 'document'))
+  if (unique.size === 0) return 'text'
+  if (unique.size > 1) return 'mixed'
+  if (unique.has('video')) return 'video'
+  if (unique.has('audio')) return 'music'
+  if (unique.has('image')) return hasSourceText ? 'mixed' : 'image'
+  return 'text'
 }
 
 export function formatBytes(value: number): string {

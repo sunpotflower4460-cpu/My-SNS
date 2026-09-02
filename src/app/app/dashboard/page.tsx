@@ -51,7 +51,7 @@ export default function DashboardPage() {
     <div className="space-y-8">
       <PageHeader
         title="ホーム"
-        description={`${currentWorkspace?.name ?? 'ワークスペース'}の今日の投稿と、次に進める1件を最初に確認できます。`}
+        description={`${currentWorkspace?.name ?? 'ワークスペース'}の今日の投稿と、次に進める1件を最初に確認できます。新しい発信は写真や動画を入れて、提案を直して送れます。`}
         actions={
           <Link
             href="/app/seeds/new"

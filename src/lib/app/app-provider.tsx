@@ -1034,7 +1034,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           throw new Error('あなたの役割では公開予約ができません。')
         }
 
-        const draft = drafts.find((entry) => entry.id === draftId)
+        // Read the row from the database — in-memory `drafts` can lag one
+        // render behind saveAndApproveDraft, which is exactly the path the
+        // mobile "まとめて送る" flow uses (generate → approve → schedule).
+        const draft = await draftsRepo.getSocialDraft(currentWorkspace.id, draftId)
         if (!draft) throw new Error('下書きが見つかりません')
         if (draft.status !== 'approved') throw new Error('承認済みの下書きのみ予約できます。')
 

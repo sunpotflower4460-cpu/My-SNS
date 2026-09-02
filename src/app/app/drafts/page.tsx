@@ -2,7 +2,8 @@
 
 import { useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
-import { useSearchParams } from 'next/navigation'
+import { useRouter, useSearchParams } from 'next/navigation'
+import SendAllPanel from '@/components/compose/SendAllPanel'
 import ChannelBadge from '@/components/ui/ChannelBadge'
 import DraftEditorCard from '@/components/ui/DraftEditorCard'
 import EmptyState from '@/components/ui/EmptyState'
@@ -11,6 +12,8 @@ import { PUBLISHING_CHANNEL_CONFIG } from '@/lib/channels/config'
 import { useApp } from '@/lib/app/app-provider'
 import { CORE_PUBLISHING_CHANNELS, type PublishingChannel, type SocialDraft } from '@/lib/domain/types'
 import { hasPermission } from '@/lib/permissions'
+import { mergeDraftPublishOptions } from '@/lib/publish/draft-publish-options'
+import { type SendAllPlan } from '@/lib/presentation/send-plan'
 import { resetTemplateDraft } from '@/lib/services/ai-draft'
 import { generatePerformanceThumbnailsForSeed } from '@/lib/media/thumbnail-pipeline'
 
@@ -22,24 +25,50 @@ const TONE_LABELS: Record<string, string> = {
   playful: '遊び心のある',
 }
 
+/** Survives React Strict Mode remounts so "?autogen=1" does not bill twice. */
+const startedAutogen = new Set<string>()
+
+function isUnsavedGeneratedId(id: string): boolean {
+  return id.startsWith('generated-')
+}
+
 export default function DraftsPage() {
+  const router = useRouter()
   const searchParams = useSearchParams()
-  const { currentMember, currentWorkspace, drafts, generateChannelDrafts, getDraftsForSeed, getSeedDetail, refreshWorkspaceData, saveAndApproveDraft, saveDraft, scheduleDraft, seeds, socialAccounts } = useApp()
+  const {
+    currentMember,
+    currentWorkspace,
+    drafts,
+    generateChannelDrafts,
+    getDraftsForSeed,
+    getSeedDetail,
+    refreshWorkspaceData,
+    saveAndApproveDraft,
+    saveDraft,
+    scheduleDraft,
+    seeds,
+    socialAccounts,
+    triggerPublishJob,
+  } = useApp()
   const canApprove = Boolean(currentMember && hasPermission(currentMember.role, 'approve_drafts'))
   const canManageQueue = Boolean(currentMember && hasPermission(currentMember.role, 'manage_queue'))
   const canCreateDrafts = Boolean(currentMember && hasPermission(currentMember.role, 'create_drafts'))
   const canEditDrafts = Boolean(currentMember && hasPermission(currentMember.role, 'edit_drafts'))
+  const canSendAll = canApprove && canManageQueue
   const requestedSeedId = searchParams.get('seed')
+  const shouldAutogen = searchParams.get('autogen') === '1'
   const [seedId, setSeedId] = useState(requestedSeedId ?? seeds[0]?.id ?? '')
   const [selectedChannels, setSelectedChannels] = useState<PublishingChannel[]>([])
   const [tone, setTone] = useState('calm')
   const [length, setLength] = useState<'short' | 'medium' | 'long'>('short')
   const [generatedDrafts, setGeneratedDrafts] = useState<SocialDraft[]>([])
   const [loading, setLoading] = useState(false)
+  const [sending, setSending] = useState(false)
   const [feedback, setFeedback] = useState('')
   const [warning, setWarning] = useState('')
   const [error, setError] = useState('')
   const [thumbFeedback, setThumbFeedback] = useState('')
+  const [liveEdits, setLiveEdits] = useState<Record<string, { text: string; metadata: Record<string, unknown> }>>({})
 
   const selectedSeed = useMemo(() => seeds.find((seed) => seed.id === seedId) ?? null, [seedId, seeds])
   const selectedSeedAssets = selectedSeed ? getSeedDetail(selectedSeed.id).assets : []
@@ -51,10 +80,29 @@ export default function DraftsPage() {
     }, {}),
     [existingDrafts],
   )
+  const applyLiveEdits = (draft: SocialDraft): SocialDraft => {
+    const live = liveEdits[draft.id]
+    if (!live) return draft
+    return { ...draft, draftText: live.text, metadata: live.metadata }
+  }
+
+  const sendableDrafts = useMemo(() => {
+    const byId = new Map<string, SocialDraft>()
+    for (const draft of existingDrafts) byId.set(draft.id, applyLiveEdits(draft))
+    for (const draft of generatedDrafts) byId.set(draft.id, applyLiveEdits(draft))
+    return [...byId.values()]
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- applyLiveEdits is a local closure over liveEdits
+  }, [existingDrafts, generatedDrafts, liveEdits])
 
   useEffect(() => {
+    if (requestedSeedId) {
+      if (seeds.length === 0 || seeds.some((seed) => seed.id === requestedSeedId)) {
+        setSeedId(requestedSeedId)
+        return
+      }
+    }
     if (seeds.length > 0 && !seeds.some((seed) => seed.id === seedId)) setSeedId(seeds[0].id)
-  }, [seedId, seeds])
+  }, [requestedSeedId, seedId, seeds])
 
   // Only reset channel picks / unsaved AI drafts when the selected Seed *id*
   // changes. refreshWorkspaceData() rebuilds Seed object identity often, and
@@ -63,6 +111,7 @@ export default function DraftsPage() {
     if (!selectedSeed) return
     setSelectedChannels(selectedSeed.targetChannels.length > 0 ? selectedSeed.targetChannels : [...CORE_PUBLISHING_CHANNELS])
     setGeneratedDrafts([])
+    setLiveEdits({})
     // eslint-disable-next-line react-hooks/exhaustive-deps -- intentional: seed id only
   }, [selectedSeed?.id])
 
@@ -72,14 +121,14 @@ export default function DraftsPage() {
       : [...current, channel])
   }
 
-  const handleGenerate = async () => {
-    if (!selectedSeed) return
+  const handleGenerate = async (channels = selectedChannels) => {
+    if (!selectedSeed || channels.length === 0) return
     setLoading(true)
     setError('')
     setWarning('')
     setThumbFeedback('')
     try {
-      const result = await generateChannelDrafts(selectedSeed.id, selectedChannels, tone, length)
+      const result = await generateChannelDrafts(selectedSeed.id, channels, tone, length)
       const usageWarning = (result as typeof result & { usageWarning?: string }).usageWarning
       let nextDrafts = result.drafts
       if (currentWorkspace) {
@@ -106,7 +155,7 @@ export default function DraftsPage() {
       setWarning(usageWarning ?? '')
       setFeedback(
         result.source === 'ai'
-          ? `AIが${result.drafts.length}件の提案を作成しました。承認する前に仮定を確認してください。`
+          ? `AIが${result.drafts.length}件の提案を作成しました。直して、下のチェックからまとめて送れます。`
           : result.reason ?? `${result.drafts.length}件のテンプレートを作成しました。中身がそのまま分かるテンプレートで、AIによる提案ではありません。`,
       )
     } catch (cause) {
@@ -118,8 +167,23 @@ export default function DraftsPage() {
     }
   }
 
+  useEffect(() => {
+    if (!shouldAutogen || !selectedSeed || !canCreateDrafts) return
+    if (startedAutogen.has(selectedSeed.id)) {
+      router.replace(`/app/drafts?seed=${selectedSeed.id}`)
+      return
+    }
+    const channels = selectedSeed.targetChannels.length > 0
+      ? selectedSeed.targetChannels
+      : [...CORE_PUBLISHING_CHANNELS]
+    startedAutogen.add(selectedSeed.id)
+    router.replace(`/app/drafts?seed=${selectedSeed.id}`)
+    void handleGenerate(channels)
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- one-shot per seed after 提案をもらう
+  }, [canCreateDrafts, selectedSeed?.id, shouldAutogen])
+
   const toDraftInput = (draft: SocialDraft) => ({
-    ...(draft.id.startsWith('generated-') ? {} : { id: draft.id }),
+    ...(isUnsavedGeneratedId(draft.id) ? {} : { id: draft.id }),
     workspaceId: draft.workspaceId,
     seedId: draft.seedId,
     channel: draft.channel,
@@ -138,6 +202,10 @@ export default function DraftsPage() {
 
   const persistDraft = async (draft: SocialDraft) => saveDraft(toDraftInput(draft))
 
+  const rememberLive = (id: string, text: string, metadata: Record<string, unknown>) => {
+    setLiveEdits((current) => ({ ...current, [id]: { text, metadata } }))
+  }
+
   const runDraftAction = async (action: () => Promise<unknown>, successMessage: string) => {
     try {
       await action()
@@ -149,11 +217,77 @@ export default function DraftsPage() {
     }
   }
 
-  return (
-    <div>
-      <PageHeader title="下書きスタジオ" description="1つのシードから媒体ごとの提案を作成します。AIの下書きには必ず仮定（AIの推測）が示され、あなたが確認するまで何も承認されません。" />
+  const handleSendAll = async (plan: SendAllPlan) => {
+    setSending(true)
+    setError('')
+    const sent: string[] = []
+    const problems: string[] = []
+    const sentGeneratedIds = new Set<string>()
+    const byId = new Map(sendableDrafts.map((draft) => [draft.id, draft]))
 
-      {(feedback || error) && <div className={`mb-5 rounded-2xl border px-4 py-3 text-sm ${error ? 'border-red-200 bg-red-50 text-red-700' : 'border-green-200 bg-green-50 text-green-700'}`}>{error || feedback}</div>}
+    for (const target of plan.targets) {
+      const draft = byId.get(target.draftId)
+      if (!draft) {
+        problems.push(`${target.label}: 下書きが見つかりません。`)
+        continue
+      }
+
+      try {
+        const metadata = mergeDraftPublishOptions(draft.metadata, { socialAccountId: target.selectedAccountId })
+        const withAccount = { ...draft, metadata }
+        const approved = await saveAndApproveDraft(toDraftInput(withAccount))
+
+        if (isUnsavedGeneratedId(draft.id)) sentGeneratedIds.add(draft.id)
+
+        const scheduledAt = plan.timing === 'scheduled' && plan.scheduledAt
+          ? plan.scheduledAt
+          : new Date().toISOString()
+        const job = await scheduleDraft(approved.id, scheduledAt)
+
+        if (plan.timing === 'now' && !target.noteHandoff) {
+          try {
+            await triggerPublishJob(job.id)
+          } catch (cause) {
+            problems.push(`${target.label}: ${cause instanceof Error ? cause.message : '公開を開始できませんでした。公開予定から確認してください。'}`)
+            sent.push(target.label)
+            continue
+          }
+        }
+
+        sent.push(target.label)
+      } catch (cause) {
+        problems.push(`${target.label}: ${cause instanceof Error ? cause.message : '送れませんでした。'}`)
+      }
+    }
+
+    if (sentGeneratedIds.size > 0) {
+      setGeneratedDrafts((current) => current.filter((draft) => !sentGeneratedIds.has(draft.id)))
+    }
+
+    if (sent.length > 0) {
+      const timingNote = plan.timing === 'now'
+        ? '今すぐ公開を試みました。noteはコピー用として公開予定に残します。'
+        : '予約しました。公開予定から確認できます。'
+      setFeedback(`${sent.join('、')}を受け付けました。${timingNote}`)
+    } else {
+      setFeedback('')
+    }
+    setError(problems.join('\n'))
+    setSending(false)
+  }
+
+  return (
+    <div className="pb-24 xl:pb-0">
+      <PageHeader
+        title="下書きスタジオ"
+        description="提案を直して、下のチェックで媒体と時間を選んでまとめて送れます。AIの下書きには仮定が示され、確認するまで承認されません。"
+      />
+
+      {(feedback || error) && (
+        <div className={`mb-5 whitespace-pre-line rounded-2xl border px-4 py-3 text-sm ${error && !feedback ? 'border-red-200 bg-red-50 text-red-700' : error ? 'border-amber-200 bg-amber-50 text-amber-900' : 'border-green-200 bg-green-50 text-green-700'}`}>
+          {feedback}{feedback && error ? '\n' : ''}{error}
+        </div>
+      )}
       {warning && !error && <div className="mb-5 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">{warning} 続けて大量生成する前に、管理者へ使用量台帳の確認を依頼してください。</div>}
 
       {seeds.length === 0 ? (
@@ -184,6 +318,7 @@ export default function DraftsPage() {
                 draft={draft}
                 connectedAccounts={socialAccounts}
                 seedAssets={selectedSeedAssets}
+                onLiveChange={rememberLive}
                 onEdit={canEditDrafts ? (id, text, metadata) => {
                   const target = generatedDrafts.find((entry) => entry.id === id)
                   setGeneratedDrafts((current) => current.map((entry) => entry.id === id ? { ...entry, draftText: text, metadata, updatedAt: new Date().toISOString() } : entry))
@@ -211,6 +346,18 @@ export default function DraftsPage() {
         </section>
       )}
 
+      {sendableDrafts.length > 0 && (
+        <section className="mb-8">
+          <SendAllPanel
+            drafts={sendableDrafts}
+            accounts={socialAccounts}
+            canSend={canSendAll}
+            busy={sending}
+            onSend={handleSendAll}
+          />
+        </section>
+      )}
+
       <section>
         <div className="mb-3 flex items-center justify-between gap-3"><h2 className="text-base font-semibold text-gray-900">保存済みの下書き</h2>{selectedSeed && <span className="text-sm text-gray-500">{selectedSeed.title}</span>}</div>
         {existingDrafts.length === 0 ? <EmptyState title="まだ下書きがありません" description="テンプレートを作成し、残しておきたいバージョンを保存してください。" /> : (
@@ -228,6 +375,7 @@ export default function DraftsPage() {
                       draft={draft}
                       connectedAccounts={socialAccounts}
                       seedAssets={selectedSeedAssets}
+                      onLiveChange={rememberLive}
                       onEdit={canEditDrafts ? (id, text, metadata) => {
                         const target = existingDrafts.find((entry) => entry.id === id)
                         if (target) void runDraftAction(() => persistDraft({ ...target, draftText: text, metadata }), `${PUBLISHING_CHANNEL_CONFIG[target.channel].label}の下書きを保存しました。`)

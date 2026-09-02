@@ -1,20 +1,21 @@
 import { describe, expect, it } from 'vitest'
-import { formatBytes, inferAssetType, normalizeTags } from './input'
+import { inferSeedKindFromFiles } from './input'
 
-describe('Seed input utilities', () => {
-  it('normalizes and deduplicates comma-separated tags', () => {
-    expect(normalizeTags(' Music, release, MUSIC,  ')).toEqual(['music', 'release'])
+describe('inferSeedKindFromFiles', () => {
+  it('uses video when only a video is attached', () => {
+    expect(inferSeedKindFromFiles(['video'], false)).toBe('video')
   })
 
-  it('infers asset type from MIME type before extension', () => {
-    expect(inferAssetType('cover.bin', 'image/png')).toBe('image')
-    expect(inferAssetType('song.FLAC')).toBe('audio')
-    expect(inferAssetType('notes.pdf')).toBe('document')
+  it('uses image when only stills are attached and there is no source text', () => {
+    expect(inferSeedKindFromFiles(['image', 'image'], false)).toBe('image')
   })
 
-  it('formats common asset sizes', () => {
-    expect(formatBytes(1024)).toBe('1 KB')
-    expect(formatBytes(5 * 1024 * 1024)).toBe('5.0 MB')
-    expect(formatBytes(2 * 1024 * 1024 * 1024)).toBe('2.0 GB')
+  it('marks image plus source text as mixed', () => {
+    expect(inferSeedKindFromFiles(['image'], true)).toBe('mixed')
+  })
+
+  it('returns text when nothing media-like is attached', () => {
+    expect(inferSeedKindFromFiles([], true)).toBe('text')
+    expect(inferSeedKindFromFiles(['document'], false)).toBe('text')
   })
 })

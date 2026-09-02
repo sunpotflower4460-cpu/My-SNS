@@ -27,6 +27,11 @@ export function resolveSeedAudience(seed: Pick<Seed, 'audience'>, brandProfile?:
   return seed.audience?.trim() || brandProfile?.audience?.trim() || ''
 }
 
+/** Prefer the Seed's own goal; otherwise reuse the Brand Profile purpose so each 発信 need not restate worldview. */
+export function resolveSeedGoal(seed: Pick<Seed, 'goal'>, brandProfile?: BrandProfile | null): string {
+  return seed.goal?.trim() || brandProfile?.description?.trim() || ''
+}
+
 export function resolveSeedCallToAction(
   seed: Pick<Seed, 'callToAction'>,
   brandProfile?: BrandProfile | null,
@@ -41,7 +46,7 @@ export function evaluateSeedReadiness(
   const checks: Array<[SeedReadinessField, boolean]> = [
     ['title', hasText(seed.title)],
     ['source', hasText(seed.sourceText) || options.hasAssets],
-    ['goal', hasText(seed.goal)],
+    ['goal', hasText(resolveSeedGoal(seed, options.brandProfile))],
     ['audience', hasText(resolveSeedAudience(seed, options.brandProfile))],
     ['brand_profile', Boolean(seed.brandProfileId && options.brandProfile)],
     ['target_channels', seed.targetChannels.length > 0],

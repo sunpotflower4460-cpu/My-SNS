@@ -82,6 +82,20 @@ export async function listSeedDrafts(
   return (data ?? []).map((row) => mapDraft(row as SocialDraftRow))
 }
 
+export async function getSocialDraft(workspaceId: string, draftId: string): Promise<SocialDraft | null> {
+  const supabase = createClient()
+
+  const { data, error } = await supabase
+    .from('social_drafts')
+    .select('*')
+    .eq('workspace_id', workspaceId)
+    .eq('id', draftId)
+    .maybeSingle()
+
+  if (error) throw draftsReadError('下書き', error.message)
+  return data ? mapDraft(data as SocialDraftRow) : null
+}
+
 export async function upsertSocialDraft(
   workspaceId: string,
   draft: Omit<SocialDraft, 'id' | 'createdAt' | 'updatedAt'> & { id?: string }
