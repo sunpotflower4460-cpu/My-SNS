@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { BrandProfile, Seed } from '@/lib/domain/types'
-import { evaluateSeedReadiness, resolveSeedAudience, resolveSeedCallToAction } from './readiness'
+import { evaluateSeedReadiness, resolveSeedAudience, resolveSeedCallToAction, resolveSeedGoal } from './readiness'
 
 const profile: BrandProfile = {
   id: 'brand-1',
@@ -41,6 +41,8 @@ describe('seed readiness', () => {
   it('uses Brand Profile defaults without copying them into the Seed', () => {
     expect(resolveSeedAudience(seed, profile)).toBe(profile.audience)
     expect(resolveSeedCallToAction(seed, profile)).toBe(profile.defaultCallToAction)
+    expect(resolveSeedGoal({ ...seed, goal: undefined }, profile)).toBe(profile.description)
+    expect(evaluateSeedReadiness({ ...seed, goal: '' }, { hasAssets: false, brandProfile: profile }).isReady).toBe(true)
     expect(evaluateSeedReadiness(seed, { hasAssets: false, brandProfile: profile })).toEqual({
       score: 100,
       missingFields: [],

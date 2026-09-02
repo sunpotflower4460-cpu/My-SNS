@@ -22,6 +22,8 @@ interface DraftEditorCardProps {
   onApprove?: (id: string, text: string, metadata: Record<string, unknown>) => void
   onRegenerate?: (id: string) => void
   onSchedule?: (id: string, scheduledAt: string, metadata: Record<string, unknown>) => void
+  /** Live editor contents, so a parent (まとめて送る) can send the text currently on screen. */
+  onLiveChange?: (id: string, text: string, metadata: Record<string, unknown>) => void
 }
 
 export default function DraftEditorCard({
@@ -32,6 +34,7 @@ export default function DraftEditorCard({
   onApprove,
   onRegenerate,
   onSchedule,
+  onLiveChange,
 }: DraftEditorCardProps) {
   const [text, setText] = useState(draft.draftText)
   const [metadata, setMetadata] = useState(draft.metadata ?? {})
@@ -87,13 +90,18 @@ export default function DraftEditorCard({
           : ''
 
   const updatePublishOptions = (patch: Parameters<typeof mergeDraftPublishOptions>[1]) => {
-    setMetadata((current) => mergeDraftPublishOptions(current, { ...parseDraftPublishOptions(current), ...patch }))
+    setMetadata((current) => {
+      const next = mergeDraftPublishOptions(current, { ...parseDraftPublishOptions(current), ...patch })
+      onLiveChange?.(draft.id, text, next)
+      return next
+    })
     setIsDirty(true)
   }
 
   const handleChange = (val: string) => {
     setText(val)
     setIsDirty(true)
+    onLiveChange?.(draft.id, val, metadata)
   }
 
   const handleSave = () => {
