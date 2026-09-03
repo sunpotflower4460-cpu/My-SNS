@@ -2,7 +2,13 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 import type { DraftRevision, DraftSource, PublishingChannel } from '@/lib/domain/types'
 import type { DraftStyleExample } from '@/lib/services/interfaces'
 import { keepFactualAssumptions } from '@/lib/services/draft-assumptions'
+import {
+  buildDraftStyleExamples,
+  STYLE_LEARNING_LIMIT_PER_CHANNEL,
+} from '@/lib/services/draft-style-learning'
 import { createClient } from '@/lib/supabase/client'
+
+export { wasRevisionEditedByHuman } from '@/lib/services/draft-style-learning'
 
 interface DraftRevisionRow {
   id: string
@@ -136,22 +142,6 @@ export async function listWorkspaceDraftRevisions(workspaceId: string, limit = W
   return (data ?? []).map((row) => mapRevision(row as DraftRevisionRow))
 }
 
-function sortedHashtags(hashtags: string[]): string {
-  return [...hashtags].sort().join(',')
-}
-
-/** True when the approved content actually differs from what the AI originally proposed — false for template-sourced Revisions and anything approved unedited. Compares every field the snapshot carries, including hashtags (order-insensitive) — a hashtag-only correction is still a real, learnable edit. */
-export function wasRevisionEditedByHuman(revision: DraftRevision): boolean {
-  const snapshot = revision.aiOriginalSnapshot
-  if (!snapshot) return false
-  return (
-    revision.body !== snapshot.body ||
-    (revision.title ?? '') !== (snapshot.title ?? '') ||
-    (revision.cta ?? '') !== (snapshot.cta ?? '') ||
-    sortedHashtags(revision.hashtags) !== sortedHashtags(snapshot.hashtags)
-  )
-}
-
 /**
  * Recent AI proposals a human actually edited before approving, for the
  * given channels — passed into the next generation call as few-shot style
@@ -163,7 +153,7 @@ export async function listRecentAiRevisionsForStyleLearning(
   supabase: SupabaseClient,
   workspaceId: string,
   channels: PublishingChannel[],
-  limitPerChannel = 2,
+  limitPerChannel = STYLE_LEARNING_LIMIT_PER_CHANNEL,
 ): Promise<DraftStyleExample[]> {
   if (channels.length === 0) return []
 
@@ -181,18 +171,5 @@ export async function listRecentAiRevisionsForStyleLearning(
     throw new Error(`スタイル学習用の下書き履歴を読み込めませんでした: ${error.message}`)
   }
 
-  const revisions = (data ?? []).map((row) => mapRevision(row as DraftRevisionRow))
-  const examples: DraftStyleExample[] = []
-  const countPerChannel = new Map<PublishingChannel, number>()
-
-  for (const revision of revisions) {
-    if (!revision.aiOriginalSnapshot || !wasRevisionEditedByHuman(revision)) continue
-    const soFar = countPerChannel.get(revision.channel) ?? 0
-    if (soFar >= limitPerChannel) continue
-
-    examples.push({ channel: revision.channel, aiProposed: revision.aiOriginalSnapshot.body, humanApproved: revision.body })
-    countPerChannel.set(revision.channel, soFar + 1)
-  }
-
-  return examples
+  return buildDraftStyleExamples((data ?? []).map((row) => mapRevision(row as DraftRevisionRow)), limitPerChannel)
 }

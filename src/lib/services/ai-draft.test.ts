@@ -32,6 +32,7 @@ describe('template draft generator', () => {
 
     expect(drafts.map((draft) => draft.channel)).toEqual(seed.targetChannels)
     expect(drafts.every((draft) => draft.createdBy === 'sora')).toBe(true)
+    expect(drafts.every((draft) => draft.aiOriginalSnapshot === undefined)).toBe(true)
     expect(drafts.map((draft) => draft.draftText).join('\n')).not.toMatch(/#fyp|subscribe|hit the bell/i)
   })
 

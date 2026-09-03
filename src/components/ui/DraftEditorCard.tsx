@@ -300,8 +300,13 @@ export default function DraftEditorCard({
         </div>
       )}
 
-      <div className="mt-3 flex items-center gap-2">
+      <div className="mt-3 flex flex-wrap items-center gap-2">
         {isDirty && <span className="rounded-full border border-amber-200/80 bg-amber-50/90 px-2.5 py-1 text-[11px] font-semibold text-amber-700">未保存</span>}
+        {draft.source === 'ai' && draft.status === 'draft' && draft.aiOriginalSnapshot && text !== draft.aiOriginalSnapshot.body && (
+          <span className="rounded-full border border-[color:rgba(109,93,246,0.16)] bg-[color:var(--accent-soft)] px-2.5 py-1 text-[11px] font-semibold text-[color:var(--accent)]">
+            承認すると次回の提案に反映
+          </span>
+        )}
         {isDirty && onEdit && (
           <button
             onClick={handleSave}

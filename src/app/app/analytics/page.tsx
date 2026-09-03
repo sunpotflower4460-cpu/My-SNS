@@ -8,6 +8,7 @@ import EmptyState from '@/components/ui/EmptyState'
 import { Badge, Button, Card, InlineAlert } from '@/components/ui/kit'
 import { useApp } from '@/lib/app/app-provider'
 import { computeAnalytics, formatCost, selectRecentPublished } from '@/lib/presentation/analytics-presenter'
+import { selectRecentStyleCorrections, STYLE_FIELD_LABELS_JA, truncateStylePreview } from '@/lib/services/draft-style-learning'
 import type { PostMetrics, PublishFailureReason } from '@/lib/domain/types'
 
 const FAILURE_REASON_LABELS: Record<PublishFailureReason, string> = {
@@ -29,6 +30,7 @@ export default function AnalyticsPage() {
     [publishAttempts, aiGenerations, draftRevisions, publishJobs],
   )
   const recentPublished = useMemo(() => selectRecentPublished(publishAttempts, publishJobs), [publishAttempts, publishJobs])
+  const recentCorrections = useMemo(() => selectRecentStyleCorrections(draftRevisions), [draftRevisions])
   const seedById = useMemo(() => new Map(seeds.map((seed) => [seed.id, seed])), [seeds])
 
   const handleLoadMetrics = async (jobId: string) => {
@@ -45,7 +47,7 @@ export default function AnalyticsPage() {
     <div>
       <PageHeader
         title="分析"
-        description={`${currentWorkspace?.name ?? 'このワークスペース'}における公開とAI提案の実際の状況です — 推定値ではなく、実際の試行記録に基づいています。`}
+        description={`${currentWorkspace?.name ?? 'このワークスペース'}における公開とAI提案の実際の状況です — 推定値ではなく、実際の試行記録に基づいています。直して承認した内容は同じ媒体の次回提案に反映されます。`}
       />
 
       {summary.isTruncated && (
@@ -64,7 +66,11 @@ export default function AnalyticsPage() {
           label="AI提案の編集率"
           value={summary.editStats.rate === null ? '—' : `${summary.editStats.rate}%`}
           icon="✏️"
-          trend={summary.editStats.rate === null ? 'まだAI提案由来の承認がありません' : `承認済みAIドラフト${summary.editStats.total}件中${summary.editStats.edited}件を編集`}
+          trend={
+            summary.editStats.rate === null
+              ? 'まだAI提案由来の承認がありません'
+              : `承認済みAIドラフト${summary.editStats.total}件中${summary.editStats.edited}件を編集。直した内容は次回の提案に使われます`
+          }
         />
       </div>
 
@@ -103,6 +109,48 @@ export default function AnalyticsPage() {
                   <Badge tone="error">{entry.count}件</Badge>
                 </div>
               ))}
+            </div>
+          )}
+        </Card>
+      </div>
+
+      <div className="mt-6">
+        <Card size="container" padded>
+          <div className="mb-4 flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between sm:gap-3">
+            <h2 className="text-base font-semibold text-gray-900">AI提案への修正</h2>
+            <span className="text-xs text-gray-400">承認した差分だけを記憶します。Brand Profileは自動では上書きしません。</span>
+          </div>
+          {recentCorrections.length === 0 ? (
+            <EmptyState
+              title="まだ修正の記録がありません"
+              description="AI提案を直して承認すると、同じ媒体の次回提案の参考例になります。事実やCTAは推測で埋めません。"
+              icon="✏️"
+            />
+          ) : (
+            <div className="divide-y divide-stone-100">
+              {recentCorrections.map((correction) => {
+                const seedTitle = seedById.get(correction.seedId)?.title ?? correction.seedId
+                return (
+                  <div key={correction.revisionId} className="flex flex-col gap-3 py-4">
+                    <div className="flex flex-wrap items-center gap-3">
+                      <ChannelBadge channel={correction.channel} />
+                      <p className="min-w-0 flex-1 truncate text-sm font-medium text-gray-900">{seedTitle}</p>
+                      <span className="text-xs text-gray-400">
+                        {new Date(correction.createdAt).toLocaleString('ja-JP', { timeZone: 'Asia/Tokyo' })}
+                      </span>
+                    </div>
+                    <ul className="space-y-2">
+                      {correction.diffs.map((diff) => (
+                        <li key={`${correction.revisionId}-${diff.field}`} className="rounded-card border border-stone-100 bg-stone-50 px-3 py-2 text-xs leading-5 text-gray-600">
+                          <span className="font-semibold text-gray-800">{STYLE_FIELD_LABELS_JA[diff.field]}</span>
+                          <span className="mt-1 block text-gray-500">AI: {truncateStylePreview(diff.before)}</span>
+                          <span className="block text-gray-800">承認: {truncateStylePreview(diff.after)}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )
+              })}
             </div>
           )}
         </Card>

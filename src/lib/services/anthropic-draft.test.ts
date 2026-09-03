@@ -41,6 +41,18 @@ describe('parseDraftProposals', () => {
     expect(drafts.every((d) => d.source === 'ai')).toBe(true)
     expect(drafts.find((d) => d.channel === 'x')?.assumptions).toEqual(['Assumed evening posting time.'])
     expect(drafts.find((d) => d.channel === 'youtube')?.assumptions).toEqual([])
+    expect(drafts.find((d) => d.channel === 'youtube')?.aiOriginalSnapshot).toEqual({
+      title: 'New arrangement',
+      body: 'Video body',
+      hashtags: ['studio'],
+      cta: undefined,
+    })
+    expect(drafts.find((d) => d.channel === 'x')?.aiOriginalSnapshot).toEqual({
+      title: undefined,
+      body: 'X body',
+      hashtags: [],
+      cta: 'Listen now',
+    })
   })
 
   it('keeps a 3–8 character thumbnailHook as overlay copy, without labeling it as an AI guess', () => {
@@ -180,7 +192,7 @@ describe('buildDraftGenerationPrompt style examples (PR7)', () => {
 
   it('includes past edit examples as a distinct block, without discarding the rest of the prompt', () => {
     const { user } = buildDraftGenerationPrompt(seed, ['youtube'], 'calm', 'medium', null, [
-      { channel: 'youtube', aiProposed: 'Check out my new track!', humanApproved: 'New track is up — link below.' },
+      { channel: 'youtube', aiProposed: { body: 'Check out my new track!', hashtags: [] }, humanApproved: { body: 'New track is up — link below.', hashtags: [] } },
     ])
 
     expect(user).toContain('Past edits this creator made')
@@ -198,5 +210,28 @@ describe('buildDraftGenerationPrompt style examples (PR7)', () => {
     const { system } = buildDraftGenerationPrompt(seed, ['youtube'], 'calm', 'medium')
     expect(system).toContain('Proofreading the creator\'s own words is not an assumption')
     expect(system).toContain('Do not record the hook in `assumptions`')
+  })
+
+  it('appends observed tendencies without dropping Seed facts', () => {
+    const { user, system } = buildDraftGenerationPrompt(
+      seed,
+      ['x'],
+      'calm',
+      'medium',
+      null,
+      [
+        {
+          channel: 'x',
+          aiProposed: { body: 'Check out my new track!', hashtags: [] },
+          humanApproved: { body: 'New track is up — link below.', hashtags: [] },
+        },
+      ],
+      ['x: tends to shorten the body'],
+    )
+
+    expect(system).toContain('Observed tendencies are style hints')
+    expect(user).toContain('Observed editing tendencies')
+    expect(user).toContain('x: tends to shorten the body')
+    expect(user).toContain(`Seed title: ${seed.title}`)
   })
 })
