@@ -166,7 +166,7 @@ interface AppContextValue {
     channels: PublishingChannel[],
     tone: string,
     length: 'short' | 'medium' | 'long',
-  ) => Promise<{ source: 'ai' | 'template-fallback'; reason?: string; drafts: SocialDraft[] }>
+  ) => Promise<{ source: 'ai' | 'template-fallback'; reason?: string; styleExamplesUsed?: number; drafts: SocialDraft[] }>
 }
 
 const AppContext = createContext<AppContextValue | null>(null)
@@ -1264,7 +1264,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           throw new Error(payload.error ?? '下書きを生成できませんでした。')
         }
 
-        return payload as { source: 'ai' | 'template-fallback'; reason?: string; drafts: SocialDraft[] }
+        return payload as { source: 'ai' | 'template-fallback'; reason?: string; styleExamplesUsed?: number; drafts: SocialDraft[] }
       },
     }
   }, [

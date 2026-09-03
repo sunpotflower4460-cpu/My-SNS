@@ -7,6 +7,7 @@ import { createServiceClient } from '@/lib/supabase/service'
 import { mapSeed, SEED_SELECT, type SeedRow } from '@/lib/repositories/supabase/seeds'
 import { getWorkspaceMonthlyAiCost, recordAiGeneration } from '@/lib/repositories/supabase/ai-generations'
 import { listRecentAiRevisionsForStyleLearning } from '@/lib/repositories/supabase/draft-revisions'
+import { summarizeStyleTendencies } from '@/lib/services/draft-style-learning'
 import { PUBLISHING_CHANNEL_CONFIG } from '@/lib/channels/config'
 import type { PublishingChannel } from '@/lib/domain/types'
 import { CORE_PUBLISHING_CHANNELS } from '@/lib/domain/types'
@@ -108,10 +109,12 @@ export async function POST(request: NextRequest) {
       { status: 503 },
     )
   }
+  const styleTendencies = summarizeStyleTendencies(styleExamples)
   const context = {
     createdBy: user.id,
     brandProfile: seed.brandProfile ?? null,
     styleExamples,
+    styleTendencies,
   }
 
   if (!isAnthropicConfigured()) {
@@ -120,6 +123,7 @@ export async function POST(request: NextRequest) {
       source: 'template-fallback',
       reason: 'ANTHROPIC_API_KEYが未設定のため、AI提案の代わりに固定テンプレートを表示しています。',
       drafts,
+      styleExamplesUsed: 0,
     })
   }
 
@@ -225,6 +229,7 @@ export async function POST(request: NextRequest) {
           aiGenerationId: recordedGenerationId ?? null,
           usageRecorded: Boolean(recordedGenerationId),
           styleExamplesUsed: styleExamples.length,
+          styleTendencies: styleTendencies,
         },
       })
       if (auditError) console.error('Failed to audit draft AI generation:', auditError)
@@ -235,6 +240,7 @@ export async function POST(request: NextRequest) {
         aiGenerationId: recordedGenerationId,
         usageRecorded: Boolean(recordedGenerationId),
         usageWarning,
+        styleExamplesUsed: styleExamples.length,
         drafts: result.drafts,
       })
     } catch (cause) {

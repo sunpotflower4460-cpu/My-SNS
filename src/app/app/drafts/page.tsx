@@ -155,7 +155,11 @@ export default function DraftsPage() {
       setWarning(usageWarning ?? '')
       setFeedback(
         result.source === 'ai'
-          ? `AIが${result.drafts.length}件の提案を作成しました。直して、下のチェックからまとめて送れます。`
+          ? `AIが${result.drafts.length}件の提案を作成しました。${
+              result.styleExamplesUsed
+                ? `過去に直した承認版${result.styleExamplesUsed}件を今回の提案に反映しています。`
+                : '直して承認すると、同じ媒体の次回提案に反映されます。'
+            }下のチェックからまとめて送れます。`
           : result.reason ?? `${result.drafts.length}件のテンプレートを作成しました。中身がそのまま分かるテンプレートで、AIによる提案ではありません。`,
       )
     } catch (cause) {
@@ -198,6 +202,7 @@ export default function DraftsPage() {
     source: draft.source,
     status: draft.status,
     createdBy: draft.createdBy,
+    aiOriginalSnapshot: draft.aiOriginalSnapshot,
   })
 
   const persistDraft = async (draft: SocialDraft) => saveDraft(toDraftInput(draft))
@@ -280,7 +285,7 @@ export default function DraftsPage() {
     <div className="pb-24 xl:pb-0">
       <PageHeader
         title="下書きスタジオ"
-        description="提案を直して、下のチェックで媒体と時間を選んでまとめて送れます。AIの下書きには仮定が示され、確認するまで承認されません。"
+        description="提案を直して、下のチェックで媒体と時間を選んでまとめて送れます。直して承認した内容は同じ媒体の次回AI提案に反映されます。AIの下書きには仮定が示され、確認するまで承認されません。"
       />
 
       {(feedback || error) && (

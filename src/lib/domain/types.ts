@@ -153,7 +153,7 @@ export interface Asset {
 // ─── Social Drafts ────────────────────────────────────────────────────────────
 export type DraftSource = 'template' | 'ai'
 
-/** A frozen copy of an AI-sourced draft's proposed content, taken the moment it's first saved — see the migration comment on social_drafts.ai_original_snapshot for why this, not the raw model output, is what "AI original" means here. */
+/** A frozen copy of an AI-sourced draft's proposed content. Prefer the generation-time copy on the in-memory proposal; fall back to first-save content only when that copy was not passed through. Never overwritten after the first INSERT. */
 export interface AiDraftSnapshot {
   title?: string
   body: string

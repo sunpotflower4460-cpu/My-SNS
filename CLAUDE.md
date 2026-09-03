@@ -20,6 +20,7 @@
 | 領域 | ファイル |
 |---|---|
 | Draft生成の抽象 | `src/lib/services/interfaces.ts`（`DraftGeneratorService`）/ 実装は `src/lib/services/ai-draft.ts` |
+| AI修正の記憶 | `src/lib/services/draft-style-learning.ts`（生成時スナップショット凍結、few-shot例、傾向メモ）。次回生成への受け渡しは `DraftGenerationContext.styleExamples` |
 | 投稿コネクタの抽象 | `src/lib/services/interfaces.ts`（`SocialConnectorAdapter`）/ 実装は `src/lib/services/social-connector.ts`（未実装時は fail-closed） |
 | チャンネル定義 | `src/lib/domain/types.ts`（`PublishingChannel`, `CORE_PUBLISHING_CHANNELS`）/ 表示設定は `src/lib/channels/config.ts` |
 | Seed | `src/lib/repositories/supabase/seeds.ts` / readiness判定は `src/lib/seeds/readiness.ts` |
@@ -35,7 +36,7 @@
 - PR4: X＋Instagram コネクタ（OAuth接続、トークン暗号化保存`social_account_credentials`、実投稿アダプタ） — マージ済み。Seedアセットから署名URLを解決して投稿する（`resolvePublishMediaMetadata`）。メディア未添付時は明示的なエラーで安全に停止する。
 - PR5: YouTube＋TikTok コネクタ＋noteハンドオフ — マージ済み。**MVP完成**（`docs/master-plan.md` §4）。メディアもSeedアセット解決で対応。noteはMarkdownコピー＋手動完了記録で完結。
 - PR6: Webhook受信＋Unified Inbox — マージ済み（MVP後拡張の第一弾）。Instagramのコメント・DMは署名検証済みWebhook（`/api/webhooks/meta`、`X-Hub-Signature-256`）で自動取り込み。YouTubeは実コメントAPIを使ったプル型「Sync inbox」ボタンで取得。同一イベントの重複取り込みは`inbox_items.external_id`＋ユニークインデックスで防止。X・TikTokのコメント/メンション/DM取得、Instagramのmentions解決（webhookペイロードがテキストを含まない）は、それぞれAPIアクセス階層・追加審査・追加API呼び出しが必要という正直な理由付きで未対応のまま。
-- PR7: Analytics＋AI学習 — マージ済み。新しい`/app/analytics`ページで、`publish_attempts`/`ai_generations`/`draft_revisions`から実データのみで媒体別成功率・失敗理由内訳・AIコスト・AI提案の人間編集率を表示。YouTube/Xは実際の視聴回数・いいね・コメント数をオンデマンド取得（`fetchMetrics`、既存スコープでカバー済み）。Instagram/TikTokのメトリクスは追加スコープ・審査が必要な正直な未対応。`social_drafts`/`draft_revisions`に`ai_original_snapshot`列を追加し、AI提案が最初に保存された時点の内容を凍結、人間が編集して承認したRevisionとの差分を次回の`/api/drafts/generate`呼び出しへfew-shot例として渡す（`DraftGenerationContext.styleExamples`）。
+- PR7: Analytics＋AI学習 — マージ済み。新しい`/app/analytics`ページで、`publish_attempts`/`ai_generations`/`draft_revisions`から実データのみで媒体別成功率・失敗理由内訳・AIコスト・AI提案の人間編集率と、直近の「AI提案 → 承認した差分」を表示。YouTube/Xは実際の視聴回数・いいね・コメント数をオンデマンド取得（`fetchMetrics`、既存スコープでカバー済み）。Instagram/TikTokのメトリクスは追加スコープ・審査が必要な正直な未対応。`social_drafts`/`draft_revisions`に`ai_original_snapshot`列を追加し、AI提案を生成直後に凍結（保存前の編集は混入させない）、人間が編集して承認したRevisionとの差分（本文・タイトル・ハッシュタグ・CTA）を次回の`/api/drafts/generate`呼び出しへfew-shot例として渡す（`DraftGenerationContext.styleExamples` / `styleTendencies`）。Brand Profileは自動では上書きしない。
 - PR9: 通知＋モバイル最適化＋バックアップ＋費用管理 — マージ済み。アプリ内通知（プッシュではなくpoll-on-load、既存の`refreshWorkspaceData()`と同じタイミングで更新）を追加し、承認待ちドラフト・投稿失敗・チームメイトによるinbox要対応フラグを通知。xlブレークポイント未満（スマホ・大半のタブレット）でSidebarが完全に消えていた実バグを、MobileNavドロワー（ハンバーガーメニュー）で修正。Settingsに「Export workspace data」ボタン（Seed・Brand Profile・承認済みRevision・投稿履歴をJSONダウンロード、サーバー側の書き出しパイプラインなし）を追加。`ANTHROPIC_MONTHLY_BUDGET_USD`（任意）で月次AI予算の上限を設定可能に。「共同承認」は複数承認者への通知fan-outとして実装し、二重承認必須化ではない — 明示的なスコープ判断として記録。
 - 日本語UI対応 — マージ済み。
 - 信頼性ハードニング（#74〜#76）— マージ済み。

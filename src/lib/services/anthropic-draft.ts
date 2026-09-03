@@ -3,6 +3,11 @@ import { PUBLISHING_CHANNEL_CONFIG } from '@/lib/channels/config'
 import type { PublishingChannel, Seed, SocialDraft } from '@/lib/domain/types'
 import { isValidThumbnailHook, shortenThumbnailHook } from '@/lib/media/thumbnail-hook'
 import { keepFactualAssumptions } from './draft-assumptions'
+import {
+  formatDraftStyleExamplesForPrompt,
+  freezeAiOriginalSnapshot,
+  summarizeStyleTendencies,
+} from './draft-style-learning'
 import type { DraftGenerationContext, DraftGeneratorService } from './interfaces'
 
 // Server-only. Never import this file from client components — it reads
@@ -89,6 +94,7 @@ export function buildDraftGenerationPrompt(
   length: DraftLength,
   brandProfile?: DraftGenerationContext['brandProfile'],
   styleExamples?: DraftGenerationContext['styleExamples'],
+  styleTendencies?: DraftGenerationContext['styleTendencies'],
 ): { system: string; user: string } {
   const channelGuidance = channels
     .map((channel) => `- ${channel}: ${PUBLISHING_CHANNEL_CONFIG[channel].description}`)
@@ -101,20 +107,15 @@ export function buildDraftGenerationPrompt(
     'If you must fill a factual gap to write a usable draft, make the smallest reasonable assumption and record that fact-gap in `assumptions`. Do not silently invent facts.',
     '`assumptions` is only for guessed facts. Do not record copy-editing, tone/length adaptation, channel formatting, or thumbnail/cover hook text there. Proofreading the creator\'s own words is not an assumption — listing it makes their work look like an AI guess.',
     'Respect the Brand Profile: preferred terms, avoided terms/claims, voice traits, and values are constraints, not suggestions.',
-    'If past-edit examples are provided, they show how this specific creator tends to change your proposals — write closer to the "creator approved" style next time, without copying the example\'s facts into an unrelated Seed.',
+    'If past-edit examples are provided, they show how this specific creator tends to change your proposals — write closer to the "creator approved" style next time, without copying the example\'s facts into an unrelated Seed. Observed tendencies are style hints derived from those edits; they never override Brand Profile constraints or Seed facts, and they are not new facts to invent.',
     'For YouTube, metadata.thumbnailHook is a 3–8 character Japanese CTR hook burned into a real thumbnail image, preferably taken from the Seed title or key points. Never put a paragraph or slogan list there. Do not record the hook in `assumptions`.',
     'Call the propose_channel_drafts tool exactly once with one proposal per requested channel.',
   ].join(' ')
 
-  const styleExamplesBlock =
-    styleExamples && styleExamples.length > 0
-      ? [
-          'Past edits this creator made to AI proposals (learn the pattern, do not copy the content verbatim):',
-          ...styleExamples.map(
-            (example, index) =>
-              `${index + 1}. [${example.channel}] AI proposed: "${example.aiProposed}"\n   Creator approved: "${example.humanApproved}"`,
-          ),
-        ].join('\n')
+  const styleExamplesBlock = formatDraftStyleExamplesForPrompt(styleExamples ?? [])
+  const styleTendenciesBlock =
+    styleTendencies && styleTendencies.length > 0
+      ? ['Observed editing tendencies (style only; do not copy facts from past Seeds):', ...styleTendencies.map((note) => `- ${note}`)].join('\n')
       : ''
 
   const brandProfileBlock = brandProfile
@@ -144,6 +145,7 @@ export function buildDraftGenerationPrompt(
     'Channels to propose (with per-channel intent):',
     channelGuidance,
     styleExamplesBlock ? `\n${styleExamplesBlock}` : '',
+    styleTendenciesBlock ? `\n${styleTendenciesBlock}` : '',
   ].filter(Boolean).join('\n')
 
   return { system, user }
@@ -199,15 +201,20 @@ export function parseDraftProposals(
       }
     }
 
+    const title = raw.title?.trim() || undefined
+    const body = raw.body.trim()
+    const hashtags = raw.hashtags ?? []
+    const cta = raw.cta?.trim() || undefined
+
     return {
       id: `generated-${Date.now()}-${index}`,
       workspaceId: seed.workspaceId,
       seedId: seed.id,
       channel,
-      title: raw.title?.trim() || undefined,
-      draftText: raw.body.trim(),
-      hashtags: raw.hashtags ?? [],
-      cta: raw.cta?.trim() || undefined,
+      title,
+      draftText: body,
+      hashtags,
+      cta,
       assumptions,
       metadata,
       source: 'ai' as const,
@@ -217,6 +224,7 @@ export function parseDraftProposals(
       createdBy: context?.createdBy ?? seed.createdBy,
       createdAt: now,
       updatedAt: now,
+      aiOriginalSnapshot: freezeAiOriginalSnapshot({ title, body, hashtags, cta }),
     }
   })
 }
@@ -262,7 +270,15 @@ export async function generateChannelDraftsWithAnthropic(
   }
 
   const model = resolveAnthropicModel()
-  const { system, user } = buildDraftGenerationPrompt(seed, channels, tone, length, context?.brandProfile, context?.styleExamples)
+  const { system, user } = buildDraftGenerationPrompt(
+    seed,
+    channels,
+    tone,
+    length,
+    context?.brandProfile,
+    context?.styleExamples,
+    context?.styleTendencies,
+  )
   const client = new Anthropic({ apiKey })
 
   const response = await client.messages.create({
