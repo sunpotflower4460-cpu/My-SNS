@@ -6,7 +6,6 @@ import { keepFactualAssumptions } from './draft-assumptions'
 import {
   formatDraftStyleExamplesForPrompt,
   freezeAiOriginalSnapshot,
-  summarizeStyleTendencies,
 } from './draft-style-learning'
 import type { DraftGenerationContext, DraftGeneratorService } from './interfaces'
 

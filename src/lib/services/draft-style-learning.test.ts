@@ -188,12 +188,12 @@ describe('summarizeStyleTendencies', () => {
       {
         channel: 'x',
         aiProposed: { body: 'A long AI body that goes on for a while', hashtags: ['a', 'b', 'c'], title: 'Keep me', cta: 'Click' },
-        humanApproved: { body: 'Short', hashtags: ['a'], cta: 'Please listen' },
+        humanApproved: { body: 'Short', hashtags: ['a'], title: 'Keep me', cta: 'Please listen' },
       },
       {
         channel: 'x',
         aiProposed: { body: 'Another long AI proposal about a different seed', hashtags: ['x', 'y'], title: 'Also keep', cta: 'Buy' },
-        humanApproved: { body: 'Brief', hashtags: ['x'], cta: 'よかったら' },
+        humanApproved: { body: 'Brief', hashtags: ['x'], title: 'Also keep', cta: 'よかったら' },
       },
     ])
 
@@ -204,6 +204,25 @@ describe('summarizeStyleTendencies', () => {
     ])
     expect(notes.join(' ')).not.toContain('different seed')
     expect(notes.join(' ')).not.toContain('Please listen')
+  })
+
+  it('records a drop-title tendency without quoting the dropped title', () => {
+    const notes = summarizeStyleTendencies([
+      {
+        channel: 'youtube',
+        aiProposed: { title: 'Secret gig next Friday', body: 'Body one', hashtags: [] },
+        humanApproved: { body: 'Body one', hashtags: [] },
+      },
+      {
+        channel: 'youtube',
+        aiProposed: { title: 'Album out now', body: 'Body two', hashtags: [] },
+        humanApproved: { body: 'Body two', hashtags: [] },
+      },
+    ])
+
+    expect(notes).toEqual(['youtube: tends to drop the title'])
+    expect(notes.join(' ')).not.toContain('Secret gig')
+    expect(notes.join(' ')).not.toContain('Album out now')
   })
 })
 
