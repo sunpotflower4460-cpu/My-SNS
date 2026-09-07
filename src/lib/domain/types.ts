@@ -528,8 +528,9 @@ export type AuditAction =
   | 'inbox_item_starred'
   | 'inbox_item_needs_action'
   | 'inbox_note_added'
-  | 'workspace_settings_updated'
-  | 'workspace_data_exported'
+  |     'workspace_settings_updated'
+    | 'workspace_data_exported'
+    | 'shadow_strategy_imported'
 
 export interface AuditLog {
   id: string
