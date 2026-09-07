@@ -48,4 +48,11 @@ describe('generation isolation', () => {
     expect(pkg).not.toMatch(/sns-growth-bridge|SNS-Growth-Bridge/)
     expect(lock).not.toMatch(/sns-growth-bridge|SNS-Growth-Bridge/)
   })
+
+  it('does not add a Shadow Strategy DELETE API', () => {
+    const route = read('src/app/api/internal/shadow-strategy/route.ts')
+    expect(route).toContain('export async function GET')
+    expect(route).toContain('export async function POST')
+    expect(route).not.toMatch(/export async function DELETE/)
+  })
 })

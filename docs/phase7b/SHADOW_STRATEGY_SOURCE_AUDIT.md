@@ -84,7 +84,9 @@ Handle and `externalAccountId` are not used as join keys. `connected === false` 
 - Service-role-only tables already exist (`social_account_credentials`, `ai_budget_claims`): `ENABLE ROW LEVEL SECURITY` with **no browser policies**.
 - User API routes authenticate with the cookie client, then use `createServiceClient()` for secrets / worker-scoped tables.
 - Audit insert failure is best-effort after the authoritative write (`src/lib/repositories/supabase/audit.ts`).
-- `shadow_growth_strategies` follows the service-role-only pattern: RLS on, no SELECT/INSERT/UPDATE/DELETE policies for `anon` / `authenticated`. Browser clients cannot read the table directly.
+- `shadow_growth_strategies` follows the service-role-only pattern: RLS on, no SELECT/INSERT/UPDATE/DELETE policies for `anon` / `authenticated`. Browser clients cannot read or delete the table directly.
+- Rows are **immutable during workspace lifetime**: a `BEFORE UPDATE` trigger rejects in-place mutation. There is no Shadow Strategy DELETE repository function or API.
+- Parent lifecycle CASCADE is allowed. `workspace_id` and `social_account_id` use `ON DELETE CASCADE` so deleting a workspace or social account can remove shadow rows. There is no unconditional child `BEFORE DELETE` trigger, because that would block the existing workspace/account cleanup path.
 
 ## Relevant drift from `cafde5995b80e9054fb4780a10e02db9c3c033ff`
 

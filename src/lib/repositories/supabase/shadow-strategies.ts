@@ -160,10 +160,11 @@ export async function findShadowStrategyByStrategyId(
 }
 
 /**
- * Inserts an immutable snapshot. Exact duplicates of
+ * Inserts a snapshot that cannot be updated in place. Exact duplicates of
  * workspaceId + strategyId + inputsDigest + linkId return the existing row.
  * Same strategyId with a different identity/digest fails closed.
- * There is no updateShadowStrategy().
+ * There is no updateShadowStrategy() or deleteShadowStrategy(); parent
+ * workspace / social account CASCADE DELETE is the only cleanup path.
  */
 export async function insertShadowStrategy(
   supabase: SupabaseClient,

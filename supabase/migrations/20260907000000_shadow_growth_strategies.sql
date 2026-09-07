@@ -1,6 +1,10 @@
--- Phase 7B: immutable, service-role-only shadow of a Bridge GrowthStrategySnapshot.
--- Display / analytics only. Never fed into draft generation, prompts, ranking,
--- scheduling, or publishing. Browser clients have no table policies.
+-- Phase 7B: service-role-only shadow of a Bridge GrowthStrategySnapshot.
+-- Rows are immutable for the lifetime of the workspace / social account
+-- (UPDATE is forbidden). Parent workspace or social_account deletion may
+-- CASCADE DELETE these rows so existing lifecycle cleanup is not blocked.
+-- There is no application DELETE API. Display / analytics only. Never fed
+-- into draft generation, prompts, ranking, scheduling, or publishing.
+-- Browser clients have no table policies.
 
 BEGIN;
 
@@ -60,7 +64,7 @@ CREATE INDEX shadow_growth_strategies_latest_idx
 ALTER TABLE public.shadow_growth_strategies ENABLE ROW LEVEL SECURITY;
 
 COMMENT ON TABLE public.shadow_growth_strategies IS
-  'Immutable Shadow Growth Strategy snapshots imported manually from Bridge. RLS is enabled with zero browser policies: only the service-role key (server route) can access this table. Not Brand Profile, not Human Correction, and not used for AI generation.';
+  'Shadow Growth Strategy snapshots imported manually from Bridge. Immutable during workspace lifetime (UPDATE is forbidden). Parent workspace / social_account lifecycle CASCADE DELETE is allowed. RLS is enabled with zero browser policies: only the service-role key (server route) can access this table. There is no application DELETE API. Not Brand Profile, not Human Correction, and not used for AI generation.';
 
 CREATE OR REPLACE FUNCTION public.guard_shadow_growth_strategy_account()
 RETURNS TRIGGER
@@ -96,24 +100,19 @@ CREATE TRIGGER guard_shadow_growth_strategy_account
   FOR EACH ROW
   EXECUTE FUNCTION public.guard_shadow_growth_strategy_account();
 
-CREATE OR REPLACE FUNCTION public.forbid_shadow_growth_strategy_mutation()
+CREATE OR REPLACE FUNCTION public.forbid_shadow_growth_strategy_update()
 RETURNS TRIGGER
 LANGUAGE plpgsql
 SET search_path = ''
 AS $$
 BEGIN
-  RAISE EXCEPTION 'shadow_growth_strategies rows are immutable.' USING ERRCODE = 'P0001';
+  RAISE EXCEPTION 'shadow_growth_strategies rows cannot be updated.' USING ERRCODE = 'P0001';
 END;
 $$;
 
 CREATE TRIGGER forbid_shadow_growth_strategy_update
   BEFORE UPDATE ON public.shadow_growth_strategies
   FOR EACH ROW
-  EXECUTE FUNCTION public.forbid_shadow_growth_strategy_mutation();
-
-CREATE TRIGGER forbid_shadow_growth_strategy_delete
-  BEFORE DELETE ON public.shadow_growth_strategies
-  FOR EACH ROW
-  EXECUTE FUNCTION public.forbid_shadow_growth_strategy_mutation();
+  EXECUTE FUNCTION public.forbid_shadow_growth_strategy_update();
 
 COMMIT;

@@ -290,8 +290,7 @@ describe('shadow strategy migration', () => {
 
   it('enables RLS and does not add browser policies', () => {
     expect(sql).toContain('ALTER TABLE public.shadow_growth_strategies ENABLE ROW LEVEL SECURITY')
-    expect(sql).not.toMatch(/CREATE POLICY[\s\S]*shadow_growth_strategies/)
-    expect(sql).toContain('shadow_growth_strategies rows are immutable')
+    expect(sql).not.toMatch(/CREATE POLICY/)
     expect(sql).toContain("status IN ('active', 'insufficient-evidence')")
     expect(sql).toContain('sample_size >= 0')
     expect(sql).toContain('overall_score >= 0 AND overall_score <= 100')
@@ -299,5 +298,24 @@ describe('shadow strategy migration', () => {
     expect(sql).toContain('explore_rate >= 0 AND explore_rate <= 1')
     expect(sql).toContain('REFERENCES public.workspaces(id)')
     expect(sql).toContain('REFERENCES public.social_accounts(id)')
+  })
+
+  it('forbids direct UPDATE while allowing parent lifecycle CASCADE DELETE', () => {
+    expect(sql).toMatch(/BEFORE UPDATE ON public\.shadow_growth_strategies/)
+    expect(sql).toContain('shadow_growth_strategies rows cannot be updated')
+    expect(sql).toMatch(/workspace_id UUID NOT NULL REFERENCES public\.workspaces\(id\) ON DELETE CASCADE/)
+    expect(sql).toMatch(/social_account_id UUID NOT NULL REFERENCES public\.social_accounts\(id\) ON DELETE CASCADE/)
+    expect(sql).not.toMatch(/BEFORE DELETE/)
+    expect(sql).not.toContain('forbid_shadow_growth_strategy_delete')
+  })
+
+  it('does not combine ON DELETE CASCADE with an unconditional child DELETE rejection', () => {
+    const hasParentCascade =
+      /REFERENCES public\.workspaces\(id\) ON DELETE CASCADE/.test(sql)
+      && /REFERENCES public\.social_accounts\(id\) ON DELETE CASCADE/.test(sql)
+    const rejectsChildDeleteUnconditionally =
+      /BEFORE DELETE/.test(sql) || sql.includes('forbid_shadow_growth_strategy_delete')
+    expect(hasParentCascade).toBe(true)
+    expect(rejectsChildDeleteUnconditionally).toBe(false)
   })
 })

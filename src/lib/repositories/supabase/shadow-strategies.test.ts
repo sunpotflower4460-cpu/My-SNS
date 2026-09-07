@@ -159,9 +159,10 @@ describe('shadow strategy repository', () => {
     expect(store).toHaveLength(1)
   })
 
-  it('does not expose an update function', async () => {
+  it('does not expose an update or delete function', async () => {
     const repo = await import('@/lib/repositories/supabase/shadow-strategies')
     expect('updateShadowStrategy' in repo).toBe(false)
+    expect('deleteShadowStrategy' in repo).toBe(false)
     expect(typeof repo.insertShadowStrategy).toBe('function')
     expect(typeof repo.listShadowStrategies).toBe('function')
   })
