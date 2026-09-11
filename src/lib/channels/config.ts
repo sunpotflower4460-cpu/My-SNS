@@ -69,7 +69,11 @@ export const PUBLISHING_CHANNEL_CONFIG: Record<PublishingChannel, PublishingChan
     icon: '@',
     delivery: 'api-later',
     description: '会話調のソーシャルコピーを作成します。',
-    mvpPublishMode: 'assisted',
+    // 'auto' (not 'assisted'): Threads has a real connector (threads-connector.ts)
+    // and the same publish_jobs-per-channel Worker model as Instagram/X, so
+    // selecting Threads alongside another auto channel publishes to both —
+    // this is what makes "simultaneous posting" work with no extra orchestration.
+    mvpPublishMode: 'auto',
   },
   facebook: {
     label: 'Facebook',
