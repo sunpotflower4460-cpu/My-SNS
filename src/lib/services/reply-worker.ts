@@ -1,10 +1,11 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
-import type { WorkspaceRole } from '@/lib/domain/types'
+import type { SocialPlatform, WorkspaceRole } from '@/lib/domain/types'
 import { recordReplyAttempt } from '@/lib/repositories/supabase/reply-attempts'
 import { createNotifications } from '@/lib/repositories/supabase/notifications'
 import { getConnectorAdapter } from '@/lib/services/connectors'
 import { classifyFailure, resolveCredentials } from '@/lib/services/publish-worker'
 import { hasPermission } from '@/lib/permissions'
+import { PUBLISHING_CHANNEL_CONFIG } from '@/lib/channels/config'
 
 // The messaging-side twin of publish-worker.ts. Shared with the publish side:
 // resolveCredentials (decrypts the connected account's token, refreshes if
@@ -117,11 +118,25 @@ async function notifyReplyFailure(supabase: SupabaseClient, job: ReplyableJob, e
 export interface ReplyableJob {
   id: string
   workspaceId: string
-  platform: 'line' // Phase 1 only LINE actually sends; IG DM is deferred at the approve gate.
+  // Which platforms/kinds actually reach this Worker is decided by
+  // canSendReply() at the approve gate (src/lib/channels/reply-capability.ts):
+  // LINE (DM), Instagram/YouTube (comment reply), X (reply-to-tweet).
+  platform: SocialPlatform
   inboxItemId: string
   sendTarget: string
   replyText: string
   createdBy: string
+}
+
+const ACCOUNT_NOT_CONNECTED_PREFIX = '接続済みの'
+const ACCOUNT_NOT_CONNECTED_SUFFIX = 'アカウントがありません。設定から接続してください。'
+
+function accountNotConnectedMessage(platform: SocialPlatform): string {
+  return `${ACCOUNT_NOT_CONNECTED_PREFIX}${PUBLISHING_CHANNEL_CONFIG[platform].label}${ACCOUNT_NOT_CONNECTED_SUFFIX}`
+}
+
+function isAccountNotConnectedMessage(message: string): boolean {
+  return message.startsWith(ACCOUNT_NOT_CONNECTED_PREFIX) && message.endsWith(ACCOUNT_NOT_CONNECTED_SUFFIX)
 }
 
 export interface ProcessReplyResult {
@@ -166,7 +181,7 @@ export async function processReplyJob(supabase: SupabaseClient, job: ReplyableJo
 
     const credentials = await resolveCredentials(supabase, job.workspaceId, job.platform)
     if (!credentials) {
-      throw new Error(`接続済みのLINEアカウントがありません。設定から接続してください。`)
+      throw new Error(accountNotConnectedMessage(job.platform))
     }
 
     const adapter = getConnectorAdapter(job.platform)
@@ -244,9 +259,9 @@ export async function processReplyJob(supabase: SupabaseClient, job: ReplyableJo
     }
 
     const message = cause instanceof Error ? cause.message : '返信の送信に失敗しました。'
-    // Our own "接続済みのLINEアカウントがありません" wording is a connection
-    // problem → classify as auth, not the generic validation fallback.
-    const failureReason = message.startsWith('接続済みのLINEアカウントがありません') ? 'auth' : classifyFailure(message)
+    // Our own accountNotConnectedMessage() wording is a connection problem →
+    // classify as auth, not the generic validation fallback.
+    const failureReason = isAccountNotConnectedMessage(message) ? 'auth' : classifyFailure(message)
 
     try {
       await recordReplyAttempt(supabase, {

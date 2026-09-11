@@ -4,6 +4,7 @@ import type {
   ConnectOptions,
   PublishRequest,
   PublishResult,
+  SendMessageRequest,
   SendMessageResult,
   SocialConnectorAdapter,
 } from '../interfaces'
@@ -17,7 +18,15 @@ import { assertTrustedPublishMediaUrl } from '@/lib/security/trusted-publish-med
 const GRAPH_VERSION = 'v21.0'
 const GRAPH_URL = `https://graph.facebook.com/${GRAPH_VERSION}`
 const AUTHORIZE_URL = 'https://www.facebook.com/v21.0/dialog/oauth'
-const SCOPES = ['instagram_basic', 'instagram_content_publish', 'pages_show_list', 'pages_read_engagement', 'business_management']
+const SCOPES = [
+  'instagram_basic',
+  'instagram_content_publish',
+  // Required to reply to public comments (sendMessage below) — see PR-C.
+  'instagram_manage_comments',
+  'pages_show_list',
+  'pages_read_engagement',
+  'business_management',
+]
 const GRAPH_REQUEST_TIMEOUT_MS = 30_000
 
 // Instagram enforces a rolling publish quota per account surfaced via this
@@ -303,8 +312,19 @@ export class InstagramConnectorAdapter implements SocialConnectorAdapter {
     }
   }
 
-  async sendMessage(): Promise<SendMessageResult> {
-    throw new Error('Instagram DMの送信はMessaging権限（pages_messaging等）とMeta App Reviewが必要なため未対応です。Phase 1は受信のみ対応です。')
+  /**
+   * Public comment replies only — NOT Instagram DM. `request.target` must be
+   * the id of the comment being replied under (InboxItem.externalId), never a
+   * PSID. The caller (the inbox approve route) is responsible for only
+   * routing comment-kind inbox items here; DM sending still needs Meta's
+   * messaging permission + App Review, which this app does not have.
+   */
+  async sendMessage(request: SendMessageRequest): Promise<SendMessageResult> {
+    const result = await graphPost<{ id: string }>(`/${request.target}/replies`, {
+      access_token: request.accessToken,
+      message: request.text,
+    })
+    return { externalMessageId: result.id }
   }
 
   async fetchInbox(): Promise<InboundInboxEvent[]> {

@@ -111,3 +111,40 @@ describe('InstagramConnectorAdapter.publish', () => {
     expect(fetchMock).toHaveBeenCalledTimes(1)
   })
 })
+
+describe('InstagramConnectorAdapter.sendMessage', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  it('replies to the given comment id, not a DM target', async () => {
+    const fetchMock = vi.fn().mockResolvedValueOnce(response(true, 200, { id: 'reply-1' }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    const result = await new InstagramConnectorAdapter().sendMessage({
+      platform: 'instagram',
+      accessToken: 'token',
+      target: 'comment-123',
+      text: 'ありがとうございます！',
+    })
+
+    expect(result).toEqual({ externalMessageId: 'reply-1' })
+    const [url, init] = fetchMock.mock.calls[0]
+    expect(url as string).toContain('/comment-123/replies')
+    const body = init?.body as URLSearchParams
+    expect(body.get('message')).toBe('ありがとうございます！')
+  })
+
+  it('surfaces a Graph API error instead of a false success', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValueOnce(response(false, 400, { error: { message: 'comment not found' } })))
+
+    await expect(
+      new InstagramConnectorAdapter().sendMessage({
+        platform: 'instagram',
+        accessToken: 'token',
+        target: 'missing-comment',
+        text: 'text',
+      }),
+    ).rejects.toThrow(/comment not found/)
+  })
+})

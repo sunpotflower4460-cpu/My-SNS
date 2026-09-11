@@ -6,6 +6,7 @@ import type {
   PublishRequest,
   PublishResult,
   RefreshedCredentials,
+  SendMessageRequest,
   SendMessageResult,
   SocialConnectorAdapter,
 } from '../interfaces'
@@ -19,9 +20,12 @@ const TOKEN_URL = 'https://oauth2.googleapis.com/token'
 const CHANNELS_URL = 'https://www.googleapis.com/youtube/v3/channels'
 const UPLOAD_URL = 'https://www.googleapis.com/upload/youtube/v3/videos'
 const COMMENT_THREADS_URL = 'https://www.googleapis.com/youtube/v3/commentThreads'
+const COMMENTS_URL = 'https://www.googleapis.com/youtube/v3/comments'
 const VIDEOS_URL = 'https://www.googleapis.com/youtube/v3/videos'
 const STUDIO_URL = 'https://studio.youtube.com'
-const SCOPES = ['https://www.googleapis.com/auth/youtube.upload', 'https://www.googleapis.com/auth/youtube.readonly']
+// force-ssl (not the narrower readonly) is required to insert a comment
+// reply — see sendMessage() below. It is a superset of readonly for reads.
+const SCOPES = ['https://www.googleapis.com/auth/youtube.upload', 'https://www.googleapis.com/auth/youtube.force-ssl']
 
 const COMMENT_PAGE_SIZE = 50
 const YOUTUBE_API_TIMEOUT_MS = 30_000
@@ -156,6 +160,52 @@ async function fetchCommentThreads(accessToken: string, params: Record<string, s
   }
 
   return mapCommentThreads((await response.json()) as CommentThreadsResponse)
+}
+
+/**
+ * comments.insert with parentId replies to an existing top-level comment
+ * (commentThreads.insert would instead start a new, unrelated top-level
+ * thread). `parentId` must be the top-level comment's own id — the same id
+ * InboxItem.externalId is populated with when a comment is ingested.
+ *
+ * This is an irreversible public side effect, same as a publish. A network
+ * exception, 5xx, or unreadable/id-less success body cannot prove the reply
+ * was rejected; classify those as EXTERNAL_RESULT_UNKNOWN so callers block
+ * automatic/manual retry instead of potentially posting the same reply twice.
+ */
+async function replyToComment(accessToken: string, parentCommentId: string, text: string): Promise<{ id: string }> {
+  let response: Response
+  try {
+    response = await fetch(`${COMMENTS_URL}?${new URLSearchParams({ part: 'snippet' }).toString()}`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ snippet: { parentId: parentCommentId, textOriginal: text } }),
+      signal: AbortSignal.timeout(YOUTUBE_API_TIMEOUT_MS),
+    })
+  } catch (cause) {
+    const detail = cause instanceof Error ? cause.message : 'network error'
+    throw new Error(
+      `EXTERNAL_RESULT_UNKNOWN: YouTube comment reply lost its response (${detail}). The reply may already be live, so automatic retry is blocked.`,
+    )
+  }
+
+  if (!response.ok) {
+    const detail = await response.text().catch(() => '')
+    if (response.status >= 500) {
+      throw new Error(
+        `EXTERNAL_RESULT_UNKNOWN: YouTube comment reply returned ${response.status}. Delivery cannot be proven either way, so automatic retry is blocked. Detail: ${detail.slice(0, 200)}`,
+      )
+    }
+    throw new Error(`YouTube comment reply failed (${response.status}): ${detail.slice(0, 300)}`)
+  }
+
+  const payload = (await response.json().catch(() => null)) as { id?: unknown } | null
+  if (typeof payload?.id !== 'string' || !payload.id) {
+    throw new Error(
+      'EXTERNAL_RESULT_UNKNOWN: YouTube accepted the comment reply but returned no comment id. The reply may already be live, so automatic retry is blocked.',
+    )
+  }
+  return { id: payload.id }
 }
 
 interface VideoStatisticsResponse {
@@ -342,8 +392,14 @@ export class YouTubeConnectorAdapter implements SocialConnectorAdapter {
     throw new Error('YouTube has no direct-message API for creators.')
   }
 
-  async sendMessage(): Promise<SendMessageResult> {
-    throw new Error('YouTube has no direct-message API for creators — sending replies is not possible.')
+  /**
+   * Public comment replies only — YouTube has no direct-message API for
+   * creators. `request.target` must be the top-level comment id being
+   * replied to (InboxItem.externalId).
+   */
+  async sendMessage(request: SendMessageRequest): Promise<SendMessageResult> {
+    const result = await replyToComment(request.accessToken, request.target, request.text)
+    return { externalMessageId: result.id }
   }
 
   async fetchMetrics(request: InboxFetchRequest & { postId: string }): Promise<PostMetrics> {

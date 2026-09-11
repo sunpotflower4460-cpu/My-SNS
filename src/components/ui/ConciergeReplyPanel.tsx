@@ -6,6 +6,8 @@ import type { InboxItem } from '@/lib/domain/types'
 import type { ScheduleProposal } from '@/lib/services/interfaces'
 import { useApp } from '@/lib/app/app-provider'
 import { hasPermission } from '@/lib/permissions'
+import { canSendReply } from '@/lib/channels/reply-capability'
+import { PUBLISHING_CHANNEL_CONFIG } from '@/lib/channels/config'
 
 const PRIORITY_LABELS: Record<'high' | 'normal' | 'low', string> = {
   high: '優先度: 高',
@@ -61,13 +63,15 @@ export default function ConciergeReplyPanel({ item }: { item: InboxItem }) {
   const [seededFrom, setSeededFrom] = useState<string | null>(suggestion?.id ?? null)
 
   const canReply = Boolean(currentMember && hasPermission(currentMember.role, 'reply_inbox'))
-  const lineConnected = useMemo(
-    () => socialAccounts.some((account) => account.platform === 'line' && account.connected),
-    [socialAccounts],
+  const accountConnected = useMemo(
+    () => socialAccounts.some((account) => account.platform === item.platform && account.connected),
+    [socialAccounts, item.platform],
   )
 
-  const sendSupported = item.platform === 'line'
-  const isInstagram = item.platform === 'instagram'
+  const sendSupported = canSendReply(item.platform, item.kind)
+  const isDm = item.kind === 'dm'
+  const isUnsupportedInstagramDm = item.platform === 'instagram' && item.kind === 'dm'
+  const platformLabel = PUBLISHING_CHANNEL_CONFIG[item.platform]?.label ?? item.platform
   const canManageCalendar = Boolean(currentMember && hasPermission(currentMember.role, 'manage_calendar'))
   const replyResultUnknown = Boolean(
     replyJob?.status === 'failed' && replyJob.errorMessage?.startsWith('EXTERNAL_RESULT_UNKNOWN:'),
@@ -121,7 +125,10 @@ export default function ConciergeReplyPanel({ item }: { item: InboxItem }) {
         inboxItemId: item.id,
         replyText: replyText.trim(),
         suggestionId: suggestion?.id,
-        sendNow: timing === 'now',
+        // Public comment/mention replies have no recipient-timing concept
+        // (no "quiet hours" for a public reply) — always send immediately.
+        // Only a DM offers the recommended-time / now choice.
+        sendNow: isDm ? timing === 'now' : true,
       })
       if (result.status === 'sent') setNotice('返信を送信しました。')
       else if (result.status === 'scheduled') setNotice('相手に適した時刻に送信予約しました。')
@@ -295,53 +302,57 @@ export default function ConciergeReplyPanel({ item }: { item: InboxItem }) {
 
           {canReply && sendSupported && (
             <>
-              {!lineConnected && (
+              {!accountConnected && (
                 <p className="mt-2 text-xs text-amber-700">
-                  LINE公式アカウントが未接続です。
+                  {platformLabel}アカウントが未接続です。
                   <Link href="/app/settings" className="ml-1 font-medium text-violet-700 hover:text-violet-900">
                     設定から接続 →
                   </Link>
                 </p>
               )}
               <div className="mt-3 flex flex-wrap items-center gap-2">
-                <div className="inline-flex rounded-full border border-stone-200 bg-white p-0.5 text-xs">
-                  <button
-                    onClick={() => setTiming('recommended')}
-                    className={`rounded-full px-3 py-1.5 font-medium transition ${timing === 'recommended' ? 'bg-violet-600 text-white' : 'text-gray-600 hover:text-gray-900'}`}
-                  >
-                    おすすめの時刻
-                  </button>
-                  <button
-                    onClick={() => setTiming('now')}
-                    className={`rounded-full px-3 py-1.5 font-medium transition ${timing === 'now' ? 'bg-violet-600 text-white' : 'text-gray-600 hover:text-gray-900'}`}
-                  >
-                    今すぐ
-                  </button>
-                </div>
+                {isDm && (
+                  <div className="inline-flex rounded-full border border-stone-200 bg-white p-0.5 text-xs">
+                    <button
+                      onClick={() => setTiming('recommended')}
+                      className={`rounded-full px-3 py-1.5 font-medium transition ${timing === 'recommended' ? 'bg-violet-600 text-white' : 'text-gray-600 hover:text-gray-900'}`}
+                    >
+                      おすすめの時刻
+                    </button>
+                    <button
+                      onClick={() => setTiming('now')}
+                      className={`rounded-full px-3 py-1.5 font-medium transition ${timing === 'now' ? 'bg-violet-600 text-white' : 'text-gray-600 hover:text-gray-900'}`}
+                    >
+                      今すぐ
+                    </button>
+                  </div>
+                )}
                 <button
                   onClick={handleApproveAndSend}
-                  disabled={busy === 'send' || !lineConnected}
+                  disabled={busy === 'send' || !accountConnected}
                   className="rounded-full bg-gray-900 px-4 py-2 text-sm font-medium text-white hover:bg-gray-700 disabled:opacity-50"
                 >
                   {busy === 'send' ? '送信中…' : '承認して送信'}
                 </button>
               </div>
               <p className="mt-2 text-[11px] text-gray-400">
-                {timing === 'recommended'
-                  ? '相手の生活時間に合わせた時刻に自動送信します（深夜は避けます）。'
-                  : 'すぐに送信します。'}
+                {!isDm
+                  ? 'このメッセージへの公開返信としてすぐに送信します。'
+                  : timing === 'recommended'
+                    ? '相手の生活時間に合わせた時刻に自動送信します（深夜は避けます）。'
+                    : 'すぐに送信します。'}
               </p>
             </>
           )}
 
-          {canReply && isInstagram && (
+          {canReply && isUnsupportedInstagramDm && (
             <p className="mt-3 rounded-xl border border-stone-200 bg-white px-3 py-2 text-xs text-gray-500">
               Instagram DMは現在<strong>受信のみ</strong>対応です（送信はMetaのメッセージ送信権限と審査が必要なため、今後対応予定）。要約と返信案の作成まではご利用いただけます。
             </p>
           )}
-          {canReply && !sendSupported && !isInstagram && (
+          {canReply && !sendSupported && !isUnsupportedInstagramDm && (
             <p className="mt-3 rounded-xl border border-stone-200 bg-white px-3 py-2 text-xs text-gray-500">
-              この媒体への返信送信は現在未対応です（Phase 1で送信できるのはLINEのみです）。
+              {platformLabel}への返信送信は現在未対応です。
             </p>
           )}
         </div>

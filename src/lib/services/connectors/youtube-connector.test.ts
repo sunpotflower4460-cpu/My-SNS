@@ -230,3 +230,36 @@ describe('YouTubeConnectorAdapter fetch methods', () => {
     await expect(new YouTubeConnectorAdapter().fetchMetrics({ platform: 'youtube', accessToken: 'token', postId: 'missing' })).rejects.toThrow(/no statistics/)
   })
 })
+
+describe('YouTubeConnectorAdapter.sendMessage', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  it('replies to the given top-level comment id via comments.insert', async () => {
+    const fetchMock = vi.fn().mockResolvedValueOnce(mockResponse({ ok: true, status: 200, body: { id: 'reply-1' } }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    const result = await new YouTubeConnectorAdapter().sendMessage({
+      platform: 'youtube',
+      accessToken: 'token',
+      target: 'comment-123',
+      text: 'コメントありがとうございます！',
+    })
+
+    expect(result).toEqual({ externalMessageId: 'reply-1' })
+    const [url, init] = fetchMock.mock.calls[0]
+    expect(url as string).toContain('/comments')
+    const body = JSON.parse(init?.body as string)
+    expect(body.snippet.parentId).toBe('comment-123')
+    expect(body.snippet.textOriginal).toBe('コメントありがとうございます！')
+  })
+
+  it('classifies a lost response as EXTERNAL_RESULT_UNKNOWN to block automatic retry', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockRejectedValueOnce(new Error('network reset')))
+
+    await expect(
+      new YouTubeConnectorAdapter().sendMessage({ platform: 'youtube', accessToken: 'token', target: 'comment-123', text: 'text' }),
+    ).rejects.toThrow(/EXTERNAL_RESULT_UNKNOWN/)
+  })
+})

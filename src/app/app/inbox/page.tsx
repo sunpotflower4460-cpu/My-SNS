@@ -91,9 +91,11 @@ export default function InboxPage() {
             )
           } : undefined}
         />
-        {/* The concierge (summary + reply proposal + timed send) is for
-            conversational DMs — comments/mentions/replies use notes only. */}
-        {item.kind === 'dm' && <ConciergeReplyPanel item={item} />}
+        {/* AI summary + reply proposal generation is available for every kind
+            (DM, comment, mention, reply) — the panel's own sendSupported
+            check (canSendReply) decides whether the actual send button shows
+            or a "not supported for this platform" note does instead. */}
+        <ConciergeReplyPanel item={item} />
       </div>
     )
   }

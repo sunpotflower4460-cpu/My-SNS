@@ -5,20 +5,24 @@ import { createServiceClient } from '@/lib/supabase/service'
 import { createReplyJob, findNonCancelledReplyJob } from '@/lib/repositories/supabase/reply-queue'
 import { processReplyJob } from '@/lib/services/reply-worker'
 import { isLineResultUnknownError } from '@/lib/services/connectors/line-connector'
-import { computeRecipientSendTime } from '@/lib/services/reply-timing'
-import type { ReplyJob } from '@/lib/domain/types'
+import { resolveContentSendTarget, resolveDmSendTarget } from '@/lib/services/inbox-reply-targets'
+import { canSendReply } from '@/lib/channels/reply-capability'
+import { PUBLISHING_CHANNEL_CONFIG } from '@/lib/channels/config'
+import type { InboxKind, ReplyJob, SocialPlatform } from '@/lib/domain/types'
 
 // Approve a suggested reply and enqueue it for sending. The human's edited text
 // is captured as an immutable snapshot on the reply_job; the send target and an
-// absolute-UTC scheduled_at (computed at enqueue from the contact's timezone /
-// quiet hours) are baked in at enqueue so the Worker stays timezone-agnostic.
+// absolute-UTC scheduled_at are baked in at enqueue so the Worker stays
+// timezone-agnostic.
 //
 // Honesty gates (CLAUDE.md #5, #7):
-// - Instagram DM sending needs Meta's messaging permission + app review, which
-//   we don't have — Phase 1 receives and proposes for IG but does NOT send.
-//   Approving an IG reply returns 409 rather than pretending it will deliver.
-// - A LINE reply with no connected LINE account, or no known send target,
-//   returns 400 — never a silent no-op that looks like success.
+// - Whether a platform+kind combination can actually be sent at all is decided
+//   by canSendReply() — LINE DM, Instagram/YouTube comment replies, and X
+//   reply-to-tweet/mention are real; everything else (Instagram DM, TikTok,
+//   Threads/Facebook, or any unlisted combination) returns 409 rather than
+//   pretending it will deliver.
+// - A reply with no connected account, or no known send target, returns 400 —
+//   never a silent no-op that looks like success.
 //
 // sendNow=true sends immediately (inline, via the service client); otherwise the
 // job waits for its scheduled_at and the batch Worker (/api/messaging/run).
@@ -59,7 +63,7 @@ export async function POST(request: NextRequest) {
 
   const { data: item, error: itemError } = await supabase
     .from('inbox_items')
-    .select('id, platform, kind, contact_id')
+    .select('id, platform, kind, contact_id, external_id')
     .eq('id', inboxItemId)
     .eq('workspace_id', workspaceId)
     .maybeSingle()
@@ -71,82 +75,24 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: '受信メッセージが見つかりません。' }, { status: 404 })
   }
 
-  // Honest platform gate. Instagram DM sending is deferred (Meta messaging
-  // permission + review); everything except LINE has no Phase 1 send path.
-  if (item.platform === 'instagram') {
-    return NextResponse.json(
-      {
-        error:
-          'Instagram DMの送信は現在未対応です（Metaのメッセージ送信権限と審査が必要なため、Phase 1では受信と返信案の作成のみ対応しています）。',
-      },
-      { status: 409 },
-    )
-  }
-  if (item.platform !== 'line') {
-    return NextResponse.json(
-      { error: `${item.platform}への返信送信は未対応です（Phase 1で送信できるのはLINEのみです）。` },
-      { status: 409 },
-    )
+  const platform = item.platform as SocialPlatform
+  const kind = item.kind as InboxKind
+
+  if (!canSendReply(platform, kind)) {
+    const label = PUBLISHING_CHANNEL_CONFIG[platform]?.label ?? platform
+    const error =
+      platform === 'instagram' && kind === 'dm'
+        ? 'Instagram DMの送信は現在未対応です（Metaのメッセージ送信権限と審査が必要なため、受信と返信案の作成のみ対応しています）。'
+        : `${label}への返信送信は未対応です。`
+    return NextResponse.json({ error }, { status: 409 })
   }
 
-  // Need a connected LINE account (the send credential). Treat a database
-  // read failure differently from a real "not connected" state — silently
-  // collapsing the former into the latter can prompt needless reconnects.
-  const { data: account, error: accountError } = await supabase
-    .from('social_accounts')
-    .select('id')
-    .eq('workspace_id', workspaceId)
-    .eq('platform', 'line')
-    .eq('connected', true)
-    .maybeSingle()
-
-  if (accountError) {
-    return NextResponse.json({ error: 'LINEの接続状態を確認できませんでした。少し後でもう一度お試しください。' }, { status: 502 })
-  }
-  if (!account) {
-    return NextResponse.json(
-      { error: 'LINE公式アカウントが接続されていません。設定から接続してください。' },
-      { status: 400 },
-    )
-  }
-
-  // … and a known send target (the contact's LINE userId), captured at ingest.
-  if (!item.contact_id) {
-    return NextResponse.json(
-      { error: 'この受信メッセージには送信先（相手のLINE ID）が紐づいていないため、返信を送信できません。' },
-      { status: 400 },
-    )
-  }
-
-  const { data: contact, error: contactError } = await supabase
-    .from('messaging_contacts')
-    .select('id, external_contact_id, timezone, quiet_hours_start, quiet_hours_end')
-    .eq('id', item.contact_id)
-    .eq('workspace_id', workspaceId)
-    .maybeSingle()
-
-  if (contactError) {
-    return NextResponse.json(
-      { error: '送信先の連絡先情報を確認できませんでした。少し後でもう一度お試しください。' },
-      { status: 503 },
-    )
-  }
-  if (!contact) {
-    return NextResponse.json(
-      { error: '送信先の連絡先情報が見つからないため、返信を送信できません。' },
-      { status: 400 },
-    )
-  }
-
-  // "Send now" bypasses recipient-timing entirely; otherwise defer to the
-  // recipient-appropriate instant (absolute UTC, frozen onto the job).
-  const scheduledAt = sendNow
-    ? new Date().toISOString()
-    : computeRecipientSendTime(new Date(), {
-        timeZone: contact.timezone ?? undefined,
-        quietStart: contact.quiet_hours_start ?? undefined,
-        quietEnd: contact.quiet_hours_end ?? undefined,
-      })
+  const target =
+    kind === 'dm'
+      ? await resolveDmSendTarget(supabase, workspaceId, platform, item.contact_id, sendNow)
+      : await resolveContentSendTarget(supabase, workspaceId, platform, item.external_id)
+  if (isNextResponse(target)) return target
+  const { sendTarget, contactId, scheduledAt } = target
 
   let job: ReplyJob
   let reusedExistingJob = false
@@ -154,11 +100,11 @@ export async function POST(request: NextRequest) {
     job = await createReplyJob(supabase, {
       workspaceId,
       inboxItemId,
-      contactId: contact.id,
+      contactId,
       suggestionId: suggestionId ?? undefined,
-      platform: 'line',
+      platform,
       replyText,
-      sendTarget: contact.external_contact_id,
+      sendTarget,
       replyMode: 'scheduled',
       scheduledAt,
       createdBy: user.id,
@@ -204,7 +150,7 @@ export async function POST(request: NextRequest) {
       action: 'inbox_reply_scheduled',
       target_type: 'inbox_item',
       target_id: inboxItemId,
-      metadata: { platform: 'line', replyJobId: job.id, scheduledAt, sendNow: Boolean(sendNow) },
+      metadata: { platform, replyJobId: job.id, scheduledAt, sendNow: Boolean(sendNow) },
     })
     if (auditError) console.error('Failed to audit scheduled inbox reply:', auditError)
   }
@@ -229,7 +175,7 @@ export async function POST(request: NextRequest) {
             status: 'failed',
             job,
             error:
-              '前回のLINE送信は相手に届いたか判定できません。二重送信を防ぐため再送は停止しています。LINEの会話を確認し、必要ならこのジョブを閉じてから新しい返信を作成してください。',
+              '前回の送信は相手に届いたか判定できません。二重送信を防ぐため再送は停止しています。送信内容を確認し、必要ならこのジョブを閉じてから新しい返信を作成してください。',
           },
           { status: 409 },
         )
@@ -254,7 +200,7 @@ export async function POST(request: NextRequest) {
         status: 'failed',
         job,
         error:
-          '前回のLINE送信は相手に届いたか判定できません。二重送信を防ぐため、この返信の即時再送は停止しています。会話を確認し、必要なら新しい返信として作成してください。',
+          '前回の送信は相手に届いたか判定できません。二重送信を防ぐため、この返信の即時再送は停止しています。送信内容を確認し、必要なら新しい返信として作成してください。',
       },
       { status: 409 },
     )
@@ -276,7 +222,7 @@ export async function POST(request: NextRequest) {
   const result = await processReplyJob(serviceClient, {
     id: job.id,
     workspaceId: job.workspaceId,
-    platform: 'line',
+    platform,
     inboxItemId: job.inboxItemId,
     sendTarget: job.sendTarget,
     replyText: job.replyText,

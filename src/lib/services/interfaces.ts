@@ -160,15 +160,21 @@ export interface InboxFetchRequest {
 }
 
 /**
- * One outbound direct-message reply the reply Worker hands to an adapter —
- * mirrors PublishRequest's philosophy: the adapter never touches the database
- * or resolves its own credentials, it just receives the decrypted token, the
+ * One outbound reply the reply Worker hands to an adapter — mirrors
+ * PublishRequest's philosophy: the adapter never touches the database or
+ * resolves its own credentials, it just receives the decrypted token, the
  * send target, and the final approved text.
+ *
+ * `target`'s meaning depends on the inbox item being replied to:
+ * - DM (`InboxKind: 'dm'`): the platform-native recipient id to push to
+ *   (LINE userId / Instagram PSID).
+ * - Comment/mention (`InboxKind: 'comment' | 'mention'`): the platform-native
+ *   id of the comment/post/tweet being replied under (`InboxItem.externalId`).
+ *   There is no "recipient" — the reply is posted publicly under that content.
  */
 export interface SendMessageRequest {
   platform: SocialPlatform
   accessToken: string
-  /** The platform-native recipient id to push to (LINE userId / Instagram PSID). */
   target: string
   text: string
   externalAccountId?: string
@@ -190,7 +196,13 @@ export interface SocialConnectorAdapter {
   disconnect(platform: SocialPlatform): Promise<void>
   refreshAccessToken(platform: SocialPlatform, refreshToken: string): Promise<RefreshedCredentials>
   publish(request: PublishRequest): Promise<PublishResult>
-  /** Send one outbound DM reply. Only real messaging connectors (LINE) implement this; every other adapter fails closed. */
+  /**
+   * Send one outbound reply (DM or public comment/mention reply — see
+   * SendMessageRequest). Implemented by LINE (DM), Instagram (comment reply),
+   * YouTube (comment reply), and X (reply-to-tweet); every other adapter, and
+   * Instagram/X's own DM/unsupported paths, fail closed. See each adapter's
+   * sendMessage() for exactly what it does and does not support.
+   */
   sendMessage(request: SendMessageRequest): Promise<SendMessageResult>
   fetchInbox(request: InboxFetchRequest): Promise<InboundInboxEvent[]>
   fetchComments(request: InboxFetchRequest & { postId: string }): Promise<InboundInboxEvent[]>
