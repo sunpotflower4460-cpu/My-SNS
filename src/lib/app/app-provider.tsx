@@ -132,6 +132,12 @@ interface AppContextValue {
   addInboxNote: (inboxItemId: string, text: string) => Promise<InboxNote>
   getInboxNotes: (inboxItemId: string) => InboxNote[]
   generateInboxReply: (inboxItemId: string) => Promise<{ source: 'ai' | 'template-fallback'; reason?: string; summary: string; reply: string; tone: string; assumptions: string[]; priority: 'high' | 'normal' | 'low'; suggestionId: string }>
+  /** Generates a suggestion for each item in one request, sequentially server-side. Never sends anything. */
+  generateBulkInboxReplies: (inboxItemIds: string[]) => Promise<{
+    results: Array<{ inboxItemId: string; status: number; body: { error?: string; reply?: string; [key: string]: unknown } }>
+    succeeded: number
+    failed: number
+  }>
   getReplySuggestion: (inboxItemId: string) => AiReplySuggestion | null
   approveAndSendReply: (input: { inboxItemId: string; replyText: string; suggestionId?: string; sendNow?: boolean }) => Promise<{ status: 'scheduled' | 'sent' | 'failed'; job: ReplyJob }>
   triggerReplyJob: (jobId: string) => Promise<void>
@@ -796,6 +802,31 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           assumptions: string[]
           priority: 'high' | 'normal' | 'low'
           suggestionId: string
+        }
+      },
+
+      generateBulkInboxReplies: async (inboxItemIds) => {
+        if (!currentWorkspace) throw new Error('準備ができていません')
+        if (!currentMember || !hasPermission(currentMember.role, 'reply_inbox')) {
+          throw new Error('あなたの役割では返信を作成できません。')
+        }
+
+        const response = await fetch('/api/inbox/reply/generate-bulk', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ workspaceId: currentWorkspace.id, inboxItemIds }),
+        })
+        const payload = await response.json()
+        if (!response.ok) throw new Error(payload.error ?? 'おすすめ返信を一括作成できませんでした。')
+
+        // One refresh after the whole batch, not per item — avoids clobbering
+        // still-pending suggestions from earlier items in the same batch with
+        // a stale refetch mid-loop.
+        await refreshWorkspaceData()
+        return payload as {
+          results: Array<{ inboxItemId: string; status: number; body: { error?: string; reply?: string; [key: string]: unknown } }>
+          succeeded: number
+          failed: number
         }
       },
 
