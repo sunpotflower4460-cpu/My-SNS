@@ -4,8 +4,10 @@ import { useMemo, useState } from 'react'
 import PageHeader from '@/components/ui/PageHeader'
 import InboxItemCard from '@/components/ui/InboxItemCard'
 import ConciergeReplyPanel from '@/components/ui/ConciergeReplyPanel'
+import BulkReplyReviewPanel from '@/components/ui/BulkReplyReviewPanel'
 import CreatorStatusBar from '@/components/ui/CreatorStatusBar'
 import EmptyState from '@/components/ui/EmptyState'
+import { Button, StickyActionBar } from '@/components/ui/kit'
 import { useApp } from '@/lib/app/app-provider'
 import { hasPermission } from '@/lib/permissions'
 import {
@@ -14,6 +16,8 @@ import {
   inboxCounts,
   type FilterTab,
 } from '@/lib/presentation/inbox-presenter'
+
+const MAX_BULK_SELECTION = 20
 
 const TABS: Array<{ label: string; value: FilterTab }> = [
   { label: 'すべて', value: 'all' },
@@ -27,12 +31,25 @@ const TABS: Array<{ label: string; value: FilterTab }> = [
 ]
 
 export default function InboxPage() {
-  const { addInboxNote, currentMember, getInboxNotes, inboxItems, seeds, toggleInboxNeedsAction, toggleInboxRead, toggleInboxStar } = useApp()
+  const {
+    addInboxNote,
+    currentMember,
+    generateBulkInboxReplies,
+    getInboxNotes,
+    inboxItems,
+    seeds,
+    toggleInboxNeedsAction,
+    toggleInboxRead,
+    toggleInboxStar,
+  } = useApp()
   const canMutateInbox = Boolean(currentMember && hasPermission(currentMember.role, 'reply_inbox'))
   const [activeTab, setActiveTab] = useState<FilterTab>('all')
   const [draftNotes, setDraftNotes] = useState<Record<string, string>>({})
   const [feedback, setFeedback] = useState('')
   const [error, setError] = useState('')
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
+  const [bulkGenerating, setBulkGenerating] = useState(false)
+  const [reviewItems, setReviewItems] = useState<typeof inboxItems | null>(null)
 
   // Filter first, then split into priority groups (急ぎ / 対応が必要 / そのほか) so
   // the messages that need a fast reply stay at the top even within a filter.
@@ -55,10 +72,50 @@ export default function InboxPage() {
     }
   }
 
+  const toggleSelected = (itemId: string) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev)
+      if (next.has(itemId)) {
+        next.delete(itemId)
+      } else if (next.size < MAX_BULK_SELECTION) {
+        next.add(itemId)
+      }
+      return next
+    })
+  }
+
+  const handleBulkGenerate = async () => {
+    const ids = Array.from(selectedIds)
+    if (ids.length === 0) return
+    setBulkGenerating(true)
+    setError('')
+    try {
+      await generateBulkInboxReplies(ids)
+      setReviewItems(inboxItems.filter((item) => selectedIds.has(item.id)))
+      setSelectedIds(new Set())
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'おすすめ返信を一括作成できませんでした。')
+    } finally {
+      setBulkGenerating(false)
+    }
+  }
+
   const renderItem = (item: (typeof inboxItems)[number]) => {
     const notes = getInboxNotes(item.id)
     return (
       <div key={item.id}>
+        {canMutateInbox && (
+          <label className="mb-1.5 flex items-center gap-2 text-xs text-gray-500">
+            <input
+              type="checkbox"
+              checked={selectedIds.has(item.id)}
+              onChange={() => toggleSelected(item.id)}
+              disabled={!selectedIds.has(item.id) && selectedIds.size >= MAX_BULK_SELECTION}
+              className="h-4 w-4 rounded border-stone-300 text-violet-600 focus:ring-violet-400"
+            />
+            一括操作用に選択
+          </label>
+        )}
         <InboxItemCard
           item={item}
           notes={notes}
@@ -150,6 +207,22 @@ export default function InboxPage() {
             </section>
           ))}
         </div>
+      )}
+
+      {canMutateInbox && selectedIds.size > 0 && (
+        <StickyActionBar>
+          <span className="text-sm text-gray-600">{selectedIds.size}件選択中</span>
+          <div className="flex items-center gap-2">
+            <Button variant="secondary" size="sm" onClick={() => setSelectedIds(new Set())}>選択解除</Button>
+            <Button variant="primary" size="sm" loading={bulkGenerating} onClick={() => void handleBulkGenerate()}>
+              おすすめ返信を一括生成
+            </Button>
+          </div>
+        </StickyActionBar>
+      )}
+
+      {reviewItems && (
+        <BulkReplyReviewPanel open={reviewItems !== null} onClose={() => setReviewItems(null)} items={reviewItems} />
       )}
     </div>
   )
