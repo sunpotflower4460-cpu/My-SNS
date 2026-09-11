@@ -59,6 +59,7 @@ export const CORE_PUBLISHING_CHANNELS = [
   'instagram',
   'x',
   'tiktok',
+  'threads',
 ] as const satisfies readonly PublishingChannel[]
 
 export interface SocialAccount {

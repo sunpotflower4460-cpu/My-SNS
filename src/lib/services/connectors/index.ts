@@ -5,6 +5,7 @@ import { XConnectorAdapter, buildXAuthorizeUrl, isXConfigured } from './x-connec
 import { InstagramConnectorAdapter, buildInstagramAuthorizeUrl, isInstagramConfigured } from './instagram-connector'
 import { YouTubeConnectorAdapter, buildYouTubeAuthorizeUrl, isYouTubeConfigured } from './youtube-connector'
 import { TikTokConnectorAdapter, buildTikTokAuthorizeUrl, isTikTokConfigured } from './tiktok-connector'
+import { ThreadsConnectorAdapter, buildThreadsAuthorizeUrl, isThreadsConfigured } from './threads-connector'
 import { LineConnectorAdapter } from './line-connector'
 import type { ConnectablePlatform } from './platforms'
 
@@ -26,6 +27,8 @@ export function isPlatformConfigured(platform: ConnectablePlatform): boolean {
       return isYouTubeConfigured()
     case 'tiktok':
       return isTikTokConfigured()
+    case 'threads':
+      return isThreadsConfigured()
   }
 }
 
@@ -43,6 +46,8 @@ export function buildAuthorizeUrl(
       return { url: buildInstagramAuthorizeUrl(state, redirectUri) }
     case 'youtube':
       return { url: buildYouTubeAuthorizeUrl(state, redirectUri) }
+    case 'threads':
+      return { url: buildThreadsAuthorizeUrl(state, redirectUri) }
   }
 }
 
@@ -57,6 +62,8 @@ export function getConnectorAdapter(platform: SocialPlatform): SocialConnectorAd
       return new YouTubeConnectorAdapter()
     case 'tiktok':
       return new TikTokConnectorAdapter()
+    case 'threads':
+      return new ThreadsConnectorAdapter()
     case 'line':
       return new LineConnectorAdapter()
     default:

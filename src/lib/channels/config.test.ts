@@ -22,7 +22,7 @@ describe('publishing strategy', () => {
     expect(derivePublishMode('youtube', 'api-first')).toBe('assisted')
     expect(derivePublishMode('tiktok', 'api-first')).toBe('draft')
     expect(derivePublishMode('note', 'api-first')).toBe('manual')
-    expect(derivePublishMode('threads', 'api-first')).toBe('assisted')
+    expect(derivePublishMode('threads', 'api-first')).toBe('auto')
     expect(derivePublishMode('facebook', 'api-first')).toBe('assisted')
     expect(derivePublishMode('website', 'api-first')).toBe('owned')
   })
