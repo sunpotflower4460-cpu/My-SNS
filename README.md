@@ -6,6 +6,8 @@ A calm, workspace-centric Creator OS for capturing one source Seed, preserving a
 
 The app is now backed by **real Supabase infrastructure** while preserving the existing UI and architecture. PR5 closes out the MVP defined in `docs/master-plan.md` §4: a Seed can flow all the way from one-time capture through AI proposal, human approval, scheduling, and a real connector attempt for all five core channels (X, Instagram, YouTube, TikTok, note) — with the two structural gaps below (media attachment, developer-account setup) intentionally left as the honest, explicitly-documented boundary of what code alone can finish.
 
+Work has continued well past PR5 since this section was last rewritten (LINE messaging concierge, calendar sync, multi-account thumbnails/variants, reliability hardening, and more) — see `CLAUDE.md`'s "現在地" section for the current, actively-maintained status rather than treating the list below as exhaustive.
+
 ## What now works
 
 - **Real Supabase Auth** with magic link email authentication
@@ -70,28 +72,14 @@ Optionally set `ANTHROPIC_MONTHLY_BUDGET_USD` to cap AI spend per workspace per 
 ### Setting up Supabase
 
 1. **Create a Supabase project** at [supabase.com](https://supabase.com)
-2. **Run the migrations** to create the database schema:
-   - Go to your Supabase project dashboard
-   - Navigate to the SQL Editor
-   - Run each migration file in order:
-     - `supabase/migrations/20260421000000_initial_schema.sql`
-     - `supabase/migrations/20260421000001_rls_policies.sql`
-     - `supabase/migrations/20260421000002_triggers.sql`
-     - `supabase/migrations/20260715000000_private_asset_storage.sql`
-     - `supabase/migrations/20260715010000_seed_brand_profile_foundation.sql`
-     - `supabase/migrations/20260716000000_ai_draft_generation.sql`
-     - `supabase/migrations/20260717000000_scheduling_engine.sql`
-     - `supabase/migrations/20260718000000_x_instagram_connectors.sql`
-     - `supabase/migrations/20260719000000_publish_job_claims.sql`
-     - `supabase/migrations/20260720000000_webhook_inbox.sql`
-     - `supabase/migrations/20260721000000_analytics_learning.sql`
-     - `supabase/migrations/20260722000000_notifications.sql`
-   - `youtube`/`tiktok` were already valid `social_platform` values from the initial schema, and PR4's `social_accounts`/`social_account_credentials`/`oauth_states` tables are already generic across every platform, so PR5's only schema change is the `claimed_at` column above.
-3. The PR0 migration makes assets private; the PR1 migration preserves existing rows while promoting `contents` to `seeds` and adding `brand_profiles`; the PR2 migration adds structured proposal fields to `social_drafts` plus the append-only `draft_revisions` and `ai_generations` tables; the PR3 migration adds `publish_mode`/`revision_id` to `publish_jobs`, the append-only `publish_attempts` table, and tightens `publish_jobs` RLS to owner/admin (matching the `manage_queue` permission); the PR4 migration adds `social_account_credentials` (RLS enabled with zero policies — only the service-role key can touch it) and `oauth_states`, and tightens `social_accounts` RLS to owner/admin (matching `manage_social_accounts`); the PR5 migration adds a `claimed_at` column to `publish_jobs`, set atomically while the Worker or a manual "Publish now" is actively processing a job so concurrent attempts and cancels can't race it (a claim older than 10 minutes is treated as abandoned and can be reclaimed); the PR6 migration adds an `external_id` column to `inbox_items` plus a unique index on `(workspace_id, platform, kind, external_id)` (not partial — PostgREST's `.upsert({onConflict})` can't target a partial index, and Postgres already treats distinct NULLs as non-conflicting, so a plain index dedupes external events without constraining internal-only rows), so the same webhook delivery or overlapping manual sync can never create a duplicate inbox row. It also adds a partial unique index on `social_accounts (platform, external_account_id) WHERE connected`, so the same real platform account can never be connected=true in two workspaces at once; the PR7 migration adds an `ai_original_snapshot` column to both `social_drafts` and `draft_revisions` (frozen the moment an AI-sourced draft is first saved, copied into the Revision at approval) and updates `approve_social_draft()` to carry it through — the basis for comparing what the AI proposed against what a human actually approved; the PR9 migration adds the `notifications` table (RLS: read/update only your own rows, but any workspace member can insert one targeting a teammate — the same trust level already given to `inbox_notes` authorship).
-4. **Copy your project credentials** to `.env.local`
-5. **(Optional) Enable the publish Worker** — if deploying to Vercel, `vercel.json` already schedules `/api/publish/run` once a day at 00:00 UTC (Hobby's maximum cadence; Pro can raise this). Set `CRON_SECRET` in your Vercel project's environment variables (Vercel then sends it automatically as the Worker's `Authorization` header). Each tick processes at most 20 due jobs. Any other host can call the same route on a schedule with `Authorization: Bearer $CRON_SECRET`.
-6. **(Optional) Connect X/Instagram/YouTube/TikTok** — register a developer app with each platform (see `.env.example` for the redirect URIs to register), then set the corresponding env vars. This is the one part of PR4/PR5 that genuinely needs the human: developer account creation and app review are outside what any code change can do.
-7. **(Optional) Subscribe Instagram's webhook** — in the Meta App Dashboard's Webhooks product, subscribe `$NEXT_PUBLIC_APP_URL/api/webhooks/meta` for the `instagram` object, fields `comments` and `messages`, using the same value you set for `META_WEBHOOK_VERIFY_TOKEN` as the Verify Token. Comments and DMs then arrive in the Unified Inbox automatically.
+2. **Run every migration, in filename order** — `supabase/migrations/*.sql` is timestamp-ordered and each file is additive, so applying them in ascending filename order always reproduces the current schema. Two ways to do this:
+   - **Supabase CLI** (recommended — avoids copy/paste mistakes as the migration count grows): `supabase link --project-ref <your-project-ref>` then `supabase db push`.
+   - **SQL Editor**: open each file under `supabase/migrations/` in ascending filename order and run it. Do not hand-pick a subset — later migrations depend on earlier ones (columns, tables, and RLS policies build on prior files), and several are safety-critical race-condition/idempotency fixes for the publish Worker and Inbox sync.
+   - This list is intentionally not enumerated by name here: it changes on every schema PR, and a hand-copied list in this README has drifted out of date before. Run `ls supabase/migrations` (or let the CLI read the directory) for the authoritative, current list.
+3. **Copy your project credentials** to `.env.local`
+4. **(Optional) Enable the publish Worker** — if deploying to Vercel, `vercel.json` already schedules `/api/publish/run` once a day at 00:00 UTC (Hobby's maximum cadence; Pro can raise this). Set `CRON_SECRET` in your Vercel project's environment variables (Vercel then sends it automatically as the Worker's `Authorization` header). Each tick processes at most 20 due jobs. Any other host can call the same route on a schedule with `Authorization: Bearer $CRON_SECRET`.
+5. **(Optional) Connect X/Instagram/YouTube/TikTok** — register a developer app with each platform (see `.env.example` for the redirect URIs to register), then set the corresponding env vars. This is the one part of PR4/PR5 that genuinely needs the human: developer account creation and app review are outside what any code change can do.
+6. **(Optional) Subscribe Instagram's webhook** — in the Meta App Dashboard's Webhooks product, subscribe `$NEXT_PUBLIC_APP_URL/api/webhooks/meta` for the `instagram` object, fields `comments` and `messages`, using the same value you set for `META_WEBHOOK_VERIFY_TOKEN` as the Verify Token. Comments and DMs then arrive in the Unified Inbox automatically.
 
 ## Local development
 
