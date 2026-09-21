@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { Button, Card, InlineAlert, SegmentedControl, StickyActionBar } from '@/components/ui/kit'
+import { getPublishingStrategy } from '@/lib/channels/config'
 import { PUBLISH_WORKER_DELAY_JA } from '@/lib/presentation/cron-honesty'
 import {
   buildSendChannelState,
@@ -12,6 +13,7 @@ import {
   type SendChannelState,
   type SendTiming,
 } from '@/lib/presentation/send-plan'
+import { parseDraftPublishOptions } from '@/lib/publish/draft-publish-options'
 import type { SocialAccount, SocialDraft } from '@/lib/domain/types'
 
 function clientScheduleInputValue(): string {
@@ -34,7 +36,11 @@ export default function SendAllPanel({ drafts, accounts, canSend, busy = false, 
   const [scheduleInput, setScheduleInput] = useState('')
   const [error, setError] = useState('')
 
-  const draftKey = drafts.map((draft) => `${draft.id}:${draft.updatedAt}:${draft.status}`).join('|')
+  // The account picked inside a card lives in metadata, not in id/updatedAt, so it
+  // has to be part of the key for the panel to follow it.
+  const draftKey = drafts
+    .map((draft) => `${draft.id}:${draft.updatedAt}:${draft.status}:${parseDraftPublishOptions(draft.metadata).socialAccountId ?? ''}`)
+    .join('|')
   const accountKey = accounts.map((account) => `${account.id}:${account.connected}`).join('|')
 
   useEffect(() => {
@@ -42,9 +48,14 @@ export default function SendAllPanel({ drafts, accounts, canSend, busy = false, 
     // Keep what the user already chose. Rebuilding from scratch on every change
     // would silently re-check a channel they had just unchecked.
     setChannels((previous) => next.map((entry) => {
-      const before = previous.find((candidate) => candidate.channel === entry.channel && candidate.draftId === entry.draftId)
+      // Match on channel only: saving a card swaps its draft id, and that must
+      // not re-check a channel the user had unchecked.
+      const before = previous.find((candidate) => candidate.channel === entry.channel)
       if (!before) return entry
-      const keepAccount = before.selectedAccountId && entry.accounts.some((account) => account.id === before.selectedAccountId)
+      // The account written into the draft (from its card) wins when it changed;
+      // otherwise keep the panel's own pick.
+      const cardChangedAccount = entry.selectedAccountId !== before.selectedAccountId && before.draftId === entry.draftId
+      const keepAccount = !cardChangedAccount && before.selectedAccountId && entry.accounts.some((account) => account.id === before.selectedAccountId)
       const selectedAccountId = keepAccount ? before.selectedAccountId : entry.selectedAccountId
       const merged = { ...entry, selectedAccountId }
       const blockedReason = resolveChannelBlockedReason(merged)
@@ -159,7 +170,11 @@ export default function SendAllPanel({ drafts, accounts, canSend, busy = false, 
           </label>
         )}
         <p className="text-xs leading-5 text-[color:var(--text-muted)]">
-          {timing === 'now' ? '接続済みの媒体はすぐ公開を試します。' : PUBLISH_WORKER_DELAY_JA}
+          {timing === 'scheduled'
+            ? PUBLISH_WORKER_DELAY_JA
+            : getPublishingStrategy() === 'api-first'
+              ? '接続済みの媒体はすぐ公開を試します。'
+              : '公開予定に追加します。各SNSの投稿画面から投稿し、「投稿済みにする」を押してください。'}
         </p>
       </div>
 

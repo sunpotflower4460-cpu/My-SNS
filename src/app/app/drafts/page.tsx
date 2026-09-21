@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import Link from 'next/link'
 import { useRouter, useSearchParams } from 'next/navigation'
 import SendAllPanel from '@/components/compose/SendAllPanel'
@@ -217,8 +217,11 @@ export default function DraftsPage() {
   // Once a generated proposal has been saved or approved, the saved row
   // (with its real id) shows under 保存済み. Keeping the unsaved card would
   // insert a duplicate on the next save.
-  const dropGenerated = (id: string) => {
-    setGeneratedDrafts((current) => current.filter((entry) => entry.id !== id))
+  const rememberLive = (id: string, text: string, metadata: Record<string, unknown>) => {
+    setLiveEdits((current) => ({ ...current, [id]: { text, metadata } }))
+  }
+
+  const clearLive = (id: string) => {
     setLiveEdits((current) => {
       if (!(id in current)) return current
       const rest = { ...current }
@@ -227,8 +230,18 @@ export default function DraftsPage() {
     })
   }
 
-  const rememberLive = (id: string, text: string, metadata: Record<string, unknown>) => {
-    setLiveEdits((current) => ({ ...current, [id]: { text, metadata } }))
+  const dropGenerated = (id: string) => {
+    setGeneratedDrafts((current) => current.filter((entry) => entry.id !== id))
+    clearLive(id)
+  }
+
+  // A second click on 保存/承認 for the same unsaved card before the first call
+  // returns would insert another row.
+  const inFlightDrafts = useRef(new Set<string>())
+  const runOncePerDraft = (id: string, action: () => Promise<unknown>, successMessage: string) => {
+    if (inFlightDrafts.current.has(id)) return
+    inFlightDrafts.current.add(id)
+    void runDraftAction(action, successMessage).finally(() => inFlightDrafts.current.delete(id))
   }
 
   const runDraftAction = async (action: () => Promise<unknown>, successMessage: string) => {
@@ -258,7 +271,12 @@ export default function DraftsPage() {
       }
 
       try {
-        const metadata = mergeDraftPublishOptions(draft.metadata, { socialAccountId: target.selectedAccountId })
+        // Only write the account when the panel actually chose one; otherwise keep
+        // whatever the card already stored.
+        const metadata = mergeDraftPublishOptions(
+          draft.metadata,
+          target.selectedAccountId ? { socialAccountId: target.selectedAccountId } : {},
+        )
         const withAccount = { ...draft, metadata }
         const approved = await saveAndApproveDraft(toDraftInput(withAccount))
 
@@ -348,7 +366,7 @@ export default function DraftsPage() {
                 onLiveChange={rememberLive}
                 onEdit={canEditDrafts ? (id, text, metadata) => {
                   const target = generatedDrafts.find((entry) => entry.id === id)
-                  if (target) void runDraftAction(async () => {
+                  if (target) runOncePerDraft(id, async () => {
                     await persistDraft({ ...target, draftText: text, metadata })
                     dropGenerated(id)
                   }, `${PUBLISHING_CHANNEL_CONFIG[target.channel].label}の下書きを保存しました。`)
@@ -356,7 +374,8 @@ export default function DraftsPage() {
                 onApprove={canApprove ? (id, text, metadata) => {
                   const target = generatedDrafts.find((entry) => entry.id === id)
                   if (!target) return
-                  void runDraftAction(
+                  runOncePerDraft(
+                    id,
                     async () => {
                       await saveAndApproveDraft(toDraftInput({ ...target, draftText: text, metadata }))
                       dropGenerated(id)
@@ -366,6 +385,7 @@ export default function DraftsPage() {
                 } : undefined}
                 onRegenerate={canEditDrafts ? (id) => {
                   if (!selectedSeed) return
+                  clearLive(id)
                   setGeneratedDrafts((current) => current.map((entry) => entry.id === id ? { ...entry, draftText: resetTemplateDraft(entry, selectedSeed), updatedAt: new Date().toISOString() } : entry))
                   setFeedback('この下書きを元のテンプレートに戻しました。')
                 } : undefined}
@@ -417,7 +437,10 @@ export default function DraftsPage() {
                       onRegenerate={canEditDrafts ? (id) => {
                         if (!selectedSeed) return
                         const target = existingDrafts.find((entry) => entry.id === id)
-                        if (target) void runDraftAction(() => persistDraft({ ...target, draftText: resetTemplateDraft(target, selectedSeed) }), '元のテンプレートに戻して保存しました。')
+                        if (target) {
+                          clearLive(id)
+                          void runDraftAction(() => persistDraft({ ...target, draftText: resetTemplateDraft(target, selectedSeed) }), '元のテンプレートに戻して保存しました。')
+                        }
                       } : undefined}
                       onSchedule={canManageQueue ? (id, scheduledAt, metadata) => {
                         void runDraftAction(async () => {

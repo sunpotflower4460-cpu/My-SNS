@@ -1067,7 +1067,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         // mobile "まとめて送る" flow uses (generate → approve → schedule).
         const draft = await draftsRepo.getSocialDraft(currentWorkspace.id, draftId)
         if (!draft) throw new Error('下書きが見つかりません')
-        if (draft.status !== 'approved') throw new Error('承認済みの下書きのみ予約できます。')
+        if (draft.status !== 'approved') throw new Error('承認済みの下書きのみ予約できます。本文を編集した場合は、もう一度承認してください。')
 
         // Always the latest approval, not the (possibly since-edited) mutable
         // draft row — a schedule always publishes an immutable Revision.

@@ -65,7 +65,7 @@ describe('template draft generator', () => {
       expect(count('プロフィールのリンクから'), `${draft.channel} CTA`).toBeLessThanOrEqual(1)
       expect(count('#sora'), `${draft.channel} hashtag`).toBeLessThanOrEqual(1)
       if (draft.title) expect(count(draft.title), `${draft.channel} title`).toBeLessThanOrEqual(1)
-      if (draft.channel === 'x') expect(copied.length).toBeLessThanOrEqual(280 + 40) // hashtags are all tags in handoff
+      if (draft.channel === 'x') expect(copied.length).toBeLessThanOrEqual(280)
     }
   })
 })

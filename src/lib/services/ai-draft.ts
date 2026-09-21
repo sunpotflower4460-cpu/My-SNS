@@ -83,7 +83,9 @@ export class TemplateDraftGeneratorService implements DraftGeneratorService {
       channel,
       title: seed.title,
       draftText: CHANNEL_TEMPLATES[channel](seed, tone, length),
-      hashtags: [...seed.tags],
+      // X's handoff appends every hashtag on the draft, and the body was sized
+      // for two — keep the two in agreement.
+      hashtags: channel === 'x' ? seed.tags.slice(0, 2) : [...seed.tags],
       cta: seed.callToAction,
       // Deterministic templates never guess — there is nothing to flag.
       assumptions: [],
