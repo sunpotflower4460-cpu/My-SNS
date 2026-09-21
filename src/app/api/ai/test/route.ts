@@ -6,6 +6,12 @@ import { describeAiFailure, getAiStatus } from '@/lib/services/llm-status'
 
 export const maxDuration = 60
 
+// The test spends real (tiny) money. A short per-user cooldown stops a stuck
+// button or a script from hammering it; it is per server instance, which is
+// enough for a guard rail on an owner/admin-only action.
+const TEST_COOLDOWN_MS = 10_000
+const lastTestAt = new Map<string, number>()
+
 // One tiny real call to the configured provider, so the creator learns right
 // away whether the key/model work. Costs a fraction of a cent; it is not tied
 // to a Seed, so it is not written to the generation ledger.
@@ -26,6 +32,12 @@ export async function POST(request: NextRequest) {
 
   const membership = await requireWorkspaceMember(supabase, body.workspaceId, user.id, 'edit_settings', 'AIの接続テストを行う権限がありません。')
   if (isNextResponse(membership)) return membership
+
+  const previous = lastTestAt.get(user.id) ?? 0
+  if (Date.now() - previous < TEST_COOLDOWN_MS) {
+    return NextResponse.json({ ok: false, error: '少し待ってから、もう一度テストしてください。' }, { status: 429 })
+  }
+  lastTestAt.set(user.id, Date.now())
 
   if (!isAiConfigured()) {
     return NextResponse.json({ error: 'AIのAPIキー（DEEPSEEK_API_KEY）が未設定です。' }, { status: 400 })

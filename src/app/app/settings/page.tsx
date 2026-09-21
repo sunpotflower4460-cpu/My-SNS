@@ -46,7 +46,8 @@ export default function SettingsPage() {
   // null until loaded (or if the status call fails): rows then behave as before
   // and the connect route still refuses safely, so a failed call never hides Connect.
   const [setupStatus, setSetupStatus] = useState<ConnectionSetupStatus | null>(null)
-  const [aiStatus, setAiStatus] = useState<AiStatus | null>(null)
+  const workspaceId = currentWorkspace?.id
+  const [aiStatus, setAiStatus] = useState<AiStatus | null | undefined>(undefined)
   const [aiTesting, setAiTesting] = useState(false)
   const [aiTestResult, setAiTestResult] = useState<{ ok: boolean; message: string } | null>(null)
   const publishingStrategy = getPublishingStrategy()
@@ -82,9 +83,10 @@ export default function SettingsPage() {
   }, [])
 
   useEffect(() => {
-    if (!currentWorkspace) return
+    if (!workspaceId) return
     let cancelled = false
-    fetch(`/api/ai/status?workspaceId=${currentWorkspace.id}`, { cache: 'no-store' })
+    setAiTestResult(null)
+    fetch(`/api/ai/status?workspaceId=${workspaceId}`, { cache: 'no-store' })
       .then((response) => (response.ok ? (response.json() as Promise<AiStatus>) : null))
       .then((status) => {
         if (!cancelled) setAiStatus(status)
@@ -95,7 +97,7 @@ export default function SettingsPage() {
     return () => {
       cancelled = true
     }
-  }, [currentWorkspace])
+  }, [workspaceId])
 
   const handleAiTest = async () => {
     if (!currentWorkspace) return
@@ -290,8 +292,10 @@ export default function SettingsPage() {
                 <li>開発サーバーを再起動し、この画面で「接続テスト」を押します。</li>
               </ol>
             </div>
+          ) : aiStatus === undefined ? (
+            <p className="mt-3 text-sm text-gray-500">読み込み中…</p>
           ) : (
-            <p className="mt-3 text-sm text-gray-500">状態を読み込めませんでした。</p>
+            <p className="mt-3 text-sm text-gray-500">AIの状態を表示できませんでした（設定を見る権限がないか、通信に失敗しました）。</p>
           )}
         </Card>
 

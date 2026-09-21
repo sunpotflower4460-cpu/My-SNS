@@ -7,6 +7,7 @@ import { createServiceClient } from '@/lib/supabase/service'
 import { getWorkspaceMonthlyAiCost, recordAiGeneration } from '@/lib/repositories/supabase/ai-generations'
 import { AiScheduleGenerationError, extractScheduleWithAi } from '@/lib/services/llm-schedule'
 import { calculateGenerationCost, isAiConfigured } from '@/lib/services/llm-provider'
+import { describeAiFailure } from '@/lib/services/llm-status'
 import {
   claimWorkspaceAiBudget,
   configuredMonthlyAiBudgetUsd,
@@ -179,7 +180,8 @@ export async function POST(request: NextRequest) {
         usageWarning,
       })
     } catch (cause) {
-      const message = cause instanceof Error ? cause.message : '予定の抽出に失敗しました。'
+      console.error('AI schedule extraction failed:', cause)
+      const message = `予定の抽出に失敗しました。${describeAiFailure(cause)}`
       if (cause instanceof AiScheduleGenerationError) {
         try {
           await recordAiGeneration(serviceClient, {

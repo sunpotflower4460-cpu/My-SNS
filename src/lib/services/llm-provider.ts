@@ -67,6 +67,15 @@ export function resolveAiModel(env: Env = process.env, provider = resolveLlmProv
   return env.DEEPSEEK_MODEL?.trim() || DEEPSEEK_DEFAULT_MODEL
 }
 
+/** First non-empty value: an empty `AI_X=` line in .env must not shadow the older `ANTHROPIC_X`. */
+export function envValue(...values: Array<string | undefined>): string | undefined {
+  for (const value of values) {
+    const trimmed = value?.trim()
+    if (trimmed) return trimmed
+  }
+  return undefined
+}
+
 function nonNegativeNumber(value: string | undefined): number {
   const parsed = Number(value ?? 0)
   return Number.isFinite(parsed) && parsed >= 0 ? parsed : 0
@@ -80,8 +89,8 @@ function nonNegativeNumber(value: string | undefined): number {
  * recorded even when cost is left at 0.
  */
 export function calculateGenerationCost(inputTokens: number, outputTokens: number, env: Env = process.env): number {
-  const inputRate = nonNegativeNumber(env.AI_INPUT_COST_PER_MTOK ?? env.ANTHROPIC_INPUT_COST_PER_MTOK)
-  const outputRate = nonNegativeNumber(env.AI_OUTPUT_COST_PER_MTOK ?? env.ANTHROPIC_OUTPUT_COST_PER_MTOK)
+  const inputRate = nonNegativeNumber(envValue(env.AI_INPUT_COST_PER_MTOK, env.ANTHROPIC_INPUT_COST_PER_MTOK))
+  const outputRate = nonNegativeNumber(envValue(env.AI_OUTPUT_COST_PER_MTOK, env.ANTHROPIC_OUTPUT_COST_PER_MTOK))
   const cost = (inputTokens / 1_000_000) * inputRate + (outputTokens / 1_000_000) * outputRate
   return Math.round(cost * 100_000) / 100_000
 }
@@ -110,6 +119,21 @@ export function extractJsonText(content: string): string {
   return fenced ? fenced[1].trim() : trimmed
 }
 
+/**
+ * A model told to "return the tool's arguments" sometimes wraps them anyway —
+ * {"propose_reply": {...}} or {"arguments": {...}}. Accept that shape rather
+ * than fail a billed call over it.
+ */
+export function unwrapStructuredOutput(output: unknown, toolName: string): unknown {
+  if (!output || typeof output !== 'object' || Array.isArray(output)) return output
+  const keys = Object.keys(output)
+  if (keys.length !== 1) return output
+  const [key] = keys
+  const inner = (output as Record<string, unknown>)[key]
+  const isWrapperKey = key === toolName || key === 'arguments' || key === 'input' || key === 'parameters'
+  return isWrapperKey && inner && typeof inner === 'object' && !Array.isArray(inner) ? inner : output
+}
+
 interface DeepseekResponse {
   choices?: Array<{ message?: { content?: string | null }; finish_reason?: string }>
   usage?: { prompt_tokens?: number; completion_tokens?: number }
@@ -124,9 +148,9 @@ async function runDeepseek(request: StructuredRequest, env: Env): Promise<Struct
   const system = [
     request.system,
     '',
-    // JSON mode needs the word "json" in the prompt, and there is no tool to call:
-    // the tool's arguments are simply the object we want back.
-    `Do not call any tool. Instead reply with ONLY one valid json object — the arguments you would have passed to "${request.toolName}" — that conforms to this JSON Schema. No prose, no markdown fences.`,
+    // JSON mode needs the word "json" in the prompt, and there is no tool here.
+    // The base prompt's "call the tool" wording only describes what to produce.
+    `Output format (this overrides any instruction above about calling a tool): there is no tool to call. Reply with ONLY one valid json object whose top-level keys are exactly the properties of the JSON Schema below (do not wrap it in another key such as "${request.toolName}" or "arguments"). No prose, no markdown fences.`,
     `JSON Schema: ${JSON.stringify(request.schema)}`,
   ].join('\n')
 
@@ -141,45 +165,56 @@ async function runDeepseek(request: StructuredRequest, env: Env): Promise<Struct
     const remaining = deadline - Date.now()
     if (remaining <= 1_000) break
 
-    const response = await fetch(`${baseUrl}/chat/completions`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
-      body: JSON.stringify({
-        model,
-        messages: [
-          { role: 'system', content: system },
-          { role: 'user', content: request.user },
-        ],
-        response_format: { type: 'json_object' },
-        max_tokens: request.maxTokens,
-        // Reasoning tokens would be billed and slow the reply; a structured
-        // rewrite does not need them.
-        thinking: { type: 'disabled' },
-        stream: false,
-      }),
-      signal: AbortSignal.timeout(remaining),
-    })
-
-    if (!response.ok) {
-      const detail = await response.text().catch(() => '')
-      throw new Error(`DeepSeek API error (${response.status}): ${detail.slice(0, 300)}`)
-    }
-
-    const body = (await response.json()) as DeepseekResponse
-    inputTokens += body.usage?.prompt_tokens ?? 0
-    outputTokens += body.usage?.completion_tokens ?? 0
-
-    const choice = body.choices?.[0]
-    const content = choice?.message?.content?.trim() ?? ''
-    if (choice?.finish_reason === 'length') {
-      throw new LlmOutputError('The model ran out of output space before finishing.', usage())
-    }
-    if (!content) continue
-
     try {
-      return { output: JSON.parse(extractJsonText(content)), usage: usage() }
-    } catch {
-      throw new LlmOutputError('The model did not return valid JSON.', usage())
+      const response = await fetch(`${baseUrl}/chat/completions`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
+        body: JSON.stringify({
+          model,
+          messages: [
+            { role: 'system', content: system },
+            { role: 'user', content: request.user },
+          ],
+          response_format: { type: 'json_object' },
+          max_tokens: request.maxTokens,
+          // Reasoning tokens would be billed and slow the reply; a structured
+          // rewrite does not need them.
+          thinking: { type: 'disabled' },
+          stream: false,
+        }),
+        signal: AbortSignal.timeout(remaining),
+      })
+
+      if (!response.ok) {
+        const detail = await response.text().catch(() => '')
+        throw new Error(`DeepSeek API error (${response.status}): ${detail.slice(0, 300)}`)
+      }
+
+      const body = (await response.json()) as DeepseekResponse
+      inputTokens += body.usage?.prompt_tokens ?? 0
+      outputTokens += body.usage?.completion_tokens ?? 0
+
+      const choice = body.choices?.[0]
+      const content = choice?.message?.content?.trim() ?? ''
+      if (choice?.finish_reason === 'length') {
+        throw new LlmOutputError('The model ran out of output space before finishing.', usage())
+      }
+      if (!content) continue
+
+      let parsed: unknown
+      try {
+        parsed = JSON.parse(extractJsonText(content))
+      } catch {
+        throw new LlmOutputError('The model did not return valid JSON.', usage())
+      }
+      return { output: unwrapStructuredOutput(parsed, request.toolName), usage: usage() }
+    } catch (cause) {
+      // A first attempt that already came back (and was billed) must not lose its
+      // tokens because the second one failed: report them with the failure.
+      if (!(cause instanceof LlmOutputError) && inputTokens + outputTokens > 0) {
+        throw new LlmOutputError(cause instanceof Error ? cause.message : 'The provider call failed.', usage())
+      }
+      throw cause
     }
   }
 

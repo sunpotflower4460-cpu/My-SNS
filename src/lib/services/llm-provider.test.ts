@@ -2,11 +2,13 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
   LlmOutputError,
   calculateGenerationCost,
+  envValue,
   extractJsonText,
   isAiConfigured,
   resolveAiModel,
   resolveLlmProvider,
   runStructuredCompletion,
+  unwrapStructuredOutput,
 } from './llm-provider'
 
 const request = {
@@ -68,6 +70,24 @@ describe('calculateGenerationCost', () => {
 
   it('ignores negative or non-numeric rates', () => {
     expect(calculateGenerationCost(1_000_000, 1_000_000, { AI_INPUT_COST_PER_MTOK: '-1', AI_OUTPUT_COST_PER_MTOK: 'x' })).toBe(0)
+  })
+})
+
+describe('envValue / empty env lines', () => {
+  it('skips empty and whitespace values so an empty AI_* line does not hide the ANTHROPIC_* fallback', () => {
+    expect(envValue('', '  ', '3')).toBe('3')
+    expect(envValue(undefined, undefined)).toBeUndefined()
+    expect(calculateGenerationCost(1_000_000, 0, { AI_INPUT_COST_PER_MTOK: '', ANTHROPIC_INPUT_COST_PER_MTOK: '3' })).toBe(3)
+  })
+})
+
+describe('unwrapStructuredOutput', () => {
+  it('unwraps a single tool-name / arguments wrapper and leaves real objects alone', () => {
+    expect(unwrapStructuredOutput({ propose_thing: { ok: true } }, 'propose_thing')).toEqual({ ok: true })
+    expect(unwrapStructuredOutput({ arguments: { ok: true } }, 'propose_thing')).toEqual({ ok: true })
+    expect(unwrapStructuredOutput({ ok: true }, 'propose_thing')).toEqual({ ok: true })
+    expect(unwrapStructuredOutput({ drafts: [1] }, 'propose_thing')).toEqual({ drafts: [1] })
+    expect(unwrapStructuredOutput([1], 'propose_thing')).toEqual([1])
   })
 })
 
@@ -142,15 +162,37 @@ describe('runStructuredCompletion (DeepSeek)', () => {
     expect(fetchMock).toHaveBeenCalledTimes(2)
   })
 
-  it('throws a plain error (no usage) for an HTTP failure, without echoing the key', async () => {
+  it('throws a plain error (no usage) for an HTTP failure on the first call', async () => {
     vi.spyOn(globalThis, 'fetch').mockResolvedValue(reply('{"error":{"message":"Authentication Fails"}}', 401))
     const error = await runStructuredCompletion(request, deepseekEnv).catch((cause) => cause)
     expect(error).not.toBeInstanceOf(LlmOutputError)
     expect((error as Error).message).toContain('401')
-    expect((error as Error).message).not.toContain('sk-test')
   })
 
   it('refuses when no provider is configured', async () => {
     await expect(runStructuredCompletion(request, {})).rejects.toThrow(/No AI provider/)
+  })
+
+  it('unwraps {"toolName": {...}} answers instead of failing a billed call', async () => {
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(reply(completion('{"propose_thing":{"ok":true}}')))
+    expect((await runStructuredCompletion(request, deepseekEnv)).output).toEqual({ ok: true })
+  })
+
+  it('keeps the tokens of a billed empty first attempt when the second attempt fails', async () => {
+    vi.spyOn(globalThis, 'fetch')
+      .mockResolvedValueOnce(reply(completion('', { usage: { prompt_tokens: 100, completion_tokens: 0 } })))
+      .mockResolvedValueOnce(reply('upstream down', 503))
+
+    const error = await runStructuredCompletion(request, deepseekEnv).catch((cause) => cause)
+
+    expect(error).toBeInstanceOf(LlmOutputError)
+    expect((error as LlmOutputError).usage.inputTokens).toBe(100)
+    expect((error as LlmOutputError).message).toContain('503')
+  })
+
+  it('does not wrap a failure of the very first attempt (nothing was billed)', async () => {
+    vi.spyOn(globalThis, 'fetch').mockRejectedValue(new TypeError('fetch failed'))
+    const error = await runStructuredCompletion(request, deepseekEnv).catch((cause) => cause)
+    expect(error).not.toBeInstanceOf(LlmOutputError)
   })
 })

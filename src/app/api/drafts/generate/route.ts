@@ -14,6 +14,7 @@ import { CORE_PUBLISHING_CHANNELS } from '@/lib/domain/types'
 import { TemplateDraftGeneratorService } from '@/lib/services/ai-draft'
 import { AiDraftGenerationError, generateChannelDraftsWithAi } from '@/lib/services/llm-draft'
 import { calculateGenerationCost, isAiConfigured } from '@/lib/services/llm-provider'
+import { describeAiFailure } from '@/lib/services/llm-status'
 import {
   claimWorkspaceAiBudget,
   configuredMonthlyAiBudgetUsd,
@@ -250,7 +251,7 @@ export async function POST(request: NextRequest) {
       // The raw provider message is English and can carry request ids; keep it in
       // the server log and give the creator something they can act on.
       console.error('AI draft generation failed:', cause)
-      const message = 'AIによる下書き生成に失敗しました。しばらく待ってからもう一度お試しください。'
+      const message = `AIによる下書き生成に失敗しました。${describeAiFailure(cause)}`
 
       if (cause instanceof AiDraftGenerationError) {
         try {

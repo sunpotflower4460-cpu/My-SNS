@@ -11,6 +11,7 @@ import { getMyCreatorStatus } from '@/lib/repositories/supabase/creator-status'
 import { TemplateReplyGeneratorService } from '@/lib/services/ai-reply'
 import { AiReplyGenerationError, generateReplyWithAi } from '@/lib/services/llm-reply'
 import { calculateGenerationCost, isAiConfigured } from '@/lib/services/llm-provider'
+import { describeAiFailure } from '@/lib/services/llm-status'
 import {
   claimInboxReplyGeneration,
   claimWorkspaceAiBudget,
@@ -409,7 +410,9 @@ export async function POST(request: NextRequest) {
           suggestionId: durableSuggestionId,
         })
       } catch (cause) {
-        const message = cause instanceof Error ? cause.message : 'AIによる返信案の生成に失敗しました。'
+        // Raw provider text is English and can carry request ids; keep it in the log.
+        console.error('AI reply generation failed:', cause)
+        const message = `AIによる返信案の生成に失敗しました。${describeAiFailure(cause)}`
         if (cause instanceof AiReplyGenerationError) {
           try {
             await recordAiGeneration(serviceClient, {
