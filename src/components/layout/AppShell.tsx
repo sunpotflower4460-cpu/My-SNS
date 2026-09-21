@@ -28,6 +28,10 @@ export default function AppShell({ children, user, workspace, member, pageTitle 
   // The shell has ONE scroller (<main>), so a route change must reset it — the
   // window no longer scrolls and would otherwise leave the next page mid-scroll.
   useEffect(() => {
+    // A link to /some/page#section is scrolled to its target by Next's own
+    // navigation handling in the same commit. Resetting here afterwards would
+    // undo it (e.g. the home "接続する" link to /app/settings#connections).
+    if (window.location.hash) return
     mainRef.current?.scrollTo({ top: 0 })
   }, [pathname])
 

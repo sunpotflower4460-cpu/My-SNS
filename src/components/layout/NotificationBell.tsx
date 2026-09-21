@@ -39,6 +39,13 @@ export default function NotificationBell() {
   const panelRef = useRef<HTMLDivElement>(null)
   const unreadCount = notifications.filter((n) => !n.isRead).length
 
+  // The panel is portalled to <body>, so it is not next to the button in tab
+  // order. Move focus into it on open so keyboard and screen-reader users land
+  // on it; Escape (below) hands focus back to the button.
+  useEffect(() => {
+    if (isOpen) panelRef.current?.focus()
+  }, [isOpen])
+
   // Click-away + Escape. A document listener (not a full-screen overlay): the
   // header's backdrop-blur makes it the containing block for `fixed` children,
   // so an overlay rendered inside it would only cover the header.
@@ -91,7 +98,8 @@ export default function NotificationBell() {
             ref={panelRef}
             role="region"
             aria-label="通知"
-            className="ui-floating fixed inset-x-4 top-[4.5rem] z-50 overflow-hidden rounded-[1.5rem] sm:inset-x-auto sm:right-6 sm:w-80 lg:right-8"
+            tabIndex={-1}
+            className="ui-floating fixed inset-x-4 top-[4.5rem] z-50 overflow-hidden focus:outline-none rounded-[1.5rem] sm:inset-x-auto sm:right-6 sm:w-80 lg:right-8"
           >
             <div className="flex items-center justify-between border-b border-[color:var(--border-default)] px-4 py-3">
               <p className="text-sm font-semibold text-[color:var(--text-strong)]">通知</p>
