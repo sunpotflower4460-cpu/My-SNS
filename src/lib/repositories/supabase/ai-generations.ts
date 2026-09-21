@@ -140,7 +140,7 @@ export async function listWorkspaceAiGenerations(workspaceId: string, limit = WO
 /**
  * Sum of `cost_usd` for this workspace since the start of the current calendar
  * month in UTC. Only sums rows already recorded — exact call cost is known only
- * after Anthropic returns usage, so the configured cap can prevent the next
+ * after the provider returns usage, so the configured cap can prevent the next
  * call after the limit is reached but cannot predict a single call's final cost.
  *
  * Uses a SQL aggregate so PostgREST row caps cannot silently undercount spend

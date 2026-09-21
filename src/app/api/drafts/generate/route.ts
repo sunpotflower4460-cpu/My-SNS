@@ -12,12 +12,9 @@ import { PUBLISHING_CHANNEL_CONFIG } from '@/lib/channels/config'
 import type { PublishingChannel } from '@/lib/domain/types'
 import { CORE_PUBLISHING_CHANNELS } from '@/lib/domain/types'
 import { TemplateDraftGeneratorService } from '@/lib/services/ai-draft'
-import {
-  AnthropicGenerationError,
-  calculateGenerationCost,
-  generateChannelDraftsWithAnthropic,
-  isAnthropicConfigured,
-} from '@/lib/services/anthropic-draft'
+import { AiDraftGenerationError, generateChannelDraftsWithAi } from '@/lib/services/llm-draft'
+import { calculateGenerationCost, isAiConfigured } from '@/lib/services/llm-provider'
+import { describeAiFailure } from '@/lib/services/llm-status'
 import {
   claimWorkspaceAiBudget,
   configuredMonthlyAiBudgetUsd,
@@ -39,7 +36,7 @@ interface GenerateRequestBody {
 
 // A multi-channel generation can take tens of seconds. Without this the
 // platform default (10s on Hobby) kills the request and the client gets a
-// non-JSON gateway error. The Anthropic call is a single 40s attempt, so a slow
+// non-JSON gateway error. The provider call is a single 40s attempt, so a slow
 // model becomes a clean failure (and the budget claim is released) instead of
 // a hard kill.
 export const maxDuration = 60
@@ -124,17 +121,17 @@ export async function POST(request: NextRequest) {
     styleTendencies,
   }
 
-  if (!isAnthropicConfigured()) {
+  if (!isAiConfigured()) {
     const drafts = await new TemplateDraftGeneratorService().generateDrafts(seed, typedChannels, tone, typedLength, context)
     return NextResponse.json({
       source: 'template-fallback',
-      reason: 'ANTHROPIC_API_KEYが未設定のため、AI提案の代わりに固定テンプレートを表示しています。',
+      reason: 'AIのAPIキー（DEEPSEEK_API_KEY）が未設定のため、AI提案の代わりに固定テンプレートを表示しています。',
       drafts,
       styleExamplesUsed: 0,
     })
   }
 
-  // Once Anthropic is configured, every paid call must be able to use the
+  // Once an AI provider is configured, every paid call must be able to use the
   // service-role ledger/claim path. Do not let a missing server credential turn
   // into an unhandled 500 or a paid generation whose usage cannot be tracked.
   let serviceClient: SupabaseClient
@@ -190,7 +187,7 @@ export async function POST(request: NextRequest) {
       if (spentUsd >= monthlyBudgetUsd) {
         return NextResponse.json(
           {
-            error: `このワークスペースの今月のAI予算（$${monthlyBudgetUsd.toFixed(2)}）に達しました（使用額 $${spentUsd.toFixed(2)}）。ANTHROPIC_MONTHLY_BUDGET_USDを引き上げるか、来月まで待ってください。`,
+            error: `このワークスペースの今月のAI予算（$${monthlyBudgetUsd.toFixed(2)}）に達しました（使用額 $${spentUsd.toFixed(2)}）。AI_MONTHLY_BUDGET_USDを引き上げるか、来月まで待ってください。`,
           },
           { status: 402 },
         )
@@ -200,7 +197,7 @@ export async function POST(request: NextRequest) {
     const generationId = randomUUID()
 
     try {
-      const result = await generateChannelDraftsWithAnthropic(seed, typedChannels, tone, typedLength, context)
+      const result = await generateChannelDraftsWithAi(seed, typedChannels, tone, typedLength, context)
       const costUsd = calculateGenerationCost(result.inputTokens, result.outputTokens)
 
       let recordedGenerationId: string | undefined
@@ -254,9 +251,9 @@ export async function POST(request: NextRequest) {
       // The raw provider message is English and can carry request ids; keep it in
       // the server log and give the creator something they can act on.
       console.error('AI draft generation failed:', cause)
-      const message = 'AIによる下書き生成に失敗しました。しばらく待ってからもう一度お試しください。'
+      const message = `AIによる下書き生成に失敗しました。${describeAiFailure(cause)}`
 
-      if (cause instanceof AnthropicGenerationError) {
+      if (cause instanceof AiDraftGenerationError) {
         try {
           await recordAiGeneration(serviceClient, {
             id: generationId,

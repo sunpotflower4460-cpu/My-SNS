@@ -8,7 +8,7 @@ import PermissionGate from '@/components/ui/PermissionGate'
 import RoleBadge from '@/components/ui/RoleBadge'
 import ConnectionRow from '@/components/settings/ConnectionRow'
 import PlatformSetupGuide from '@/components/settings/PlatformSetupGuide'
-import { Button, Card, InlineAlert } from '@/components/ui/kit'
+import { Badge, Button, Card, InlineAlert } from '@/components/ui/kit'
 import { useCurrentUser } from '@/hooks/useCurrentUser'
 import { useApp } from '@/lib/app/app-provider'
 import { hasPermission } from '@/lib/permissions'
@@ -17,6 +17,7 @@ import type { SocialAccount, SocialPlatform } from '@/lib/domain/types'
 import { CONNECTABLE_PLATFORMS } from '@/lib/services/connectors/platforms'
 import { PUBLISHING_CHANNEL_CONFIG, getPublishingStrategy } from '@/lib/channels/config'
 import type { ConnectionSetupStatus } from '@/lib/services/connectors/platform-status'
+import type { AiStatus } from '@/lib/services/llm-status'
 
 const PLATFORM_ICONS: Record<SocialPlatform, string> = {
   youtube: '▶',
@@ -45,6 +46,10 @@ export default function SettingsPage() {
   // null until loaded (or if the status call fails): rows then behave as before
   // and the connect route still refuses safely, so a failed call never hides Connect.
   const [setupStatus, setSetupStatus] = useState<ConnectionSetupStatus | null>(null)
+  const workspaceId = currentWorkspace?.id
+  const [aiStatus, setAiStatus] = useState<AiStatus | null | undefined>(undefined)
+  const [aiTesting, setAiTesting] = useState(false)
+  const [aiTestResult, setAiTestResult] = useState<{ ok: boolean; message: string } | null>(null)
   const publishingStrategy = getPublishingStrategy()
   const appBaseUrl = process.env.NEXT_PUBLIC_APP_URL?.trim() || (typeof window === 'undefined' ? '' : window.location.origin)
   const canManageSocialAccounts = Boolean(currentMember && hasPermission(currentMember.role, 'manage_social_accounts'))
@@ -76,6 +81,46 @@ export default function SettingsPage() {
       cancelled = true
     }
   }, [])
+
+  useEffect(() => {
+    if (!workspaceId) return
+    let cancelled = false
+    setAiTestResult(null)
+    fetch(`/api/ai/status?workspaceId=${workspaceId}`, { cache: 'no-store' })
+      .then((response) => (response.ok ? (response.json() as Promise<AiStatus>) : null))
+      .then((status) => {
+        if (!cancelled) setAiStatus(status)
+      })
+      .catch(() => {
+        if (!cancelled) setAiStatus(null)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [workspaceId])
+
+  const handleAiTest = async () => {
+    if (!currentWorkspace) return
+    setAiTesting(true)
+    setAiTestResult(null)
+    try {
+      const response = await fetch('/api/ai/test', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ workspaceId: currentWorkspace.id }),
+      })
+      const payload = await response.json().catch(() => ({}))
+      setAiTestResult(
+        response.ok
+          ? { ok: true, message: `接続できました（${payload.model}・${payload.latencyMs}ms・入力${payload.inputTokens}/出力${payload.outputTokens}トークン）。` }
+          : { ok: false, message: payload.error ?? 'AIに接続できませんでした。' },
+      )
+    } catch {
+      setAiTestResult({ ok: false, message: '通信に失敗しました。ネットワークを確認してもう一度お試しください。' })
+    } finally {
+      setAiTesting(false)
+    }
+  }
 
   const lineConnection = getPlatformConnection('line', socialAccounts)
   const extraAccounts = getExtraConnectedAccounts(socialAccounts)
@@ -207,6 +252,51 @@ export default function SettingsPage() {
               <Button variant="primary" onClick={() => void handleSaveWorkspace()} loading={isSavingWorkspace}>変更を保存</Button>
             </div>
           </PermissionGate>
+        </Card>
+
+        <Card size="container" padded id="ai">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <h2 className="text-base font-semibold text-gray-900">AI連携</h2>
+            {aiStatus && (
+              <Badge tone={aiStatus.configured ? 'success' : 'warning'}>
+                {aiStatus.configured ? `接続設定済み・${aiStatus.provider === 'deepseek' ? 'DeepSeek' : 'Anthropic'}` : '未設定'}
+              </Badge>
+            )}
+          </div>
+          {aiStatus?.configured ? (
+            <div className="mt-3 space-y-3 text-sm text-gray-600">
+              <p>
+                モデル: <code className="rounded bg-stone-100 px-1 text-xs">{aiStatus.model}</code>
+                {' ・ '}
+                月次AI予算: {aiStatus.monthlyBudgetUsd ? `$${aiStatus.monthlyBudgetUsd.toFixed(2)}` : '未設定（上限なし）'}
+              </p>
+              {aiStatus.monthlyBudgetUsd && !aiStatus.costRatesConfigured && (
+                <InlineAlert tone="warning">
+                  月次予算が設定されていますが、単価（<code className="rounded bg-white px-1 text-xs">AI_INPUT_COST_PER_MTOK</code> / <code className="rounded bg-white px-1 text-xs">AI_OUTPUT_COST_PER_MTOK</code>）が未設定のため、使用額が0のままで上限に達しません。
+                </InlineAlert>
+              )}
+              <PermissionGate requiredPermission="edit_settings" currentRole={currentMember?.role ?? 'viewer'}>
+                <div className="flex flex-wrap items-center gap-3">
+                  <Button variant="secondary" onClick={() => void handleAiTest()} loading={aiTesting}>接続テスト</Button>
+                  <span className="text-xs text-gray-500">ごく短い実呼び出しを1回行います（費用はごくわずかです）。</span>
+                </div>
+              </PermissionGate>
+              {aiTestResult && <InlineAlert tone={aiTestResult.ok ? 'success' : 'error'}>{aiTestResult.message}</InlineAlert>}
+            </div>
+          ) : aiStatus ? (
+            <div className="mt-3 space-y-2 text-sm text-gray-600">
+              <p>APIキーが未設定のため、いまは「AI提案」ではなく固定テンプレートの下書きが表示されます。</p>
+              <ol className="list-decimal space-y-1 pl-5">
+                <li><a href="https://platform.deepseek.com/api_keys" target="_blank" rel="noreferrer" className="text-violet-700 hover:text-violet-900">DeepSeek Platform</a> でAPIキーを発行します（残高のチャージが必要な場合があります）。</li>
+                <li><code className="rounded bg-stone-100 px-1 text-xs">.env.local</code> の <code className="rounded bg-stone-100 px-1 text-xs">DEEPSEEK_API_KEY</code> に貼り付けます。</li>
+                <li>開発サーバーを再起動し、この画面で「接続テスト」を押します。</li>
+              </ol>
+            </div>
+          ) : aiStatus === undefined ? (
+            <p className="mt-3 text-sm text-gray-500">読み込み中…</p>
+          ) : (
+            <p className="mt-3 text-sm text-gray-500">AIの状態を表示できませんでした（設定を見る権限がないか、通信に失敗しました）。</p>
+          )}
         </Card>
 
         <Card size="container" padded id="connections">
