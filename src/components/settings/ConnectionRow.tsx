@@ -1,4 +1,4 @@
-import { CheckCircle2 } from 'lucide-react'
+import { AlertTriangle, CheckCircle2 } from 'lucide-react'
 import { Badge, Button } from '@/components/ui/kit'
 
 // One connection row on the 接続と設定 page — a platform's icon, label, handle,
@@ -21,6 +21,8 @@ export interface ConnectionRowProps {
   onSync?: () => void
   onDisconnect?: () => void
   connectLabel?: string
+  /** The developer app isn't configured here, so Connect can't work yet. */
+  setupRequired?: boolean
 }
 
 export default function ConnectionRow({
@@ -35,6 +37,7 @@ export default function ConnectionRow({
   onSync,
   onDisconnect,
   connectLabel = '接続する',
+  setupRequired = false,
 }: ConnectionRowProps) {
   const canConnect = canManage && (Boolean(connectHref) || Boolean(onConnect))
 
@@ -72,6 +75,8 @@ export default function ConnectionRow({
             </Button>
           )}
         </div>
+      ) : setupRequired ? (
+        <Badge tone="warning" icon={AlertTriangle}>設定が必要</Badge>
       ) : connectHref && canManage ? (
         <a
           href={connectHref}

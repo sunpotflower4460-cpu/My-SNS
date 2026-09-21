@@ -14,6 +14,7 @@ import {
 import { buildPublishPacks } from '@/lib/presentation/publish-pack'
 import { buildTodayPublishingOverview } from '@/lib/presentation/today-publishing'
 import { useApp } from '@/lib/app/app-provider'
+import { getPublishingStrategy } from '@/lib/channels/config'
 
 export default function DashboardPage() {
   const {
@@ -34,7 +35,7 @@ export default function DashboardPage() {
 
   const packs = buildPublishPacks({ seeds, jobs: publishJobs, revisions: draftRevisions })
   const publishingOverview = buildTodayPublishingOverview(packs, now)
-  const actions = computeNextActions({ publishJobs, replyJobs, inboxItems, drafts, seeds, socialAccounts })
+  const actions = computeNextActions({ publishJobs, replyJobs, inboxItems, drafts, seeds, socialAccounts, publishingStrategy: getPublishingStrategy() })
     // Failed publishing is already the highest-priority item in the publishing
     // panel above. Keep the supporting action list useful without duplicating it.
     .filter((action) => action.id !== 'publish-failed')

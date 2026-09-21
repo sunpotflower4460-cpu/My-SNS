@@ -59,12 +59,12 @@ export default function MediaDropZone({ assets, onAddFiles, onRemove, inputRef, 
                 // eslint-disable-next-line @next/next/no-img-element
                 <img src={asset.previewUrl} alt="" className="h-24 w-full object-cover" />
               ) : (
-                <div className="flex h-24 items-center justify-center bg-black/[0.03] px-2 text-center text-[11px] text-[color:var(--text-muted)]">
+                <div className="flex h-24 items-center justify-center bg-black/[0.03] px-2 text-center text-xs text-[color:var(--text-muted)]">
                   {asset.type}
                 </div>
               )}
-              <p className="truncate px-2 py-1 text-[10px] text-[color:var(--text-subtle)]">{asset.name}</p>
-              <p className="px-2 pb-2 text-[10px] text-[color:var(--text-subtle)]">{formatBytes(asset.size)}</p>
+              <p className="truncate px-2 py-1 text-xs text-[color:var(--text-subtle)]">{asset.name}</p>
+              <p className="px-2 pb-2 text-xs text-[color:var(--text-subtle)]">{formatBytes(asset.size)}</p>
               <button
                 type="button"
                 onClick={() => onRemove(asset.id)}

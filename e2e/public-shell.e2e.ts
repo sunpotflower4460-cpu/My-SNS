@@ -12,55 +12,43 @@ test('login renders My-SNS and validates an empty email locally', async ({ page 
 
   await expect(page.getByRole('heading', { name: 'My-SNS', exact: true })).toBeVisible()
   await expect(page.getByLabel('メールアドレス')).toBeVisible()
+  await expect(page.getByLabel('パスワード')).toBeVisible()
 
-  await page.getByRole('button', { name: 'マジックリンクを送る' }).click()
+  await page.getByRole('button', { name: 'ログイン' }).click()
   await expect(page.getByText('メールアドレスを入力してください')).toBeVisible()
 })
 
-test('login maps magic-link email rate limits to Japanese copy', async ({ page }) => {
-  await page.route('https://example.supabase.co/auth/v1/otp**', async (route) => {
+test('login validates a missing password locally', async ({ page }) => {
+  await page.goto('/login')
+  await page.getByLabel('メールアドレス').fill('demo@example.com')
+  await page.getByRole('button', { name: 'ログイン' }).click()
+  await expect(page.getByText('パスワードを入力してください')).toBeVisible()
+})
+
+test('login maps invalid credentials to Japanese copy', async ({ page }) => {
+  await page.route('https://example.supabase.co/auth/v1/token**', async (route) => {
     await route.fulfill({
-      status: 429,
+      status: 400,
       contentType: 'application/json',
       body: JSON.stringify({
-        code: 'over_email_send_rate_limit',
-        error_code: 'over_email_send_rate_limit',
-        msg: 'email rate limit exceeded',
-        message: 'email rate limit exceeded',
+        code: 'invalid_credentials',
+        error_code: 'invalid_credentials',
+        msg: 'Invalid login credentials',
+        message: 'Invalid login credentials',
       }),
     })
   })
 
   await page.goto('/login')
-  await page.getByLabel('メールアドレス').fill('rate-limit@example.com')
-  await page.getByRole('button', { name: 'マジックリンクを送る' }).click()
-  await expect(page.getByText('メールの送信上限に達しました。標準では1時間に数通までです。受信箱の前のリンクがまだ使えることがあります。')).toBeVisible()
-  await expect(page.getByLabel('メールアドレス')).toHaveValue('rate-limit@example.com')
-})
-
-test('login keeps the email and skips a second OTP send during cooldown', async ({ page }) => {
-  let otpCalls = 0
-  await page.route('https://example.supabase.co/auth/v1/otp**', async (route) => {
-    otpCalls += 1
-    await route.fulfill({
-      status: 200,
-      contentType: 'application/json',
-      body: JSON.stringify({ message: 'Check your email for the magic link' }),
-    })
-  })
-
-  await page.goto('/login')
-  await page.getByLabel('メールアドレス').fill('already-sent@example.com')
-  await page.getByRole('button', { name: 'マジックリンクを送る' }).click()
-  await expect(page.getByText('メールをご確認ください。マジックリンクをお送りしました。')).toBeVisible()
-  await expect(page.getByLabel('メールアドレス')).toHaveValue('already-sent@example.com')
-  await expect(page.getByRole('button', { name: 'マジックリンクを送る' })).toBeDisabled()
-
-  await page.locator('form').evaluate((form) => {
-    form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }))
-  })
-  await expect(page.getByText('送信済みです。メールを確認してください。')).toBeVisible()
-  expect(otpCalls).toBe(1)
+  await page.getByLabel('メールアドレス').fill('wrong@example.com')
+  await page.getByLabel('パスワード').fill('bad-password')
+  await page.getByRole('button', { name: 'ログイン' }).click()
+  await expect(
+    page.getByText(
+      'メールアドレスまたはパスワードが違います。初めての方は「アカウント作成」から始めてください。',
+    ),
+  ).toBeVisible()
+  await expect(page.getByLabel('メールアドレス')).toHaveValue('wrong@example.com')
 })
 
 test('signed-out visitors are redirected away from protected app routes', async ({ page }) => {
@@ -136,7 +124,7 @@ test('mobile-width login shell does not overflow horizontally', async ({ page })
   await page.setViewportSize({ width: 390, height: 844 })
   await page.goto('/login')
 
-  await expect(page.getByRole('button', { name: 'マジックリンクを送る' })).toBeVisible()
+  await expect(page.getByRole('button', { name: 'ログイン' })).toBeVisible()
   const horizontalOverflow = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth)
   expect(horizontalOverflow).toBeLessThanOrEqual(1)
 })

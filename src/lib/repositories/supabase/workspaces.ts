@@ -302,15 +302,24 @@ export async function createWorkspace(params: {
 }): Promise<Workspace> {
   const supabase = createClient()
 
-  const { data, error } = await supabase
-    .from('workspaces')
-    .insert({
-      name: params.name.trim(),
-      slug: params.slug.trim().toLowerCase(),
-      owner_id: params.ownerId,
-    })
-    .select()
-    .single()
+  // The id is generated here and the insert asks for no rows back. An
+  // INSERT ... RETURNING is checked against the SELECT policy
+  // (is_workspace_member), but the owner's membership row is only created by the
+  // AFTER INSERT trigger, so RETURNING would be rejected by RLS. Read the row
+  // back in a second query, once the trigger has made the caller a member.
+  const id = crypto.randomUUID()
+  const { error: insertError } = await supabase.from('workspaces').insert({
+    id,
+    name: params.name.trim(),
+    slug: params.slug.trim().toLowerCase(),
+    owner_id: params.ownerId,
+  })
+
+  if (insertError) {
+    throw new Error(insertError.message)
+  }
+
+  const { data, error } = await supabase.from('workspaces').select().eq('id', id).single()
 
   if (error) {
     throw new Error(error.message)

@@ -7,6 +7,7 @@ import PageHeader from '@/components/ui/PageHeader'
 import PermissionGate from '@/components/ui/PermissionGate'
 import RoleBadge from '@/components/ui/RoleBadge'
 import ConnectionRow from '@/components/settings/ConnectionRow'
+import PlatformSetupGuide from '@/components/settings/PlatformSetupGuide'
 import { Button, Card, InlineAlert } from '@/components/ui/kit'
 import { useCurrentUser } from '@/hooks/useCurrentUser'
 import { useApp } from '@/lib/app/app-provider'
@@ -14,7 +15,8 @@ import { hasPermission } from '@/lib/permissions'
 import { getExtraConnectedAccounts, getPlatformConnection, listConnectedAccountsForPlatform } from '@/lib/presentation/settings-presenter'
 import type { SocialAccount, SocialPlatform } from '@/lib/domain/types'
 import { CONNECTABLE_PLATFORMS } from '@/lib/services/connectors/platforms'
-import { PUBLISHING_CHANNEL_CONFIG } from '@/lib/channels/config'
+import { PUBLISHING_CHANNEL_CONFIG, getPublishingStrategy } from '@/lib/channels/config'
+import type { ConnectionSetupStatus } from '@/lib/services/connectors/platform-status'
 
 const PLATFORM_ICONS: Record<SocialPlatform, string> = {
   youtube: '▶',
@@ -40,6 +42,11 @@ export default function SettingsPage() {
   const [busyPlatform, setBusyPlatform] = useState<string | null>(null)
   const [exportError, setExportError] = useState('')
   const [isExporting, setIsExporting] = useState(false)
+  // null until loaded (or if the status call fails): rows then behave as before
+  // and the connect route still refuses safely, so a failed call never hides Connect.
+  const [setupStatus, setSetupStatus] = useState<ConnectionSetupStatus | null>(null)
+  const publishingStrategy = getPublishingStrategy()
+  const appBaseUrl = process.env.NEXT_PUBLIC_APP_URL?.trim() || (typeof window === 'undefined' ? '' : window.location.origin)
   const canManageSocialAccounts = Boolean(currentMember && hasPermission(currentMember.role, 'manage_social_accounts'))
 
   useEffect(() => {
@@ -54,6 +61,21 @@ export default function SettingsPage() {
     if (connected) setPlatformFeedback(`${PUBLISHING_CHANNEL_CONFIG[connected as SocialPlatform]?.label ?? connected} に接続しました。`)
     if (oauthError) setPlatformError(oauthError)
   }, [searchParams])
+
+  useEffect(() => {
+    let cancelled = false
+    fetch('/api/social/status', { cache: 'no-store' })
+      .then((response) => (response.ok ? (response.json() as Promise<ConnectionSetupStatus>) : null))
+      .then((status) => {
+        if (!cancelled) setSetupStatus(status)
+      })
+      .catch(() => {
+        if (!cancelled) setSetupStatus(null)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [])
 
   const lineConnection = getPlatformConnection('line', socialAccounts)
   const extraAccounts = getExtraConnectedAccounts(socialAccounts)
@@ -182,27 +204,53 @@ export default function SettingsPage() {
           </PermissionGate>
         </Card>
 
-        <Card size="container" padded>
-          <h2 className="mb-4 text-base font-semibold text-gray-900">連携済みの媒体</h2>
+        <Card size="container" padded id="connections">
+          <h2 className="mb-1 text-base font-semibold text-gray-900">連携済みの媒体</h2>
+          <div className="mb-4">
+            {publishingStrategy === 'zero-cost' ? (
+              <InlineAlert tone="info">
+                現在は<strong>手動投稿モード</strong>です。アカウントを接続しなくても、承認した内容をコピー・共有して各SNSの画面から投稿できます（最後の公開ボタンはご自身で押します）。ここでの接続は、自動投稿に切り替える場合と、受信箱の取り込みで使います。
+              </InlineAlert>
+            ) : (
+              <InlineAlert tone="info">
+                現在は<strong>自動投稿モード</strong>です。接続した媒体には、予約時刻に自動で投稿されます。
+              </InlineAlert>
+            )}
+          </div>
+          {canManageSocialAccounts && setupStatus && !setupStatus.tokenEncryptionReady && (
+            <div className="mb-4">
+              <InlineAlert tone="warning">
+                トークン暗号化キー <code className="rounded bg-white px-1 text-xs">SOCIAL_TOKEN_ENCRYPTION_KEY</code> が未設定か不正です。設定するまで、どの媒体も接続できません（ターミナルで <code className="rounded bg-white px-1 text-xs">node -e &quot;console.log(require(&apos;crypto&apos;).randomBytes(32).toString(&apos;base64&apos;))&quot;</code> を実行して得た値を設定します）。
+              </InlineAlert>
+            </div>
+          )}
           {platformFeedback && <div className="mb-4"><InlineAlert tone="success">{platformFeedback}</InlineAlert></div>}
           {platformError && <div className="mb-4"><InlineAlert tone="error">{platformError}</InlineAlert></div>}
           <div className="space-y-3">
             {CONNECTABLE_PLATFORMS.map((platform) => {
               const connectedAccounts = listConnectedAccountsForPlatform(platform, socialAccounts)
               const connectHref = currentWorkspace ? `/api/social/${platform}/connect?workspaceId=${currentWorkspace.id}` : undefined
+              const platformSetup = setupStatus?.platforms[platform]
+              // Server-config guidance is only for members who can act on it.
+              const setupRequired = canManageSocialAccounts && platformSetup ? !platformSetup.configured : false
               if (connectedAccounts.length === 0) {
                 return (
-                  <ConnectionRow
-                    key={platform}
-                    icon={PLATFORM_ICONS[platform]}
-                    label={PUBLISHING_CHANNEL_CONFIG[platform].label}
-                    handle="未接続"
-                    connected={false}
-                    busy={busyPlatform === platform}
-                    canManage={canManageSocialAccounts}
-                    connectHref={connectHref}
-                    onSync={() => void handleSync(platform)}
-                  />
+                  <div key={platform} className="space-y-2">
+                    <ConnectionRow
+                      icon={PLATFORM_ICONS[platform]}
+                      label={PUBLISHING_CHANNEL_CONFIG[platform].label}
+                      handle="未接続"
+                      connected={false}
+                      busy={busyPlatform === platform}
+                      canManage={canManageSocialAccounts}
+                      connectHref={setupRequired ? undefined : connectHref}
+                      setupRequired={setupRequired}
+                      onSync={() => void handleSync(platform)}
+                    />
+                    {setupRequired && platformSetup && (
+                      <PlatformSetupGuide platform={platform} missingEnv={platformSetup.missingEnv} baseUrl={appBaseUrl} />
+                    )}
+                  </div>
                 )
               }
               return connectedAccounts.map((account, index) => (

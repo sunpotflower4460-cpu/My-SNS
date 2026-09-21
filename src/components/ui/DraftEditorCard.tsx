@@ -122,7 +122,7 @@ export default function DraftEditorCard({
       <div className="mb-3 flex flex-wrap items-center gap-2">
         <ChannelBadge channel={draft.channel} />
         <StatusBadge status={draft.status} />
-        <span className={`rounded-full px-2.5 py-1 text-[11px] font-semibold ${draft.source === 'ai' ? 'border border-[color:rgba(109,93,246,0.16)] bg-[color:var(--accent-soft)] text-[color:var(--accent)]' : 'border border-[color:var(--border-default)] bg-black/[0.03] text-[color:var(--text-muted)]'}`}>
+        <span className={`rounded-full px-2.5 py-1 text-xs font-semibold ${draft.source === 'ai' ? 'border border-[color:rgba(109,93,246,0.16)] bg-[color:var(--accent-soft)] text-[color:var(--accent)]' : 'border border-[color:var(--border-default)] bg-black/[0.03] text-[color:var(--text-muted)]'}`}>
           {draft.source === 'ai' ? 'AI提案' : 'テンプレート'}
         </span>
         <span className="ml-auto text-xs text-[color:var(--text-subtle)]">
@@ -145,7 +145,7 @@ export default function DraftEditorCard({
 
       {draft.assumptions.length > 0 && (
         <div className="mt-3 rounded-card border border-amber-200/80 bg-amber-50/90 p-3">
-          <p className="text-[11px] font-semibold text-amber-700">確認が必要な前提</p>
+          <p className="text-sm font-semibold text-amber-700">確認が必要な前提</p>
           <ul className="mt-1.5 space-y-1 text-xs leading-5 text-amber-800">
             {draft.assumptions.map((assumption, index) => <li key={index}>• {assumption}</li>)}
           </ul>

@@ -42,7 +42,7 @@ const STATUS_LABELS: Record<string, string> = {
 export default function StatusBadge({ status }: StatusBadgeProps) {
   const style = STATUS_STYLES[status] ?? 'bg-gray-100 text-gray-600 border-gray-200'
   return (
-    <span className={`inline-flex items-center rounded-full border px-2.5 py-1 text-[11px] font-semibold tracking-[0.05em] ${style}`}>
+    <span className={`inline-flex items-center rounded-full border px-2.5 py-1 text-xs font-semibold tracking-[0.05em] ${style}`}>
       {STATUS_LABELS[status] ?? status}
     </span>
   )
