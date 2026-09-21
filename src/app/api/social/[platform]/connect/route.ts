@@ -1,7 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createOAuthState } from '@/lib/repositories/supabase/oauth-states'
-import { buildAuthorizeUrl, isConnectablePlatform, isPlatformConfigured } from '@/lib/services/connectors'
+import { buildAuthorizeUrl, isConnectablePlatform } from '@/lib/services/connectors'
+import { getPlatformSetupStatus } from '@/lib/services/connectors/platform-status'
+import { isTokenEncryptionConfigured } from '@/lib/crypto/token-cipher'
+import { PUBLISHING_CHANNEL_CONFIG } from '@/lib/channels/config'
 import { generateState } from '@/lib/services/connectors/pkce'
 import { hasPermission } from '@/lib/permissions'
 import type { WorkspaceRole } from '@/lib/domain/types'
@@ -24,8 +27,22 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
     settingsUrl.searchParams.set('error', `${platform}はまだ接続できません。`)
     return NextResponse.redirect(settingsUrl)
   }
-  if (!isPlatformConfigured(platform)) {
-    settingsUrl.searchParams.set('error', `${platform}はこの環境ではまだ設定されていません。`)
+  const label = PUBLISHING_CHANNEL_CONFIG[platform].label
+  const setup = getPlatformSetupStatus(platform)
+  if (!setup.configured) {
+    settingsUrl.searchParams.set(
+      'error',
+      `${label}の開発者アプリがまだ設定されていません（不足: ${setup.missingEnv.join(', ')}）。設定画面のセットアップ手順を確認してください。`,
+    )
+    return NextResponse.redirect(settingsUrl)
+  }
+  // Without this key the OAuth round-trip would succeed on the platform side
+  // and then fail to store the token — refuse up front instead.
+  if (!isTokenEncryptionConfigured()) {
+    settingsUrl.searchParams.set(
+      'error',
+      'トークン暗号化キー（SOCIAL_TOKEN_ENCRYPTION_KEY）が未設定か不正なため、接続を開始できません。',
+    )
     return NextResponse.redirect(settingsUrl)
   }
 

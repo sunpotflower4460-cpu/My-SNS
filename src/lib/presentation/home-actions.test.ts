@@ -156,6 +156,16 @@ describe('computeNextActions', () => {
     expect(noConn.some((a) => a.id === 'setup-connect')).toBe(true)
   })
 
+  it('points the setup nudge at the connections section and explains manual mode', () => {
+    const manual = computeNextActions({ ...emptySnapshot(), socialAccounts: [], publishingStrategy: 'zero-cost' }).find((a) => a.id === 'setup-connect')
+    expect(manual?.href).toBe('/app/settings#connections')
+    expect(manual?.priority).toBe('normal')
+    expect(manual?.description).toContain('手動投稿')
+
+    const auto = computeNextActions({ ...emptySnapshot(), socialAccounts: [], publishingStrategy: 'api-first' }).find((a) => a.id === 'setup-connect')
+    expect(auto?.priority).toBe('high')
+  })
+
   it('nudges in-progress seeds without counting ready ones', () => {
     const actions = computeNextActions({
       ...emptySnapshot(),
