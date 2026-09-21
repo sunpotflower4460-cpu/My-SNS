@@ -18,7 +18,7 @@ export async function updateSession(request: NextRequest) {
       getAll() {
         return request.cookies.getAll()
       },
-      setAll(cookiesToSet) {
+      setAll(cookiesToSet, headers) {
         cookiesToSet.forEach(({ name, value }) => request.cookies.set(name, value))
         // Rebuild the response so the refreshed cookies are forwarded to the
         // route handlers / server components on this same request, not only set
@@ -26,6 +26,9 @@ export async function updateSession(request: NextRequest) {
         // request headers.
         supabaseResponse = NextResponse.next({ request })
         cookiesToSet.forEach(({ name, value, options }) => supabaseResponse.cookies.set(name, value, options))
+        // Cache-Control etc. from @supabase/ssr: a response that carries a
+        // refreshed session must never be cached and served to someone else.
+        Object.entries(headers ?? {}).forEach(([key, value]) => supabaseResponse.headers.set(key, value))
       },
     },
   })

@@ -1,6 +1,6 @@
 'use client'
 
-import { createContext, useContext, useEffect, useMemo, useState, useCallback } from 'react'
+import { createContext, useContext, useEffect, useMemo, useRef, useState, useCallback } from 'react'
 import type {
   AiGeneration,
   AiReplySuggestion,
@@ -204,6 +204,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const [myCreatorStatus, setMyCreatorStatusState] = useState<CreatorStatus | null>(null)
   const [isReady, setIsReady] = useState(false)
   const [workspaceDataError, setWorkspaceDataError] = useState<string | null>(null)
+  // Bumped whenever the signed-in user changes. A load that started for the
+  // previous user must not write its (now foreign) result back after sign-out.
+  const sessionEpoch = useRef(0)
+  const lastUserId = useRef<string | null>(null)
 
   // Drop everything that belongs to the previous user. Without this a sign-out
   // followed by another sign-in in the same tab briefly shows (and, for a user
@@ -243,8 +247,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   const loadWorkspaces = useCallback(async () => {
     if (!currentUserId) return
+    const epoch = sessionEpoch.current
     try {
       const userWorkspaces = await workspacesRepo.getUserWorkspaces(currentUserId)
+      if (epoch !== sessionEpoch.current) return
       setWorkspaces(userWorkspaces)
       setWorkspaceDataError(null)
 
@@ -253,12 +259,12 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         const validSavedWorkspace = savedWorkspaceId && userWorkspaces.find(w => w.id === savedWorkspaceId)
         setActiveWorkspaceId(validSavedWorkspace ? savedWorkspaceId : userWorkspaces[0].id)
       } else {
-        // A stale id from an earlier session must not outlive the workspace it
-        // pointed to, or the consistency guard waits for it forever.
-        setActiveWorkspaceId(null)
-        localStorage.removeItem('activeWorkspaceId')
+        // No workspace: drop the stale id AND anything left over from a previous
+        // session, so the layout reaches its "create a workspace" screen.
+        resetWorkspaceState()
       }
     } catch (error) {
+      if (epoch !== sessionEpoch.current) return
       console.error('Error loading workspaces:', error)
       setWorkspaceDataError(
         error instanceof Error
@@ -266,9 +272,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           : 'ワークスペース一覧の読み込みに失敗しました。未所属として扱わず、再読み込みしてください。',
       )
     } finally {
-      setIsReady(true)
+      if (epoch === sessionEpoch.current) setIsReady(true)
     }
-  }, [currentUserId])
+  }, [currentUserId, resetWorkspaceState])
 
   // Load user workspaces
   useEffect(() => {
@@ -276,8 +282,19 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       setIsReady(false)
       return
     }
+
+    const previousUserId = lastUserId.current
+    if (previousUserId !== currentUserId) {
+      lastUserId.current = currentUserId
+      sessionEpoch.current += 1
+      // A real sign-out or a switch to another user: forget the previous user's
+      // workspace and data. Not done for the very first null (app start with no
+      // session, e.g. offline with an expired token) so a saved workspace choice
+      // survives until the user is back.
+      if (previousUserId !== null) resetWorkspaceState()
+    }
+
     if (!currentUserId) {
-      resetWorkspaceState()
       setIsReady(false)
       return
     }
@@ -288,6 +305,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   // Load workspace data
   const refreshWorkspaceData = useCallback(async () => {
     if (!activeWorkspaceId || !currentUserId) return
+    const epoch = sessionEpoch.current
 
     try {
       const [
@@ -338,6 +356,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         getMyCreatorStatus(createClient(), activeWorkspaceId, currentUserId),
       ])
 
+      // The user signed out (or changed) while this was loading.
+      if (epoch !== sessionEpoch.current) return
+
       setCurrentWorkspace(workspace)
       setCurrentMember(member)
       setMembers(membersList)
@@ -362,6 +383,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       setMyCreatorStatusState(myCreatorStatusResult)
       setWorkspaceDataError(null)
     } catch (error) {
+      if (epoch !== sessionEpoch.current) return
       console.error('Error loading workspace data:', error)
       setWorkspaceDataError(
         error instanceof Error
@@ -372,11 +394,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }, [activeWorkspaceId, currentUserId])
 
   useEffect(() => {
-    if (activeWorkspaceId) {
+    if (activeWorkspaceId && currentUserId) {
       localStorage.setItem('activeWorkspaceId', activeWorkspaceId)
       refreshWorkspaceData()
     }
-  }, [activeWorkspaceId, refreshWorkspaceData])
+  }, [activeWorkspaceId, currentUserId, refreshWorkspaceData])
 
   const workspaceMemberships = useMemo(() => {
     // `members` is scoped to the active workspace. Never invent a fake
