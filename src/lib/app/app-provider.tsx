@@ -128,7 +128,7 @@ interface AppContextValue {
   saveWorkspaceSettings: (name: string, slug: string) => Promise<Workspace>
   disconnectSocialAccount: (accountId: string) => Promise<SocialAccount>
   connectLineAccount: () => Promise<void>
-  syncInboxFromPlatform: (platform: SocialPlatform) => Promise<{ ingested: number }>
+  syncInboxFromPlatform: (platform: SocialPlatform) => Promise<{ ingested: number; failures: { message: string }[] }>
   saveDefaultBrandProfile: (input: BrandProfileInput) => Promise<BrandProfile>
   toggleInboxRead: (inboxItemId: string) => Promise<InboxItem>
   toggleInboxStar: (inboxItemId: string) => Promise<InboxItem>
@@ -664,7 +664,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         if (!response.ok) throw new Error(payload.error ?? '受信箱を同期できませんでした。')
 
         await refreshWorkspaceData()
-        return payload as { ingested: number }
+        return { ingested: payload.ingested ?? 0, failures: Array.isArray(payload.failures) ? payload.failures : [] }
       },
 
       saveDefaultBrandProfile: async (input) => {

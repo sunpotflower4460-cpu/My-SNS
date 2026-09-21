@@ -7,7 +7,25 @@ const fetchMetrics = vi.fn()
 vi.mock('@/lib/supabase/server', () => ({
   createClient: async () => makeUserClient(),
 }))
-vi.mock('@/lib/supabase/service', () => ({ createServiceClient: () => ({}) }))
+// social_accounts lookups: the row the job points at, then (when it was
+// retired) the connected row for the same external account.
+let accountRow: Record<string, unknown> | null = null
+let successorRow: Record<string, unknown> | null = null
+vi.mock('@/lib/supabase/service', () => ({
+  createServiceClient: () => ({
+    from: () => {
+      let isSuccessorQuery = false
+      const builder: Record<string, unknown> = {}
+      for (const method of ['select', 'limit']) builder[method] = () => builder
+      builder.eq = (column: string) => {
+        if (column === 'connected') isSuccessorQuery = true
+        return builder
+      }
+      builder.maybeSingle = async () => ({ data: isSuccessorQuery ? successorRow : accountRow, error: null })
+      return builder
+    },
+  }),
+}))
 vi.mock('@/lib/api/workspace-access', () => ({
   requireWorkspaceMember: async () => ({ role: 'owner' }),
   isNextResponse: () => false,
@@ -50,6 +68,8 @@ describe('POST /api/analytics/metrics', () => {
     fetchMetrics.mockReset()
     resolveCredentials.mockResolvedValue({ accessToken: 'token', externalAccountId: 'ext-2', handle: '@second' })
     fetchMetrics.mockResolvedValue({ views: 10 })
+    accountRow = { id: 'account-2', platform: 'youtube', external_account_id: 'ext-2', handle: '@second', connected: true }
+    successorRow = null
   })
 
   it('resolves credentials for the account the job published with (multi-account workspaces)', async () => {
@@ -66,6 +86,27 @@ describe('POST /api/analytics/metrics', () => {
     jobRow = { id: 'job-2', channel: 'youtube', social_account_id: null }
 
     await POST(request({ workspaceId: 'ws-1', jobId: 'job-2' }))
+
+    expect(resolveCredentials).toHaveBeenCalledWith(expect.anything(), 'ws-1', 'youtube', undefined)
+  })
+
+  it('follows a retired account to the reconnected one so old posts still show metrics', async () => {
+    jobRow = { id: 'job-3', channel: 'youtube', social_account_id: 'account-old' }
+    accountRow = { id: 'account-old', platform: 'youtube', external_account_id: 'ext-2', handle: '@second', connected: false }
+    successorRow = { id: 'account-new' }
+
+    const response = await POST(request({ workspaceId: 'ws-1', jobId: 'job-3' }))
+
+    expect(response.status).toBe(200)
+    expect(resolveCredentials).toHaveBeenCalledWith(expect.anything(), 'ws-1', 'youtube', 'account-new')
+  })
+
+  it('lets resolveCredentials fall back when a retired account has no successor', async () => {
+    jobRow = { id: 'job-4', channel: 'youtube', social_account_id: 'account-old' }
+    accountRow = { id: 'account-old', platform: 'youtube', external_account_id: 'ext-9', handle: '@gone', connected: false }
+    successorRow = null
+
+    await POST(request({ workspaceId: 'ws-1', jobId: 'job-4' }))
 
     expect(resolveCredentials).toHaveBeenCalledWith(expect.anything(), 'ws-1', 'youtube', undefined)
   })

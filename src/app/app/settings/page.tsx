@@ -140,7 +140,12 @@ export default function SettingsPage() {
     try {
       const result = await syncInboxFromPlatform(platform)
       setPlatformFeedback(`${PUBLISHING_CHANNEL_CONFIG[platform].label} を同期しました。新着 ${result.ingested} 件。`)
-      setPlatformError('')
+      // Some accounts synced, others did not: say so instead of a plain success.
+      setPlatformError(
+        result.failures.length > 0
+          ? `一部のアカウントは同期できませんでした（${result.failures.length}件）。接続状態を確認してください。`
+          : '',
+      )
     } catch (cause) {
       setPlatformError(cause instanceof Error ? cause.message : 'この媒体を同期できませんでした。')
       setPlatformFeedback('')

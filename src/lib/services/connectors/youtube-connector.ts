@@ -144,38 +144,19 @@ export interface CommentThreadsResponse {
   }>
 }
 
-const NAMED_HTML_ENTITIES: Record<string, string> = {
-  amp: '&',
-  lt: '<',
-  gt: '>',
-  quot: '"',
-  apos: "'",
-  nbsp: ' ',
-}
-
 /**
- * commentThreads returns textDisplay as HTML by default (entities such as
- * &amp; / &#39;, plus <a>, <br> and <b> tags). Inbox items are plain text, so
- * turn <br> into newlines, drop remaining tags, then decode entities. Tags are
- * stripped before decoding so an encoded "&lt;script&gt;" stays literal text
- * rather than becoming markup.
+ * Inbox text must be plain and storable. The request asks for
+ * textFormat=plainText, so textDisplay is already literal text — running an
+ * HTML stripper over it would destroy what people actually wrote ("1 < 2",
+ * "<3"). Only remove characters the database cannot store or that make no
+ * sense in a message: NUL, other C0 control characters (newline and tab are
+ * kept), and lone surrogates.
  */
-export function htmlCommentToPlainText(html: string): string {
-  const withoutTags = html.replace(/<br\s*\/?>/gi, '\n').replace(/<[^>]*>/g, '')
-  return withoutTags
-    .replace(/&(#x[0-9a-f]+|#\d+|[a-z]+);/gi, (match, entity: string) => {
-      if (entity[0] === '#') {
-        const isHex = entity[1] === 'x' || entity[1] === 'X'
-        const codePoint = Number.parseInt(entity.slice(isHex ? 2 : 1), isHex ? 16 : 10)
-        if (!Number.isFinite(codePoint) || codePoint < 0 || codePoint > 0x10ffff) return match
-        try {
-          return String.fromCodePoint(codePoint)
-        } catch {
-          return match
-        }
-      }
-      return NAMED_HTML_ENTITIES[entity.toLowerCase()] ?? match
-    })
+export function sanitizeCommentText(text: string): string {
+  return text
+    // eslint-disable-next-line no-control-regex
+    .replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g, '')
+    .replace(/[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/g, '')
 }
 
 export function mapCommentThreads(payload: CommentThreadsResponse): InboundInboxEvent[] {
@@ -187,7 +168,7 @@ export function mapCommentThreads(payload: CommentThreadsResponse): InboundInbox
       externalId: top.id,
       authorHandle: top.snippet.authorDisplayName ?? 'unknown',
       authorAvatarUrl: top.snippet.authorProfileImageUrl,
-      text: top.snippet.textOriginal ?? htmlCommentToPlainText(top.snippet.textDisplay ?? ''),
+      text: sanitizeCommentText(top.snippet.textOriginal ?? top.snippet.textDisplay ?? ''),
       receivedAt: top.snippet.publishedAt ?? new Date().toISOString(),
     }
   })
@@ -197,8 +178,7 @@ async function fetchCommentThreads(accessToken: string, params: Record<string, s
   const url = `${COMMENT_THREADS_URL}?${new URLSearchParams({
     part: 'snippet',
     order: 'time',
-    // Ask for plain text so textDisplay is not HTML-encoded; the mapper still
-    // decodes defensively in case the API ignores the parameter.
+    // Ask for plain text so textDisplay is not HTML-encoded (see sanitizeCommentText).
     textFormat: 'plainText',
     maxResults: String(COMMENT_PAGE_SIZE),
     ...params,

@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { YouTubeConnectorAdapter, mapCommentThreads, youtubeScopesAllowCustomThumbnail, type CommentThreadsResponse } from './youtube-connector'
+import { YouTubeConnectorAdapter, mapCommentThreads, sanitizeCommentText, youtubeScopesAllowCustomThumbnail, type CommentThreadsResponse } from './youtube-connector'
 
 function mockResponse(init: { ok: boolean; status: number; body?: unknown; headers?: Record<string, string>; streamBody?: unknown; arrayBuffer?: ArrayBuffer }): Response {
   return {
@@ -56,23 +56,24 @@ describe('mapCommentThreads', () => {
     ])
   })
 
-  it('decodes HTML entities and strips tags from textDisplay before storing', () => {
+  it('keeps plain-text comments verbatim, including < and & characters', () => {
     const [event] = mapCommentThreads({
       items: [
         {
           snippet: {
             topLevelComment: {
-              id: 'c-html',
-              snippet: {
-                textDisplay: 'Tom &amp; Jerry&#39;s &quot;best&quot;<br>see <a href="https://x.test">x.test</a> &lt;b&gt; &#x1F600;',
-              },
+              id: 'c9',
+              snippet: { textDisplay: '1 < 2 and 3 > 2, I <3 this & that' },
             },
           },
         },
       ],
-    })
+    } as never)
+    expect(event.text).toBe('1 < 2 and 3 > 2, I <3 this & that')
+  })
 
-    expect(event.text).toBe('Tom & Jerry\'s "best"\nsee x.test <b> \u{1F600}')
+  it('drops NUL, control characters and lone surrogates but keeps newlines and emoji', () => {
+    expect(sanitizeCommentText('a\u0000b\u0007c\nd\te \uD83D\uDE00 f\uD800g')).toBe('abc\nd\te \uD83D\uDE00 fg')
   })
 
   it('prefers textOriginal over textDisplay when the API returns it', () => {

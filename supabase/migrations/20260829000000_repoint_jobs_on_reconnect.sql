@@ -145,6 +145,9 @@ BEGIN
   FROM public.social_accounts AS old_account
   WHERE j.social_account_id = old_account.id
     AND j.workspace_id = v_account.workspace_id
+    -- A job whose channel disagrees with the account platform would trip the
+    -- guard and abort the whole reconnect; leave such legacy rows alone.
+    AND j.channel::TEXT = v_account.platform::TEXT
     AND j.status IN (
       'draft'::public.publish_job_status,
       'scheduled'::public.publish_job_status,
