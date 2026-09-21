@@ -1,12 +1,9 @@
-import { afterEach, describe, expect, it } from 'vitest'
+import { describe, expect, it } from 'vitest'
 import {
   LOGIN_EMAIL_RATE_LIMIT_MESSAGE,
   LOGIN_INVALID_CREDENTIALS_MESSAGE,
-  OTP_COOLDOWN_MS,
-  getOtpCooldownUntil,
-  isOtpCooldownActive,
+  LOGIN_RATE_LIMIT_MESSAGE,
   mapLoginAuthError,
-  markOtpSent,
   normalizeLoginEmail,
 } from './login-otp'
 
@@ -21,9 +18,15 @@ describe('mapLoginAuthError', () => {
     )
   })
 
-  it('maps HTTP 429', () => {
-    expect(mapLoginAuthError({ status: 429, message: 'Too Many Requests' })).toBe(LOGIN_EMAIL_RATE_LIMIT_MESSAGE)
-    expect(mapLoginAuthError({ message: 'Request failed with status 429' })).toBe(LOGIN_EMAIL_RATE_LIMIT_MESSAGE)
+  it('maps a generic HTTP 429 to the attempt-limit copy, not the email one', () => {
+    expect(mapLoginAuthError({ status: 429, message: 'Too Many Requests' })).toBe(LOGIN_RATE_LIMIT_MESSAGE)
+    expect(mapLoginAuthError({ message: 'Request failed with status 429' })).toBe(LOGIN_RATE_LIMIT_MESSAGE)
+  })
+
+  it('keeps the email copy when the email limit is named, even with a 429 status', () => {
+    expect(mapLoginAuthError({ status: 429, code: 'over_email_send_rate_limit', message: 'x' })).toBe(
+      LOGIN_EMAIL_RATE_LIMIT_MESSAGE,
+    )
   })
 
   it('maps invalid credentials to Japanese copy', () => {
@@ -41,48 +44,8 @@ describe('mapLoginAuthError', () => {
   })
 })
 
-describe('otp cooldown', () => {
-  const store = new Map<string, string>()
-  const storage: Storage = {
-    get length() {
-      return store.size
-    },
-    clear() {
-      store.clear()
-    },
-    getItem(key) {
-      return store.get(key) ?? null
-    },
-    key() {
-      return null
-    },
-    removeItem(key) {
-      store.delete(key)
-    },
-    setItem(key, value) {
-      store.set(key, value)
-    },
-  }
-
-  afterEach(() => {
-    store.clear()
-  })
-
-  it('normalizes email before looking up cooldown', () => {
+describe('normalizeLoginEmail', () => {
+  it('trims and lowercases', () => {
     expect(normalizeLoginEmail('  Ada@Example.COM ')).toBe('ada@example.com')
-  })
-
-  it('blocks a second send within 60 seconds for the same email', () => {
-    const now = 1_700_000_000_000
-    markOtpSent('  Ada@Example.COM ', now, storage)
-
-    expect(isOtpCooldownActive('ada@example.com', now + 1, storage)).toBe(true)
-    expect(getOtpCooldownUntil('ada@example.com', now + 1, storage)).toBe(now + OTP_COOLDOWN_MS)
-    expect(isOtpCooldownActive('ada@example.com', now + OTP_COOLDOWN_MS, storage)).toBe(false)
-  })
-
-  it('does not apply cooldown to a different email', () => {
-    markOtpSent('one@example.com', 0, storage)
-    expect(isOtpCooldownActive('two@example.com', 1, storage)).toBe(false)
   })
 })

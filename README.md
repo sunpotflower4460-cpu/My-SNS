@@ -8,7 +8,7 @@ The app is now backed by **real Supabase infrastructure** while preserving the e
 
 ## What now works
 
-- **Real Supabase Auth** with magic link email authentication
+- **Real Supabase Auth** with email + password authentication
 - **Protected `/app/*` routes** requiring authenticated session
 - **Real Postgres database** with all workspace, Seed, Brand Profile, team, inbox, and queue data persisted
 - **Private Supabase Storage** for workspace-scoped asset uploads and short-lived previews
@@ -97,21 +97,22 @@ Optionally set `ANTHROPIC_MONTHLY_BUDGET_USD` to cap AI spend per workspace per 
 
 ```bash
 npm install
+npm run supabase:start   # local Supabase in Docker (needs Docker Desktop)
+npm run supabase:status  # copy API URL / anon / service_role keys into .env.local
 npm run dev
 ```
 
-Open http://localhost:3000
+Open http://localhost:3000 (see `.env.example` for the variables).
 
 ### Sign in
 
 1. Go to http://localhost:3000/login
-2. Enter your email address
-3. Check your email for the magic link
-4. Click the link to sign in
+2. First time: choose 「初めての方はアカウント作成」, enter an email and a password (6+ characters)
+3. Returning: enter the same email and password and press ログイン
 
-On first sign in, the app will automatically:
-- Create your profile
-- You can then create a workspace from the app
+On first sign in the app creates your profile, then asks you to name and create
+your first workspace. Connecting social accounts is optional — see
+Settings > 連携済みの媒体 for what each platform needs.
 
 ## Project architecture
 
@@ -119,7 +120,7 @@ On first sign in, the app will automatically:
 src/
   app/
     providers.tsx              Auth + App provider composition
-    login/page.tsx             Magic link auth flow
+    login/page.tsx             Email + password sign-in / sign-up
     app/                       Protected app routes
     api/drafts/generate/       Server-only AI draft generation route
     api/publish/run/           Server-only scheduled publish Worker (CRON_SECRET-gated, publish_mode='auto')
@@ -205,7 +206,7 @@ npm run start
 - No real persistence beyond localStorage
 
 ### After (Phase 2A)
-- **Supabase Auth** with magic link email authentication
+- **Supabase Auth** with email + password authentication
 - **Supabase Postgres** with full schema and RLS policies
 - **Private Supabase Storage** for real, workspace-scoped file uploads
 - **Real repositories** backed by database queries

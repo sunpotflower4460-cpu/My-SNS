@@ -217,7 +217,7 @@ export default function SettingsPage() {
               </InlineAlert>
             )}
           </div>
-          {setupStatus && !setupStatus.tokenEncryptionReady && (
+          {canManageSocialAccounts && setupStatus && !setupStatus.tokenEncryptionReady && (
             <div className="mb-4">
               <InlineAlert tone="warning">
                 トークン暗号化キー <code className="rounded bg-white px-1 text-xs">SOCIAL_TOKEN_ENCRYPTION_KEY</code> が未設定か不正です。設定するまで、どの媒体も接続できません（ターミナルで <code className="rounded bg-white px-1 text-xs">node -e &quot;console.log(require(&apos;crypto&apos;).randomBytes(32).toString(&apos;base64&apos;))&quot;</code> を実行して得た値を設定します）。
@@ -231,7 +231,8 @@ export default function SettingsPage() {
               const connectedAccounts = listConnectedAccountsForPlatform(platform, socialAccounts)
               const connectHref = currentWorkspace ? `/api/social/${platform}/connect?workspaceId=${currentWorkspace.id}` : undefined
               const platformSetup = setupStatus?.platforms[platform]
-              const setupRequired = platformSetup ? !platformSetup.configured : false
+              // Server-config guidance is only for members who can act on it.
+              const setupRequired = canManageSocialAccounts && platformSetup ? !platformSetup.configured : false
               if (connectedAccounts.length === 0) {
                 return (
                   <div key={platform} className="space-y-2">

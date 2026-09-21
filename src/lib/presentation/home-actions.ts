@@ -41,7 +41,7 @@ export interface HomeSnapshot {
   drafts: SocialDraft[]
   seeds: Seed[]
   socialAccounts: SocialAccount[]
-  /** Defaults to 'api-first' semantics for the setup nudge; the dashboard passes the real strategy. */
+  /** Defaults to 'zero-cost', matching getPublishingStrategy()'s own default. */
   publishingStrategy?: PublishingStrategy
 }
 
@@ -58,7 +58,7 @@ function channelLabel(channel: PublishJob['channel']): string {
  * everything else (normal). Stable within a priority tier (insertion order).
  */
 export function computeNextActions(snapshot: HomeSnapshot): NextAction[] {
-  const { publishJobs, replyJobs, inboxItems, drafts, seeds, socialAccounts, publishingStrategy } = snapshot
+  const { publishJobs, replyJobs, inboxItems, drafts, seeds, socialAccounts, publishingStrategy = 'zero-cost' } = snapshot
   const actions: NextAction[] = []
 
   // 1. Publishes that failed — the most urgent thing: something the creator

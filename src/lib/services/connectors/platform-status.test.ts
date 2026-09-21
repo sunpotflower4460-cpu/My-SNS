@@ -2,6 +2,10 @@ import { describe, expect, it } from 'vitest'
 import { getPlatformSetupStatus } from './platform-status'
 import { buildPlatformRedirectUri, PLATFORM_SETUP_GUIDES } from './platform-setup'
 import { CONNECTABLE_PLATFORMS } from './platforms'
+import { isXConfigured } from './x-connector'
+import { isInstagramConfigured } from './instagram-connector'
+import { isYouTubeConfigured } from './youtube-connector'
+import { isTikTokConfigured } from './tiktok-connector'
 
 describe('getPlatformSetupStatus', () => {
   it('lists every missing env var by name', () => {
@@ -37,5 +41,25 @@ describe('platform setup guides', () => {
 
   it('builds the redirect URI the callback route expects, without doubling slashes', () => {
     expect(buildPlatformRedirectUri('http://127.0.0.1:3000/', 'x')).toBe('http://127.0.0.1:3000/api/social/x/callback')
+  })
+})
+
+describe('setup guides stay in sync with the connectors', () => {
+  const cases = [
+    ['x', isXConfigured],
+    ['instagram', isInstagramConfigured],
+    ['youtube', isYouTubeConfigured],
+    ['tiktok', isTikTokConfigured],
+  ] as const
+
+  it.each(cases)('%s: every guide env var is set => the connector agrees it is configured', (platform, isConfigured) => {
+    const original = { ...process.env }
+    try {
+      for (const name of PLATFORM_SETUP_GUIDES[platform].envVars) process.env[name] = 'x'
+      expect(isConfigured()).toBe(true)
+      expect(getPlatformSetupStatus(platform).configured).toBe(true)
+    } finally {
+      process.env = original
+    }
   })
 })

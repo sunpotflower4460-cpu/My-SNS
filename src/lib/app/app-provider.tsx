@@ -422,8 +422,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           ownerId: currentUserId,
         })
 
+        // The activeWorkspaceId effect loads the workspace data; calling
+        // refreshWorkspaceData() here would use this render's stale closure
+        // (activeWorkspaceId still null) and return immediately.
+        setWorkspaces((current) => [...current, workspace])
         setActiveWorkspaceId(workspace.id)
-        await refreshWorkspaceData()
         return workspace
       },
 

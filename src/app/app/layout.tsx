@@ -21,6 +21,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   } = useApp()
   const [isCreatingWorkspace, setIsCreatingWorkspace] = useState(false)
   const [createError, setCreateError] = useState('')
+  const [newWorkspaceName, setNewWorkspaceName] = useState('')
 
   useEffect(() => {
     if (sessionReady && !isAuthenticated) {
@@ -81,7 +82,19 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
             title="利用できるワークスペースがありません"
             description="最初のワークスペースを作ると、発信の作成と投稿の準備を始められます。"
             action={
-              <div className="flex flex-col gap-3 sm:flex-row">
+              <div className="flex w-full flex-col gap-3">
+                <label htmlFor="workspace-name" className="text-left text-sm font-medium text-gray-700">
+                  ワークスペース名
+                </label>
+                <input
+                  id="workspace-name"
+                  type="text"
+                  value={newWorkspaceName}
+                  onChange={(event) => setNewWorkspaceName(event.target.value)}
+                  placeholder="マイワークスペース"
+                  disabled={isCreatingWorkspace}
+                  className="w-full rounded-2xl border border-stone-200 bg-white px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-violet-300 disabled:opacity-50"
+                />
                 <button
                   type="button"
                   disabled={isCreatingWorkspace}
@@ -89,10 +102,12 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
                     setCreateError('')
                     setIsCreatingWorkspace(true)
                     try {
-                      await createWorkspace('きうえ')
+                      await createWorkspace(newWorkspaceName.trim() || 'マイワークスペース')
+                      // Stay busy on success: the layout swaps to the workspace
+                      // loading state on its own, and re-enabling here would let
+                      // a second click create a duplicate.
                     } catch (error) {
                       setCreateError(error instanceof Error ? error.message : '作成に失敗しました')
-                    } finally {
                       setIsCreatingWorkspace(false)
                     }
                   }}

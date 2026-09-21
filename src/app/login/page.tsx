@@ -18,6 +18,7 @@ export default function LoginPage() {
   const [password, setPassword] = useState('')
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState('')
+  const [notice, setNotice] = useState('')
 
   useEffect(() => {
     if (isReady && isAuthenticated) {
@@ -40,19 +41,26 @@ export default function LoginPage() {
       setError('パスワードを入力してください')
       return
     }
-    if (password.length < 6) {
+    // Length is a sign-up rule only: an existing password may be shorter (e.g.
+    // set from the Supabase dashboard), and sign-in must let the server decide.
+    if (mode === 'signup' && password.length < 6) {
       setError('パスワードは6文字以上にしてください')
       return
     }
 
     setIsLoading(true)
     setError('')
+    setNotice('')
 
     try {
       const supabase = createClient()
       const result =
         mode === 'signup'
-          ? await supabase.auth.signUp({ email: normalizedEmail, password })
+          ? await supabase.auth.signUp({
+              email: normalizedEmail,
+              password,
+              options: { emailRedirectTo: `${window.location.origin}/app/dashboard` },
+            })
           : await supabase.auth.signInWithPassword({ email: normalizedEmail, password })
 
       if (result.error) {
@@ -62,8 +70,9 @@ export default function LoginPage() {
 
       if (mode === 'signup' && !result.data.session) {
         // Local Supabase usually returns a session immediately (email confirm off).
-        // Hosted projects with confirm-required will land here.
-        setError('アカウントは作成されました。メール確認が必要な設定の場合は、確認後にログインしてください。')
+        // With confirmation required, an already-registered address also lands
+        // here (no error, no email) — so don't claim the account was just made.
+        setNotice('確認メールを送信しました。メール内のリンクを開いてからログインしてください。届かない場合は、すでに登録済みの可能性があります。そのままログインをお試しください。')
         setMode('signin')
         return
       }
@@ -87,11 +96,16 @@ export default function LoginPage() {
             </div>
             <h1 className="text-3xl font-semibold tracking-tight text-gray-900 sm:text-4xl">My-SNS</h1>
             <p className="mt-3 text-sm leading-6 text-gray-500">
-              メールアドレスとパスワードでログインします。メール送信やマジックリンク待ちはありません。
+              メールアドレスとパスワードでログインします。
             </p>
           </div>
 
           <form onSubmit={handleSubmit} className="rounded-3xl border border-stone-200 bg-stone-50 p-5">
+            {notice && (
+              <div role="status" className="mb-4 rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
+                {notice}
+              </div>
+            )}
             {error && (
               <div className="mb-4 rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">
                 {error}
@@ -136,6 +150,7 @@ export default function LoginPage() {
               onClick={() => {
                 setMode((current) => (current === 'signin' ? 'signup' : 'signin'))
                 setError('')
+                setNotice('')
               }}
               className="mt-3 w-full rounded-2xl border border-stone-200 bg-white px-5 py-3 text-sm font-medium text-gray-700 transition hover:bg-stone-50 disabled:opacity-50"
             >
@@ -145,13 +160,12 @@ export default function LoginPage() {
         </section>
 
         <aside className="rounded-[2rem] border border-stone-200 bg-white p-8 shadow-sm shadow-stone-200/70 sm:p-10">
-          <h2 className="text-sm font-semibold tracking-[0.05em] text-gray-400">ローカル向けログイン</h2>
+          <h2 className="text-sm font-semibold tracking-[0.05em] text-gray-400">ログインについて</h2>
           <div className="mt-5 space-y-5 text-sm leading-6 text-gray-600">
             <p>
-              • <strong className="text-gray-900">パスワード</strong>
-              で即ログインできます。メールの送信上限や1時間待ちはありません。
+              • <strong className="text-gray-900">メールアドレスとパスワード</strong>
+              でログインできます。初めての方は「アカウント作成」から始めてください。
             </p>
-            <p>• ローカル開発では Docker 上の Supabase を使い、Vercel へのデプロイは不要です。</p>
             <p>
               • <strong className="text-gray-900">/app</strong> 配下はログイン後だけ開けます。
             </p>

@@ -162,6 +162,9 @@ describe('computeNextActions', () => {
     expect(manual?.priority).toBe('normal')
     expect(manual?.description).toContain('手動投稿')
 
+    const byDefault = computeNextActions({ ...emptySnapshot(), socialAccounts: [] }).find((a) => a.id === 'setup-connect')
+    expect(byDefault?.priority).toBe('normal')
+
     const auto = computeNextActions({ ...emptySnapshot(), socialAccounts: [], publishingStrategy: 'api-first' }).find((a) => a.id === 'setup-connect')
     expect(auto?.priority).toBe('high')
   })
