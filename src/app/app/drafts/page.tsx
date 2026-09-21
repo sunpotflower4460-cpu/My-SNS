@@ -8,7 +8,7 @@ import ChannelBadge from '@/components/ui/ChannelBadge'
 import DraftEditorCard from '@/components/ui/DraftEditorCard'
 import EmptyState from '@/components/ui/EmptyState'
 import PageHeader from '@/components/ui/PageHeader'
-import { PUBLISHING_CHANNEL_CONFIG } from '@/lib/channels/config'
+import { PUBLISHING_CHANNEL_CONFIG, getPublishingStrategy } from '@/lib/channels/config'
 import { useApp } from '@/lib/app/app-provider'
 import { CORE_PUBLISHING_CHANNELS, type PublishingChannel, type SocialDraft } from '@/lib/domain/types'
 import { hasPermission } from '@/lib/permissions'
@@ -33,6 +33,7 @@ function isUnsavedGeneratedId(id: string): boolean {
 }
 
 export default function DraftsPage() {
+  const publishingStrategy = getPublishingStrategy()
   const router = useRouter()
   const searchParams = useSearchParams()
   const {
@@ -205,7 +206,26 @@ export default function DraftsPage() {
     aiOriginalSnapshot: draft.aiOriginalSnapshot,
   })
 
-  const persistDraft = async (draft: SocialDraft) => saveDraft(toDraftInput(draft))
+  // A generated proposal that has never been saved is always inserted as a plain
+  // draft: approval is a separate step (approve_social_draft) that also writes
+  // the Revision, and inserting 'approved' directly would skip it.
+  const persistDraft = async (draft: SocialDraft) => saveDraft({
+    ...toDraftInput(draft),
+    ...(isUnsavedGeneratedId(draft.id) ? { status: 'draft' as const } : {}),
+  })
+
+  // Once a generated proposal has been saved or approved, the saved row
+  // (with its real id) shows under 保存済み. Keeping the unsaved card would
+  // insert a duplicate on the next save.
+  const dropGenerated = (id: string) => {
+    setGeneratedDrafts((current) => current.filter((entry) => entry.id !== id))
+    setLiveEdits((current) => {
+      if (!(id in current)) return current
+      const rest = { ...current }
+      delete rest[id]
+      return rest
+    })
+  }
 
   const rememberLive = (id: string, text: string, metadata: Record<string, unknown>) => {
     setLiveEdits((current) => ({ ...current, [id]: { text, metadata } }))
@@ -249,7 +269,7 @@ export default function DraftsPage() {
           : new Date().toISOString()
         const job = await scheduleDraft(approved.id, scheduledAt)
 
-        if (plan.timing === 'now' && !target.noteHandoff) {
+        if (plan.timing === 'now' && !target.noteHandoff && publishingStrategy === 'api-first') {
           try {
             await triggerPublishJob(job.id)
           } catch (cause) {
@@ -270,9 +290,11 @@ export default function DraftsPage() {
     }
 
     if (sent.length > 0) {
-      const timingNote = plan.timing === 'now'
-        ? '今すぐ公開を試みました。noteはコピー用として公開予定に残します。'
-        : '予約しました。公開予定から確認できます。'
+      const timingNote = plan.timing === 'scheduled'
+        ? '予約しました。公開予定から確認できます。'
+        : publishingStrategy === 'api-first'
+          ? '今すぐ公開を試みました。noteはコピー用として公開予定に残します。'
+          : '公開予定に追加しました。公開予定から各SNSの投稿画面を開いて投稿し、「投稿済みにする」を押してください。'
       setFeedback(`${sent.join('、')}を受け付けました。${timingNote}`)
     } else {
       setFeedback('')
@@ -326,8 +348,10 @@ export default function DraftsPage() {
                 onLiveChange={rememberLive}
                 onEdit={canEditDrafts ? (id, text, metadata) => {
                   const target = generatedDrafts.find((entry) => entry.id === id)
-                  setGeneratedDrafts((current) => current.map((entry) => entry.id === id ? { ...entry, draftText: text, metadata, updatedAt: new Date().toISOString() } : entry))
-                  if (target) void runDraftAction(() => persistDraft({ ...target, draftText: text, metadata }), `${PUBLISHING_CHANNEL_CONFIG[target.channel].label}の下書きを保存しました。`)
+                  if (target) void runDraftAction(async () => {
+                    await persistDraft({ ...target, draftText: text, metadata })
+                    dropGenerated(id)
+                  }, `${PUBLISHING_CHANNEL_CONFIG[target.channel].label}の下書きを保存しました。`)
                 } : undefined}
                 onApprove={canApprove ? (id, text, metadata) => {
                   const target = generatedDrafts.find((entry) => entry.id === id)
@@ -335,7 +359,7 @@ export default function DraftsPage() {
                   void runDraftAction(
                     async () => {
                       await saveAndApproveDraft(toDraftInput({ ...target, draftText: text, metadata }))
-                      setGeneratedDrafts((current) => current.map((entry) => entry.id === id ? { ...entry, draftText: text, metadata, status: 'approved' } : entry))
+                      dropGenerated(id)
                     },
                     `${PUBLISHING_CHANNEL_CONFIG[target.channel].label}の下書きを承認し、承認版（Revision）として記録しました。`,
                   )

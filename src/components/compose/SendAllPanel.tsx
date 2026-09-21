@@ -6,6 +6,7 @@ import { PUBLISH_WORKER_DELAY_JA } from '@/lib/presentation/cron-honesty'
 import {
   buildSendChannelState,
   latestDraftsByChannel,
+  resolveChannelBlockedReason,
   validateSendPlan,
   type SendAllPlan,
   type SendChannelState,
@@ -38,9 +39,22 @@ export default function SendAllPanel({ drafts, accounts, canSend, busy = false, 
 
   useEffect(() => {
     const next = latestDraftsByChannel(drafts).map((draft) => buildSendChannelState(draft, accounts))
-    setChannels(next)
+    // Keep what the user already chose. Rebuilding from scratch on every change
+    // would silently re-check a channel they had just unchecked.
+    setChannels((previous) => next.map((entry) => {
+      const before = previous.find((candidate) => candidate.channel === entry.channel && candidate.draftId === entry.draftId)
+      if (!before) return entry
+      const keepAccount = before.selectedAccountId && entry.accounts.some((account) => account.id === before.selectedAccountId)
+      const selectedAccountId = keepAccount ? before.selectedAccountId : entry.selectedAccountId
+      const merged = { ...entry, selectedAccountId }
+      const blockedReason = resolveChannelBlockedReason(merged)
+      return { ...merged, blockedReason, selected: blockedReason ? false : before.selected }
+    }))
     setError('')
-  }, [accountKey, draftKey, accounts, drafts])
+    // Keyed on the content keys, not on `drafts`/`accounts` identity: the parent
+    // builds new arrays on every keystroke, which must not reset the selection.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [accountKey, draftKey])
 
   useEffect(() => {
     setScheduleInput(clientScheduleInputValue())
@@ -52,13 +66,7 @@ export default function SendAllPanel({ drafts, accounts, canSend, busy = false, 
     setChannels((current) => current.map((entry) => {
       if (entry.channel !== channelId) return entry
       const next = { ...entry, ...patch }
-      if (next.accounts.length > 1 && next.selected && !next.selectedAccountId) {
-        next.blockedReason = '投稿するアカウントを選んでください。'
-      } else if (next.accounts.length === 0 && !next.noteHandoff) {
-        next.blockedReason = '設定からアカウントを接続してください。'
-      } else if (next.selectedAccountId || next.noteHandoff) {
-        next.blockedReason = undefined
-      }
+      next.blockedReason = resolveChannelBlockedReason(next)
       return next
     }))
   }

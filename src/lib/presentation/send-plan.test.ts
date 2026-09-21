@@ -59,16 +59,44 @@ describe('buildSendChannelState', () => {
     const state = buildSendChannelState(draft({ channel: 'x' }), [
       account({ id: 'a1', handle: '@one' }),
       account({ id: 'a2', handle: '@two' }),
-    ])
+    ], 'api-first')
     expect(state.selected).toBe(false)
     expect(state.blockedReason).toMatch(/アカウント/)
   })
 
   it('treats note as a copy handoff with no account pick', () => {
-    const state = buildSendChannelState(draft({ id: 'n1', channel: 'note' }), [])
+    const state = buildSendChannelState(draft({ id: 'n1', channel: 'note' }), [], 'api-first')
     expect(state.noteHandoff).toBe(true)
     expect(state.selected).toBe(true)
     expect(state.blockedReason).toBeUndefined()
+  })
+})
+
+describe('zero-cost (manual handoff) mode', () => {
+  it('lets every channel be sent with no connected account', () => {
+    for (const channel of ['x', 'instagram', 'youtube', 'tiktok'] as const) {
+      const state = buildSendChannelState(draft({ channel }), [], 'zero-cost')
+      expect(state.selected).toBe(true)
+      expect(state.blockedReason).toBeUndefined()
+    }
+    const state = buildSendChannelState(draft({ channel: 'x' }), [], 'zero-cost')
+    expect(validateSendPlan([state], 'now').ok).toBe(true)
+  })
+
+  it('does not force an account pick when several are connected', () => {
+    const state = buildSendChannelState(draft({ channel: 'x' }), [
+      account({ id: 'a1', handle: '@one' }),
+      account({ id: 'a2', handle: '@two' }),
+    ], 'zero-cost')
+    expect(state.selected).toBe(true)
+    expect(state.blockedReason).toBeUndefined()
+    expect(state.selectedAccountId).toBeUndefined()
+  })
+
+  it('still asks for an account in api-first mode', () => {
+    const state = buildSendChannelState(draft({ channel: 'x' }), [], 'api-first')
+    expect(state.selected).toBe(false)
+    expect(state.blockedReason).toMatch(/接続/)
   })
 })
 
@@ -89,7 +117,7 @@ describe('validateSendPlan', () => {
       ...buildSendChannelState(draft({ channel: 'x' }), [
         account({ id: 'a1', handle: '@one' }),
         account({ id: 'a2', handle: '@two' }),
-      ]),
+      ], 'api-first'),
       selected: true,
     }
     expect(validateSendPlan([channel], 'now')).toEqual({
