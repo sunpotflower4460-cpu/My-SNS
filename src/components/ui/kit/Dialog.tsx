@@ -34,7 +34,7 @@ export default function Dialog({ open, onClose, title, description, children, fo
         aria-modal="true"
         aria-label={title}
         tabIndex={-1}
-        className={cn('ui-floating relative w-full max-w-md rounded-container p-6')}
+        className={cn('ui-floating relative max-h-[calc(100dvh-2rem)] w-full max-w-md overflow-y-auto rounded-container p-6')}
       >
         <div className="flex items-start justify-between gap-4">
           <div className="min-w-0">

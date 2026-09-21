@@ -3,7 +3,8 @@
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { LayoutGrid, Sprout, Inbox, Menu, Plus, Send, type LucideIcon } from 'lucide-react'
-import { CREATE_ACTION, isNavActive } from './nav-items'
+import type { WorkspaceRole } from '@/lib/domain/types'
+import { CREATE_ACTION, canCreateSeed, isNavActive } from './nav-items'
 
 // The primary mobile navigation (below xl). Publishing is intentionally a
 // first-class tab: on a phone the common flow is open app -> see today's work ->
@@ -12,6 +13,7 @@ import { CREATE_ACTION, isNavActive } from './nav-items'
 
 interface MobileBottomNavProps {
   onOpenMore: () => void
+  role: WorkspaceRole
 }
 
 interface Tab {
@@ -21,9 +23,9 @@ interface Tab {
   onClick?: () => void
 }
 
-export default function MobileBottomNav({ onOpenMore }: MobileBottomNavProps) {
+export default function MobileBottomNav({ onOpenMore, role }: MobileBottomNavProps) {
   const pathname = usePathname()
-  const hideFab = pathname === '/app/seeds/new' || pathname === '/app/drafts' || pathname.startsWith('/app/drafts/')
+  const hideFab = !canCreateSeed(role) || pathname === '/app/seeds/new' || pathname === '/app/drafts' || pathname.startsWith('/app/drafts/')
 
   const tabs: Tab[] = [
     { label: 'ホーム', href: '/app/dashboard', icon: LayoutGrid },

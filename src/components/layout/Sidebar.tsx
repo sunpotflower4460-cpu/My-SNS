@@ -3,15 +3,16 @@
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { Plus } from 'lucide-react'
-import type { User, Workspace } from '@/lib/domain/types'
-import { CREATE_ACTION, NAV_GROUPS, isNavActive } from './nav-items'
+import type { User, Workspace, WorkspaceRole } from '@/lib/domain/types'
+import { CREATE_ACTION, canCreateSeed, getNavGroups, isNavActive } from './nav-items'
 
 interface SidebarProps {
   workspace: Workspace
   user: User
+  role: WorkspaceRole
 }
 
-export default function Sidebar({ workspace, user }: SidebarProps) {
+export default function Sidebar({ workspace, user, role }: SidebarProps) {
   const pathname = usePathname()
 
   return (
@@ -23,17 +24,17 @@ export default function Sidebar({ workspace, user }: SidebarProps) {
           </div>
           <p className="min-w-0 truncate text-sm font-semibold tracking-[-0.01em] text-[color:var(--text-strong)]">{workspace.name}</p>
         </div>
-        <Link
+        {canCreateSeed(role) && <Link
           href={CREATE_ACTION.href}
           className="mt-4 flex min-h-control items-center justify-center gap-2 rounded-full bg-[color:var(--accent)] px-4 text-sm font-medium text-white shadow-[0_10px_24px_rgba(109,93,246,0.22)] transition duration-200 ease-[var(--ease-out-premium)] hover:bg-[color:var(--accent-hover)] active:scale-[0.985]"
         >
           <Plus aria-hidden className="h-4 w-4" />
           {CREATE_ACTION.label}
-        </Link>
+        </Link>}
       </div>
 
       <nav className="flex-1 overflow-y-auto px-3 py-4">
-        {NAV_GROUPS.map((group) => (
+        {getNavGroups(role).map((group) => (
           <div key={group.heading} className="mb-4 last:mb-0">
             <p className="px-3 pb-1 text-[11px] font-semibold tracking-[0.08em] text-[color:var(--text-subtle)]">{group.heading}</p>
             <div className="space-y-0.5">

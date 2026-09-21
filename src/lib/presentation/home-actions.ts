@@ -65,14 +65,14 @@ export function computeNextActions(snapshot: HomeSnapshot): NextAction[] {
   //    expected to go out didn't.
   const failedPublishes = publishJobs.filter((job) => job.status === 'failed')
   if (failedPublishes.length > 0) {
-    const only = failedPublishes.length === 1 ? failedPublishes[0] : null
     actions.push({
       id: 'publish-failed',
       priority: 'critical',
       category: 'publish',
       title: `公開に失敗した投稿が${failedPublishes.length}件あります`,
       description: '原因を確認して、もう一度公開するか下書きに戻せます。',
-      href: only ? `/app/seeds/${only.seedId}` : '/app/queue',
+      // The failure reason and the retry controls live in the queue, not on the seed page.
+      href: '/app/queue',
       actionLabel: '確認する',
     })
   }
@@ -116,7 +116,7 @@ export function computeNextActions(snapshot: HomeSnapshot): NextAction[] {
       category: 'approval',
       title: `承認を待っている下書きが${pendingDrafts.length}件あります`,
       description: 'AIの提案を確認し、必要なら整えてから承認できます。',
-      href: only ? `/app/seeds/${only.seedId}` : '/app/seeds',
+      href: only ? `/app/drafts?seed=${only.seedId}` : '/app/drafts',
       actionLabel: '確認する',
     })
   }

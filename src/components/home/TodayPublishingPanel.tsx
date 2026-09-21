@@ -18,7 +18,7 @@ export default function TodayPublishingPanel({ overview }: TodayPublishingPanelP
     <section aria-label="今日の投稿" className="space-y-4">
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
-          <p className="text-xs font-semibold tracking-[0.08em] text-violet-500">PUBLISHING</p>
+          <p className="text-xs font-semibold tracking-[0.08em] text-violet-500">今日の投稿</p>
           <h2 className="mt-1 text-xl font-semibold text-gray-900">今日投稿するパック</h2>
           <p className="mt-1 text-sm text-default">今日までに投稿するものを先に。終わったら次の1件へ進めます。</p>
         </div>
@@ -79,7 +79,7 @@ export default function TodayPublishingPanel({ overview }: TodayPublishingPanelP
         <Card size="container" tone="selected" className="flex flex-col justify-between">
           <div>
             <div className="flex items-center justify-between gap-3">
-              <p className="text-xs font-semibold tracking-[0.08em] text-violet-600">NEXT</p>
+              <p className="text-xs font-semibold tracking-[0.08em] text-violet-600">次にやること</p>
               <span className="text-xs text-violet-500">進行中 {activeCount}</span>
             </div>
             <h3 className="mt-2 text-base font-semibold text-gray-900">次にやること</h3>

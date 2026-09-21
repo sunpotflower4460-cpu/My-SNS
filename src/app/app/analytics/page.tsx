@@ -78,7 +78,7 @@ export default function AnalyticsPage() {
         <Card size="container" padded>
           <h2 className="mb-4 text-base font-semibold text-gray-900">媒体別の公開状況</h2>
           {summary.perChannel.length === 0 ? (
-            <EmptyState title="まだ公開の試行がありません" description="ジョブが実行されると（Workerまたは「今すぐ公開」）、媒体ごとの成功・失敗がここに表示されます。" />
+            <EmptyState title="まだ公開の試行がありません" description="予約が実行されると（自動実行または「今すぐ公開」）、媒体ごとの成功・失敗がここに表示されます。" />
           ) : (
             <div className="space-y-3">
               {summary.perChannel.map((entry) => (
@@ -118,7 +118,7 @@ export default function AnalyticsPage() {
         <Card size="container" padded>
           <div className="mb-4 flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between sm:gap-3">
             <h2 className="text-base font-semibold text-gray-900">AI提案への修正</h2>
-            <span className="text-xs text-gray-400">承認した差分だけを記憶します。Brand Profileは自動では上書きしません。</span>
+            <span className="text-xs text-gray-400">承認した差分だけを記憶します。発信スタイルは自動では上書きしません。</span>
           </div>
           {recentCorrections.length === 0 ? (
             <EmptyState
