@@ -65,9 +65,13 @@ export default function NewSeedPage() {
   )
 
   useEffect(() => {
-    if (!brandProfileId && defaultBrandProfile) setBrandProfileId(defaultBrandProfile.id)
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- only react when the default profile id appears/changes
-  }, [brandProfileId, defaultBrandProfile?.id])
+    // Drop a selection that is not in the current workspace's profiles (e.g. after
+    // a workspace switch), then fall back to the workspace default when there is one.
+    const stillValid = brandProfileId !== '' && brandProfiles.some((profile) => profile.id === brandProfileId)
+    if (stillValid) return
+    setBrandProfileId(defaultBrandProfile?.id ?? '')
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- only react when the profile list / default id changes
+  }, [brandProfileId, brandProfiles, defaultBrandProfile?.id])
 
   useEffect(() => {
     assetsRef.current = assets

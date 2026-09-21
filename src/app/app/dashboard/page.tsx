@@ -14,6 +14,7 @@ import {
 import { buildPublishPacks } from '@/lib/presentation/publish-pack'
 import { buildTodayPublishingOverview } from '@/lib/presentation/today-publishing'
 import { useApp } from '@/lib/app/app-provider'
+import { canCreateSeed } from '@/components/layout/nav-items'
 import { getPublishingStrategy } from '@/lib/channels/config'
 
 export default function DashboardPage() {
@@ -27,7 +28,9 @@ export default function DashboardPage() {
     draftRevisions,
     socialAccounts,
     calendarEvents,
+    currentMember,
   } = useApp()
+  const canCreate = currentMember ? canCreateSeed(currentMember.role) : false
 
   // Date.now() is fine in the browser runtime; presenters resolve calendar
   // boundaries in JST so "today" follows the creator's local day.
@@ -54,13 +57,13 @@ export default function DashboardPage() {
         title="ホーム"
         description={`${currentWorkspace?.name ?? 'ワークスペース'}の今日の投稿と、次に進める1件を最初に確認できます。新しい発信は写真や動画を入れて、提案を直して送れます。`}
         actions={
-          <Link
+          canCreate ? <Link
             href="/app/seeds/new"
             className="inline-flex min-h-control items-center gap-2 rounded-full bg-gray-900 px-4 text-sm font-medium text-white transition hover:bg-gray-700"
           >
             <Plus aria-hidden className="h-4 w-4" />
             新しい発信
-          </Link>
+          </Link> : undefined
         }
       />
 

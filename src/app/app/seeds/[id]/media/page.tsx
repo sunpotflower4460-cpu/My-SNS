@@ -51,11 +51,14 @@ export default function SeedMediaPage() {
   const assetIdsKey = detail.assets.map((asset) => asset.id).join('|')
   const autoThumbAttemptedRef = useRef(false)
   const canUploadAssetsEarly = Boolean(currentMember && hasPermission(currentMember.role, 'upload_assets'))
+  // Depend on the id, not the workspace object: the object identity changes on
+  // every refreshWorkspaceData(), which would reset assignments and flicker.
+  const currentWorkspaceId = currentWorkspace?.id
 
   useEffect(() => {
     let active = true
 
-    if (!currentWorkspace || !seedId) {
+    if (!currentWorkspaceId || !seedId) {
       setPublishingAssignments({})
       setAssignmentLoadState('idle')
       setAssignmentLoadError('')
@@ -68,7 +71,7 @@ export default function SeedMediaPage() {
     setAssignmentLoadError('')
 
     void listSeedAssetPublishingAssignments({
-      workspaceId: currentWorkspace.id,
+      workspaceId: currentWorkspaceId,
       seedId,
       assetIds,
     }).then((assignments) => {
@@ -83,7 +86,7 @@ export default function SeedMediaPage() {
     })
 
     return () => { active = false }
-  }, [assetIdsKey, currentWorkspace, seedId])
+  }, [assetIdsKey, currentWorkspaceId, seedId])
 
   useEffect(() => {
     if (!currentWorkspace || !detail.seed) return
