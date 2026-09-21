@@ -135,11 +135,28 @@ export interface CommentThreadsResponse {
           authorDisplayName?: string
           authorProfileImageUrl?: string
           textDisplay?: string
+          /** Raw comment text; only returned to callers allowed to see it. */
+          textOriginal?: string
           publishedAt?: string
         }
       }
     }
   }>
+}
+
+/**
+ * Inbox text must be plain and storable. The request asks for
+ * textFormat=plainText, so textDisplay is already literal text — running an
+ * HTML stripper over it would destroy what people actually wrote ("1 < 2",
+ * "<3"). Only remove characters the database cannot store or that make no
+ * sense in a message: NUL, other C0 control characters (newline and tab are
+ * kept), and lone surrogates.
+ */
+export function sanitizeCommentText(text: string): string {
+  return text
+    // eslint-disable-next-line no-control-regex
+    .replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g, '')
+    .replace(/[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/g, '')
 }
 
 export function mapCommentThreads(payload: CommentThreadsResponse): InboundInboxEvent[] {
@@ -151,7 +168,7 @@ export function mapCommentThreads(payload: CommentThreadsResponse): InboundInbox
       externalId: top.id,
       authorHandle: top.snippet.authorDisplayName ?? 'unknown',
       authorAvatarUrl: top.snippet.authorProfileImageUrl,
-      text: top.snippet.textDisplay ?? '',
+      text: sanitizeCommentText(top.snippet.textOriginal ?? top.snippet.textDisplay ?? ''),
       receivedAt: top.snippet.publishedAt ?? new Date().toISOString(),
     }
   })
@@ -161,6 +178,8 @@ async function fetchCommentThreads(accessToken: string, params: Record<string, s
   const url = `${COMMENT_THREADS_URL}?${new URLSearchParams({
     part: 'snippet',
     order: 'time',
+    // Ask for plain text so textDisplay is not HTML-encoded (see sanitizeCommentText).
+    textFormat: 'plainText',
     maxResults: String(COMMENT_PAGE_SIZE),
     ...params,
   }).toString()}`

@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { timingSafeStringEqual } from '@/lib/api/timing-safe'
 import { createServiceClient } from '@/lib/supabase/service'
 import { resolveWorkspaceIdByExternalAccount, upsertInboxItems } from '@/lib/repositories/supabase/inbox-ingest'
 import { verifyMetaSignature } from '@/lib/services/webhooks/verify-meta-signature'
@@ -21,7 +22,7 @@ export async function GET(request: NextRequest) {
   const token = searchParams.get('hub.verify_token')
   const challenge = searchParams.get('hub.challenge')
 
-  if (mode === 'subscribe' && token === verifyToken && challenge) {
+  if (mode === 'subscribe' && timingSafeStringEqual(token, verifyToken) && challenge) {
     return new NextResponse(challenge, { status: 200 })
   }
 
