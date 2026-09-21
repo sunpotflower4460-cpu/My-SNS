@@ -58,7 +58,7 @@ export default function NextActionList({ actions }: { actions: NextAction[] }) {
         <CheckCircle2 aria-hidden className="h-5 w-5 shrink-0 text-emerald-600" />
         <div>
           <p className="text-sm font-medium text-gray-900">いま対応が必要なことはありません</p>
-          <p className="mt-0.5 text-sm text-gray-500">落ち着いて、次の発信の準備を進めましょう。</p>
+          <p className="mt-0.5 text-sm text-default">落ち着いて、次の発信の準備を進めましょう。</p>
         </div>
       </Card>
     )
@@ -80,12 +80,12 @@ export default function NextActionList({ actions }: { actions: NextAction[] }) {
               </span>
               <div className="min-w-0 flex-1">
                 <div className="flex flex-wrap items-center gap-2">
-                  <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[11px] font-medium ${meta.badge}`}>
+                  <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-sm font-medium ${meta.badge}`}>
                     {meta.label}
                   </span>
                   <p className="text-sm font-semibold text-gray-900">{action.title}</p>
                 </div>
-                <p className="mt-1 text-sm leading-6 text-gray-500">{action.description}</p>
+                <p className="mt-1 text-sm leading-6 text-default">{action.description}</p>
               </div>
               <span className="hidden shrink-0 items-center gap-1 text-sm font-medium text-violet-600 sm:inline-flex">
                 {action.actionLabel}

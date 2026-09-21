@@ -27,6 +27,15 @@ const config: Config = {
       ringColor: {
         focus: 'var(--focus-ring)',
       },
+      // Semantic text colors from the design tokens (§2 of the UI audit).
+      // Use these instead of hard-coded gray-400/500 shades so reading text
+      // keeps WCAG AA contrast (4.5:1+) on the stone/violet surfaces.
+      textColor: {
+        strong: 'var(--text-strong)',
+        default: 'var(--text-default)',
+        muted: 'var(--text-muted)',
+        subtle: 'var(--text-subtle)',
+      },
     },
   },
   plugins: [],

@@ -81,7 +81,7 @@ export default function SendAllPanel({ drafts, accounts, canSend, busy = false, 
   return (
     <Card size="container" padded className="space-y-4">
       <div>
-        <p className="text-[11px] font-semibold tracking-[0.08em] text-[color:var(--accent)]">まとめて送る</p>
+        <p className="text-sm font-medium tracking-[0.08em] text-[color:var(--accent)]">まとめて送る</p>
         <h2 className="mt-1 text-base font-semibold text-[color:var(--text-strong)]">媒体と時間を選ぶ</h2>
         <p className="mt-1 text-xs leading-5 text-[color:var(--text-muted)]">チェックした媒体へ、同じタイミングで出します。本文の修正は上のカードでどうぞ。</p>
       </div>
@@ -100,10 +100,10 @@ export default function SendAllPanel({ drafts, accounts, canSend, busy = false, 
               <span className="min-w-0 flex-1">
                 <span className="block text-sm font-medium text-[color:var(--text-strong)]">{channel.label}</span>
                 {channel.noteHandoff && (
-                  <span className="mt-0.5 block text-[11px] text-emerald-700">確認してコピーする媒体です。自動投稿しません。</span>
+                  <span className="mt-0.5 block text-sm text-emerald-700">確認してコピーする媒体です。自動投稿しません。</span>
                 )}
                 {channel.blockedReason && !channel.noteHandoff && (
-                  <span className="mt-0.5 block text-[11px] text-amber-700">{channel.blockedReason}</span>
+                  <span className="mt-0.5 block text-sm text-amber-700">{channel.blockedReason}</span>
                 )}
               </span>
             </label>
@@ -123,7 +123,7 @@ export default function SendAllPanel({ drafts, accounts, canSend, busy = false, 
               </select>
             )}
             {channel.accounts.length === 1 && (
-              <p className="mt-1 pl-7 text-[11px] text-[color:var(--text-subtle)]">{channel.accounts[0].handle}</p>
+              <p className="mt-1 pl-7 text-xs text-[color:var(--text-muted)]">{channel.accounts[0].handle}</p>
             )}
           </li>
         ))}
@@ -150,7 +150,7 @@ export default function SendAllPanel({ drafts, accounts, canSend, busy = false, 
             />
           </label>
         )}
-        <p className="text-[11px] leading-5 text-[color:var(--text-subtle)]">
+        <p className="text-xs leading-5 text-[color:var(--text-muted)]">
           {timing === 'now' ? '接続済みの媒体はすぐ公開を試します。' : PUBLISH_WORKER_DELAY_JA}
         </p>
       </div>

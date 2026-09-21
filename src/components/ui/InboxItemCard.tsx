@@ -39,7 +39,7 @@ export default function InboxItemCard({
 }: InboxItemCardProps) {
   const priority = priorityBadge(item)
   return (
-    <div className={`rounded-[2rem] border p-5 shadow-sm shadow-stone-100/70 ${item.isRead ? 'border-stone-200 bg-white' : 'border-violet-200 bg-violet-50/40'}`}>
+    <div className={`rounded-[2rem] border p-5 shadow-sm shadow-stone-100/70 ${item.isRead ? 'border-stone-200 bg-white' : 'border-violet-200 bg-violet-50'}`}>
       <div className="flex items-start gap-3">
         <div className="mt-1.5 shrink-0">
           <div className={`h-2.5 w-2.5 rounded-full ${item.isRead ? 'bg-stone-200' : 'bg-violet-500'}`} />
@@ -48,7 +48,7 @@ export default function InboxItemCard({
         <div className="min-w-0 flex-1">
           <div className="mb-2 flex flex-wrap items-center gap-2">
             <PlatformBadge platform={item.platform} />
-            <span className="text-xs text-gray-500">{KIND_LABELS[item.kind]}</span>
+            <span className="text-xs text-muted">{KIND_LABELS[item.kind]}</span>
             {priority && (
               <Badge tone={priority.tone} icon={priority.tone === 'error' ? AlertTriangle : Flag}>
                 {priority.label}
@@ -64,7 +64,7 @@ export default function InboxItemCard({
 
           <p className="text-sm font-medium text-gray-800">{item.authorHandle}</p>
           <p className="mt-1 text-sm leading-6 text-gray-600">{item.text}</p>
-          {item.aiSummary && <p className="mt-2 text-xs italic text-gray-400">AI: {item.aiSummary}</p>}
+          {item.aiSummary && <p className="mt-2 text-xs text-muted">AI: {item.aiSummary}</p>}
           {relatedSeedTitle && (
             <div className="mt-3">
               {relatedSeedHref ? (
@@ -72,13 +72,13 @@ export default function InboxItemCard({
                   関連シード: {relatedSeedTitle} →
                 </Link>
               ) : (
-                <p className="text-xs text-gray-500">関連シード: {relatedSeedTitle}</p>
+                <p className="text-xs text-muted">関連シード: {relatedSeedTitle}</p>
               )}
             </div>
           )}
 
           <div className="mt-3 flex flex-wrap items-center gap-2 text-xs">
-            <span className="text-gray-400">{new Date(item.receivedAt).toLocaleString('ja-JP', { timeZone: 'Asia/Tokyo' })}</span>
+            <span className="text-muted">{new Date(item.receivedAt).toLocaleString('ja-JP', { timeZone: 'Asia/Tokyo' })}</span>
             <div className="ml-auto flex flex-wrap items-center gap-2">
               {onToggleRead && <button onClick={onToggleRead} className="rounded-full border border-stone-200 px-3 py-1 text-gray-600 hover:bg-stone-50 hover:text-gray-900">{item.isRead ? '未読にする' : '既読にする'}</button>}
               {onToggleStar && <button onClick={onToggleStar} className="rounded-full border border-stone-200 px-3 py-1 text-gray-600 hover:bg-stone-50 hover:text-yellow-600">{item.isStarred ? 'スター解除' : 'スターを付ける'}</button>}
@@ -88,22 +88,22 @@ export default function InboxItemCard({
 
           <div className="mt-4 rounded-2xl border border-stone-200 bg-white p-4">
             <div className="flex items-center justify-between gap-3">
-              <p className="text-xs font-semibold tracking-[0.08em] text-gray-400">メモ</p>
-              {notes.length > 0 && <span className="text-xs text-gray-400">{notes.length}件保存済み</span>}
+              <p className="text-xs font-semibold tracking-[0.08em] text-muted">メモ</p>
+              {notes.length > 0 && <span className="text-xs text-muted">{notes.length}件保存済み</span>}
             </div>
             {notes.length > 0 && (
               <div className="mt-3 space-y-2">
                 {notes.slice(0, 2).map((note) => (
                   <div key={note.id} className="rounded-2xl bg-stone-50 px-3 py-2 text-sm text-gray-600">
                     <p>{note.text}</p>
-                    <p className="mt-1 text-xs text-gray-400">{new Date(note.createdAt).toLocaleString('ja-JP', { timeZone: 'Asia/Tokyo' })}</p>
+                    <p className="mt-1 text-xs text-muted">{new Date(note.createdAt).toLocaleString('ja-JP', { timeZone: 'Asia/Tokyo' })}</p>
                   </div>
                 ))}
               </div>
             )}
             {onChangeNote && (
               <div className="mt-3 flex flex-col gap-3 sm:flex-row">
-                <input value={noteDraft} onChange={(event) => onChangeNote(event.target.value)} placeholder="内部向けのメモを追加…" className="flex-1 rounded-2xl border border-stone-200 px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-violet-300" />
+                <input value={noteDraft} onChange={(event) => onChangeNote(event.target.value)} placeholder="内部向けのメモを追加…" className="flex-1 rounded-2xl border border-stone-200 px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-violet-500" />
                 {onSaveNote && <button onClick={onSaveNote} className="rounded-2xl bg-gray-900 px-4 py-2.5 text-sm font-medium text-white hover:bg-gray-700">メモを保存</button>}
               </div>
             )}

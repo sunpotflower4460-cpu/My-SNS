@@ -94,6 +94,7 @@ interface AppContextValue {
   workspaceDataError: string | null
   setActiveWorkspaceId: (workspaceId: string) => void
   refreshWorkspaceData: () => Promise<void>
+  createWorkspace: (name: string) => Promise<Workspace>
   createSeedItem: (input: {
     title: string
     sourceText: string
@@ -402,6 +403,29 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       workspaceDataError,
       setActiveWorkspaceId,
       refreshWorkspaceData,
+
+      createWorkspace: async (name: string) => {
+        if (!currentUserId) throw new Error('準備ができていません')
+        const trimmed = name.trim()
+        if (!trimmed) throw new Error('ワークスペース名を入力してください')
+
+        const baseSlug = trimmed
+          .toLowerCase()
+          .replace(/[^a-z0-9]+/g, '-')
+          .replace(/^-+|-+$/g, '')
+          .slice(0, 40)
+        const slug = `${baseSlug || 'workspace'}-${Date.now().toString(36)}`
+
+        const workspace = await workspacesRepo.createWorkspace({
+          name: trimmed,
+          slug,
+          ownerId: currentUserId,
+        })
+
+        setActiveWorkspaceId(workspace.id)
+        await refreshWorkspaceData()
+        return workspace
+      },
 
       createSeedItem: async (input) => {
         if (!currentWorkspace || !currentUserId) throw new Error('準備ができていません')

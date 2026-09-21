@@ -22,7 +22,7 @@ export const ROLE_LABELS: Record<WorkspaceRole, string> = {
 
 export default function RoleBadge({ role }: RoleBadgeProps) {
   return (
-    <span className={`inline-flex items-center rounded-full border px-2.5 py-1 text-[11px] font-semibold tracking-[0.05em] ${ROLE_STYLES[role]}`}>
+    <span className={`inline-flex items-center rounded-full border px-2.5 py-1 text-xs font-semibold tracking-[0.05em] ${ROLE_STYLES[role]}`}>
       {ROLE_LABELS[role]}
     </span>
   )

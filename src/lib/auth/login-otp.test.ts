@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it } from 'vitest'
 import {
   LOGIN_EMAIL_RATE_LIMIT_MESSAGE,
+  LOGIN_INVALID_CREDENTIALS_MESSAGE,
   OTP_COOLDOWN_MS,
   getOtpCooldownUntil,
   isOtpCooldownActive,
@@ -25,8 +26,13 @@ describe('mapLoginAuthError', () => {
     expect(mapLoginAuthError({ message: 'Request failed with status 429' })).toBe(LOGIN_EMAIL_RATE_LIMIT_MESSAGE)
   })
 
-  it('keeps other messages as a trimmed, tag-stripped fallback', () => {
-    expect(mapLoginAuthError({ message: '  <b>Invalid login credentials</b>  ' })).toBe('Invalid login credentials')
+  it('maps invalid credentials to Japanese copy', () => {
+    expect(mapLoginAuthError({ message: '  <b>Invalid login credentials</b>  ' })).toBe(
+      LOGIN_INVALID_CREDENTIALS_MESSAGE,
+    )
+    expect(mapLoginAuthError({ code: 'invalid_credentials', message: 'Invalid login credentials' })).toBe(
+      LOGIN_INVALID_CREDENTIALS_MESSAGE,
+    )
   })
 
   it('falls back when the message is empty after sanitizing', () => {

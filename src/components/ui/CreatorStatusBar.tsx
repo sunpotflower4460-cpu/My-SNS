@@ -47,10 +47,10 @@ export default function CreatorStatusBar() {
     <Card className="mb-5">
       <div className="flex items-center justify-between gap-3">
         <div className="flex items-center gap-2 text-sm">
-          <span className="text-gray-500">現在のステータス:</span>
+          <span className="text-muted">現在のステータス:</span>
           <span className="font-medium text-gray-800">{myCreatorStatus?.mood ?? '未設定'}</span>
           {myCreatorStatus && (
-            <span className={`rounded-full border px-2 py-0.5 text-[11px] ${myCreatorStatus.shareWithContacts ? 'border-violet-200 bg-violet-50 text-violet-700' : 'border-stone-200 bg-stone-50 text-stone-500'}`}>
+            <span className={`rounded-full border px-2 py-0.5 text-xs ${myCreatorStatus.shareWithContacts ? 'border-violet-200 bg-violet-50 text-violet-700' : 'border-stone-200 bg-stone-50 text-muted'}`}>
               {myCreatorStatus.shareWithContacts ? '相手に伝える' : '非共有'}
             </span>
           )}
@@ -62,7 +62,7 @@ export default function CreatorStatusBar() {
         )}
       </div>
 
-      {myCreatorStatus?.note && !open && <p className="mt-1 text-xs text-gray-400">{myCreatorStatus.note}</p>}
+      {myCreatorStatus?.note && !open && <p className="mt-1 text-xs text-muted">{myCreatorStatus.note}</p>}
 
       {open && (
         <div className="mt-3 border-t border-stone-100 pt-3">
@@ -82,7 +82,7 @@ export default function CreatorStatusBar() {
             value={note}
             onChange={(e) => setNote(e.target.value)}
             placeholder="補足（任意）例: 今週は制作に集中しています"
-            className="mt-3 w-full rounded-2xl border border-stone-200 px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-violet-300"
+            className="mt-3 w-full rounded-2xl border border-stone-200 px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-violet-500"
           />
 
           <label className="mt-3 flex items-center gap-2 text-sm text-gray-600">

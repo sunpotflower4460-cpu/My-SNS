@@ -21,7 +21,7 @@
   --text-strong: #18181b;
   --text-default: #3f3f46;
   --text-muted: #71717a;
-  --text-subtle: #a1a1aa;
+  --text-subtle: #a1a1aa; /* placeholders / purely decorative only — never reading content */
 
   /* Border */
   --border-default: rgba(24, 24, 27, 0.08);
@@ -32,8 +32,10 @@
   --accent-hover: #5b4cf0;
   --accent-soft: #f2f0ff;
 
-  /* Focus ring — shared by every interactive element */
-  --focus-ring: rgba(109, 93, 246, 0.35);
+  /* Focus ring — shared by every interactive element. Kept dark enough to be
+   * clearly visible against white/stone surfaces (the previous 35% alpha tint
+   * was hard to see). */
+  --focus-ring: rgba(76, 63, 220, 0.55);
 
   /* Radius scale (§17.2 of the redesign brief) */
   --radius-control: 0.875rem; /* 14px — inputs / buttons */
@@ -119,8 +121,8 @@
   }
 
   .ui-input:focus {
-    border-color: rgba(109, 93, 246, 0.24);
-    box-shadow: 0 0 0 4px rgba(109, 93, 246, 0.12);
+    border-color: rgba(109, 93, 246, 0.45);
+    box-shadow: 0 0 0 3px rgba(109, 93, 246, 0.18);
   }
 }
 

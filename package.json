@@ -10,7 +10,11 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
-    "test:e2e": "playwright test"
+    "test:e2e": "playwright test",
+    "supabase:start": "npx supabase start",
+    "supabase:stop": "npx supabase stop",
+    "supabase:status": "npx supabase status -o env",
+    "dev:local": "npm run supabase:start && next dev --hostname 127.0.0.1 --port 3000"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.111.0",

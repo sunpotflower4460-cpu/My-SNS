@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import AppShell from '@/components/layout/AppShell'
 import EmptyState from '@/components/ui/EmptyState'
@@ -10,7 +10,17 @@ import { useAuth } from '@/lib/auth/auth-provider'
 export default function AppLayout({ children }: { children: React.ReactNode }) {
   const router = useRouter()
   const { user: currentUser, isAuthenticated, isReady: sessionReady, signOut } = useAuth()
-  const { currentWorkspace, currentMember, isReady: appReady, workspaceDataError, refreshWorkspaceData, workspaces } = useApp()
+  const {
+    currentWorkspace,
+    currentMember,
+    isReady: appReady,
+    workspaceDataError,
+    refreshWorkspaceData,
+    workspaces,
+    createWorkspace,
+  } = useApp()
+  const [isCreatingWorkspace, setIsCreatingWorkspace] = useState(false)
+  const [createError, setCreateError] = useState('')
 
   useEffect(() => {
     if (sessionReady && !isAuthenticated) {
@@ -66,26 +76,46 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   if (!currentWorkspace || !currentMember) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-stone-50 px-6">
-        <div className="w-full max-w-xl">
+        <div className="w-full max-w-xl space-y-4">
           <EmptyState
             title="利用できるワークスペースがありません"
-            description={
-              workspaces.length === 0
-                ? 'このアカウントにはまだ有効なワークスペースがありません。'
-                : '保存されていたワークスペースが利用できなくなっているか、権限がありません。'
-            }
+            description="最初のワークスペースを作ると、発信の作成と投稿の準備を始められます。"
             action={
-              <button
-                onClick={() => {
-                  signOut()
-                  router.replace('/login')
-                }}
-                className="rounded-2xl border border-stone-200 bg-white px-4 py-2 text-sm text-gray-700 transition hover:bg-stone-50"
-              >
-                ログイン画面に戻る
-              </button>
+              <div className="flex flex-col gap-3 sm:flex-row">
+                <button
+                  type="button"
+                  disabled={isCreatingWorkspace}
+                  onClick={async () => {
+                    setCreateError('')
+                    setIsCreatingWorkspace(true)
+                    try {
+                      await createWorkspace('きうえ')
+                    } catch (error) {
+                      setCreateError(error instanceof Error ? error.message : '作成に失敗しました')
+                    } finally {
+                      setIsCreatingWorkspace(false)
+                    }
+                  }}
+                  className="rounded-2xl bg-violet-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-violet-700 disabled:opacity-50"
+                >
+                  {isCreatingWorkspace ? '作成中…' : 'ワークスペースを作る'}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    signOut()
+                    router.replace('/login')
+                  }}
+                  className="rounded-2xl border border-stone-200 bg-white px-4 py-2 text-sm text-gray-700 transition hover:bg-stone-50"
+                >
+                  ログイン画面に戻る
+                </button>
+              </div>
             }
           />
+          {createError && (
+            <p className="rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">{createError}</p>
+          )}
         </div>
       </div>
     )

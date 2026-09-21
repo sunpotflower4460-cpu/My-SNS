@@ -8,6 +8,9 @@ export const LOGIN_OTP_SENT_MESSAGE = 'メールをご確認ください。マ�
 
 export const LOGIN_OTP_ALREADY_SENT_MESSAGE = '送信済みです。メールを確認してください。'
 
+export const LOGIN_INVALID_CREDENTIALS_MESSAGE =
+  'メールアドレスまたはパスワードが違います。初めての方は「アカウント作成」から始めてください。'
+
 const FALLBACK_AUTH_ERROR_MESSAGE = 'ログインに失敗しました。もう一度お試しください。'
 const MAX_FALLBACK_MESSAGE_LENGTH = 180
 
@@ -34,6 +37,18 @@ export function mapLoginAuthError(error: LoginAuthErrorLike | null | undefined):
     /\b429\b/.test(haystack)
   ) {
     return LOGIN_EMAIL_RATE_LIMIT_MESSAGE
+  }
+
+  if (
+    haystack.includes('invalid_credentials') ||
+    haystack.includes('invalid login credentials') ||
+    haystack.includes('invalid email or password')
+  ) {
+    return LOGIN_INVALID_CREDENTIALS_MESSAGE
+  }
+
+  if (haystack.includes('user_already_exists') || haystack.includes('already been registered')) {
+    return 'このメールアドレスはすでに登録されています。ログインしてください。'
   }
 
   return sanitizeAuthErrorMessage(message) || FALLBACK_AUTH_ERROR_MESSAGE
