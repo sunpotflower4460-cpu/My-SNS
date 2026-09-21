@@ -1,6 +1,6 @@
 'use client'
 
-import { createContext, useContext, useEffect, useMemo, useState, useCallback } from 'react'
+import { createContext, useContext, useEffect, useMemo, useRef, useState, useCallback } from 'react'
 import type {
   AiGeneration,
   AiReplySuggestion,
@@ -95,6 +95,8 @@ interface AppContextValue {
   workspaceDataError: string | null
   setActiveWorkspaceId: (workspaceId: string) => void
   refreshWorkspaceData: () => Promise<void>
+  /** Re-read the workspace list itself (the retry for a failed initial load). */
+  reloadWorkspaces: () => Promise<void>
   createWorkspace: (name: string) => Promise<Workspace>
   createSeedItem: (input: {
     title: string
@@ -202,44 +204,108 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const [myCreatorStatus, setMyCreatorStatusState] = useState<CreatorStatus | null>(null)
   const [isReady, setIsReady] = useState(false)
   const [workspaceDataError, setWorkspaceDataError] = useState<string | null>(null)
+  // Bumped whenever the signed-in user changes. A load that started for the
+  // previous user must not write its (now foreign) result back after sign-out.
+  const sessionEpoch = useRef(0)
+  const lastUserId = useRef<string | null>(null)
+
+  // Drop everything that belongs to the previous user. Without this a sign-out
+  // followed by another sign-in in the same tab briefly shows (and, for a user
+  // with no workspace, keeps) the previous account's workspace and data.
+  const resetWorkspaceState = useCallback(() => {
+    setActiveWorkspaceId(null)
+    setWorkspaces([])
+    setCurrentWorkspace(null)
+    setCurrentMember(null)
+    setMembers([])
+    setInvitations([])
+    setSocialAccounts([])
+    setBrandProfiles([])
+    setSeeds([])
+    setWorkspaceAssets([])
+    setPublishJobs([])
+    setInboxItems([])
+    setInboxNotes([])
+    setAuditLogs([])
+    setDrafts([])
+    setDraftRevisions([])
+    setPublishAttempts([])
+    setAiGenerations([])
+    setNotifications([])
+    setMessagingContacts([])
+    setReplySuggestions([])
+    setReplyJobs([])
+    setCalendarEvents([])
+    setMyCreatorStatusState(null)
+    setWorkspaceDataError(null)
+    try {
+      localStorage.removeItem('activeWorkspaceId')
+    } catch {
+      // Storage can be blocked; the in-memory reset above is what matters.
+    }
+  }, [])
+
+  const loadWorkspaces = useCallback(async () => {
+    if (!currentUserId) return
+    const epoch = sessionEpoch.current
+    try {
+      const userWorkspaces = await workspacesRepo.getUserWorkspaces(currentUserId)
+      if (epoch !== sessionEpoch.current) return
+      setWorkspaces(userWorkspaces)
+      setWorkspaceDataError(null)
+
+      if (userWorkspaces.length > 0) {
+        const savedWorkspaceId = localStorage.getItem('activeWorkspaceId')
+        const validSavedWorkspace = savedWorkspaceId && userWorkspaces.find(w => w.id === savedWorkspaceId)
+        setActiveWorkspaceId(validSavedWorkspace ? savedWorkspaceId : userWorkspaces[0].id)
+      } else {
+        // No workspace: drop the stale id AND anything left over from a previous
+        // session, so the layout reaches its "create a workspace" screen.
+        resetWorkspaceState()
+      }
+    } catch (error) {
+      if (epoch !== sessionEpoch.current) return
+      console.error('Error loading workspaces:', error)
+      setWorkspaceDataError(
+        error instanceof Error
+          ? error.message
+          : 'ワークスペース一覧の読み込みに失敗しました。未所属として扱わず、再読み込みしてください。',
+      )
+    } finally {
+      if (epoch === sessionEpoch.current) setIsReady(true)
+    }
+  }, [currentUserId, resetWorkspaceState])
 
   // Load user workspaces
   useEffect(() => {
-    if (!authReady || !currentUserId) {
+    if (!authReady) {
       setIsReady(false)
       return
     }
 
-    async function loadWorkspaces() {
-      try {
-        const userWorkspaces = await workspacesRepo.getUserWorkspaces(currentUserId!)
-        setWorkspaces(userWorkspaces)
-        setWorkspaceDataError(null)
-
-        // Set active workspace
-        if (userWorkspaces.length > 0) {
-          const savedWorkspaceId = localStorage.getItem('activeWorkspaceId')
-          const validSavedWorkspace = savedWorkspaceId && userWorkspaces.find(w => w.id === savedWorkspaceId)
-          setActiveWorkspaceId(validSavedWorkspace ? savedWorkspaceId : userWorkspaces[0].id)
-        }
-      } catch (error) {
-        console.error('Error loading workspaces:', error)
-        setWorkspaceDataError(
-          error instanceof Error
-            ? error.message
-            : 'ワークスペース一覧の読み込みに失敗しました。未所属として扱わず、再読み込みしてください。',
-        )
-      } finally {
-        setIsReady(true)
-      }
+    const previousUserId = lastUserId.current
+    if (previousUserId !== currentUserId) {
+      lastUserId.current = currentUserId
+      sessionEpoch.current += 1
+      // A real sign-out or a switch to another user: forget the previous user's
+      // workspace and data. Not done for the very first null (app start with no
+      // session, e.g. offline with an expired token) so a saved workspace choice
+      // survives until the user is back.
+      if (previousUserId !== null) resetWorkspaceState()
     }
 
-    loadWorkspaces()
-  }, [authReady, currentUserId])
+    if (!currentUserId) {
+      setIsReady(false)
+      return
+    }
+
+    void loadWorkspaces()
+  }, [authReady, currentUserId, loadWorkspaces, resetWorkspaceState])
 
   // Load workspace data
   const refreshWorkspaceData = useCallback(async () => {
     if (!activeWorkspaceId || !currentUserId) return
+    const epoch = sessionEpoch.current
 
     try {
       const [
@@ -290,6 +356,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         getMyCreatorStatus(createClient(), activeWorkspaceId, currentUserId),
       ])
 
+      // The user signed out (or changed) while this was loading.
+      if (epoch !== sessionEpoch.current) return
+
       setCurrentWorkspace(workspace)
       setCurrentMember(member)
       setMembers(membersList)
@@ -314,6 +383,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       setMyCreatorStatusState(myCreatorStatusResult)
       setWorkspaceDataError(null)
     } catch (error) {
+      if (epoch !== sessionEpoch.current) return
       console.error('Error loading workspace data:', error)
       setWorkspaceDataError(
         error instanceof Error
@@ -324,11 +394,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }, [activeWorkspaceId, currentUserId])
 
   useEffect(() => {
-    if (activeWorkspaceId) {
+    if (activeWorkspaceId && currentUserId) {
       localStorage.setItem('activeWorkspaceId', activeWorkspaceId)
       refreshWorkspaceData()
     }
-  }, [activeWorkspaceId, refreshWorkspaceData])
+  }, [activeWorkspaceId, currentUserId, refreshWorkspaceData])
 
   const workspaceMemberships = useMemo(() => {
     // `members` is scoped to the active workspace. Never invent a fake
@@ -404,6 +474,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       workspaceDataError,
       setActiveWorkspaceId,
       refreshWorkspaceData,
+      reloadWorkspaces: loadWorkspaces,
 
       createWorkspace: async (name: string) => {
         if (!currentUserId) throw new Error('準備ができていません')
@@ -1340,6 +1411,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     workspaceDataError,
     currentUserId,
     refreshWorkspaceData,
+    loadWorkspaces,
   ])
 
   return <AppContext.Provider value={value}>{children}</AppContext.Provider>
