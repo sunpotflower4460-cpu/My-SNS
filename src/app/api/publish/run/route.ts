@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
 import type { SupabaseClient } from '@supabase/supabase-js'
+import { isBearerAuthorized } from '@/lib/api/timing-safe'
 import { createServiceClient } from '@/lib/supabase/service'
+import { createPublishRunBudget } from '@/lib/services/publish-run-budget'
 import { processPublishJob, type PublishableJob } from '@/lib/services/publish-worker'
 import { getPublishingStrategy } from '@/lib/channels/config'
 import { PUBLISH_WORKER_BATCH_SIZE } from '@/lib/presentation/cron-honesty'
@@ -37,7 +39,7 @@ export async function GET(request: NextRequest) {
   if (!cronSecret) {
     return NextResponse.json({ error: 'Worker is not configured (CRON_SECRET unset).' }, { status: 503 })
   }
-  if (request.headers.get('authorization') !== `Bearer ${cronSecret}`) {
+  if (!isBearerAuthorized(request.headers.get('authorization'), cronSecret)) {
     return NextResponse.json({ error: 'Not authorized.' }, { status: 401 })
   }
 
@@ -78,13 +80,34 @@ export async function GET(request: NextRequest) {
   let succeeded = 0
   let failed = 0
   let skipped = 0
+  let deferred = 0
 
-  for (const rawJob of (dueJobs ?? []) as unknown as DueJobRow[]) {
+  // Time budget: a started job must be able to finish inside maxDuration, or
+  // the platform kills the function mid-publish and leaves a claimed job with
+  // an unknown external result. Long-media jobs (youtube/tiktok, up to ~270s)
+  // are limited to one per invocation; jobs that do not fit are never claimed
+  // and stay `scheduled` for the next run. Claim/fence semantics live in
+  // processPublishJob and are untouched.
+  const budget = createPublishRunBudget({ maxDurationMs: maxDuration * 1000 })
+  const jobs = (dueJobs ?? []) as unknown as DueJobRow[]
+
+  for (const [index, rawJob] of jobs.entries()) {
     if (!rawJob.draft_revisions) {
       failed += 1
       console.error(`publish_job ${rawJob.id} has no linked draft revision; skipping.`)
       continue
     }
+
+    const decision = budget.decide(rawJob.channel)
+    if (decision === 'stop') {
+      deferred += jobs.length - index
+      break
+    }
+    if (decision === 'defer') {
+      deferred += 1
+      continue
+    }
+    budget.markStarted(rawJob.channel)
 
     try {
       const result = await processPublishJob(supabase, {
@@ -106,5 +129,5 @@ export async function GET(request: NextRequest) {
     }
   }
 
-  return NextResponse.json({ mode: 'api-first', processed: succeeded + failed, succeeded, failed, skipped })
+  return NextResponse.json({ mode: 'api-first', processed: succeeded + failed, succeeded, failed, skipped, deferred })
 }

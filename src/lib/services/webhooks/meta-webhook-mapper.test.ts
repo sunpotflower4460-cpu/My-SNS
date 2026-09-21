@@ -36,6 +36,19 @@ describe('mapMetaWebhookEntry', () => {
     expect(mapMetaWebhookEntry(entry)[0].authorHandle).toBe('u2')
   })
 
+  it('skips comments and DMs authored by the account itself', () => {
+    const entry: MetaWebhookEntry = {
+      id: 'ig-account-1',
+      changes: [
+        { field: 'comments', value: { id: 'own-comment', text: 'Thanks!', from: { id: 'ig-account-1', username: 'me' } } },
+        { field: 'comments', value: { id: 'fan-comment', text: 'Hi', from: { id: 'u9', username: 'fan' } } },
+      ],
+      messaging: [{ sender: { id: 'ig-account-1' }, timestamp: 1_700_000_000_000, message: { mid: 'own-dm', text: 'sent by us' } }],
+    }
+
+    expect(mapMetaWebhookEntry(entry).map((event) => event.externalId)).toEqual(['fan-comment'])
+  })
+
   it('ignores change fields other than comments (e.g. mentions — a documented gap)', () => {
     const entry: MetaWebhookEntry = {
       id: 'ig-account-1',

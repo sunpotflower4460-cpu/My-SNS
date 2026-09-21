@@ -35,7 +35,7 @@ export async function POST(request: NextRequest) {
 
   const { data: job, error: jobError } = await supabase
     .from('publish_jobs')
-    .select('id, channel')
+    .select('id, channel, social_account_id')
     .eq('id', jobId)
     .eq('workspace_id', workspaceId)
     .maybeSingle()
@@ -79,7 +79,10 @@ export async function POST(request: NextRequest) {
 
   let credentials
   try {
-    credentials = await resolveCredentials(serviceClient, workspaceId, job.channel)
+    // Use the account the job actually published with. Without it, a
+    // workspace with several connected accounts on this platform fails closed
+    // (ambiguous account) or would read another account's metrics.
+    credentials = await resolveCredentials(serviceClient, workspaceId, job.channel, job.social_account_id ?? undefined)
   } catch (cause) {
     console.error(`Failed to resolve ${job.channel} credentials for metrics:`, cause)
     return NextResponse.json(

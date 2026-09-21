@@ -135,11 +135,47 @@ export interface CommentThreadsResponse {
           authorDisplayName?: string
           authorProfileImageUrl?: string
           textDisplay?: string
+          /** Raw comment text; only returned to callers allowed to see it. */
+          textOriginal?: string
           publishedAt?: string
         }
       }
     }
   }>
+}
+
+const NAMED_HTML_ENTITIES: Record<string, string> = {
+  amp: '&',
+  lt: '<',
+  gt: '>',
+  quot: '"',
+  apos: "'",
+  nbsp: ' ',
+}
+
+/**
+ * commentThreads returns textDisplay as HTML by default (entities such as
+ * &amp; / &#39;, plus <a>, <br> and <b> tags). Inbox items are plain text, so
+ * turn <br> into newlines, drop remaining tags, then decode entities. Tags are
+ * stripped before decoding so an encoded "&lt;script&gt;" stays literal text
+ * rather than becoming markup.
+ */
+export function htmlCommentToPlainText(html: string): string {
+  const withoutTags = html.replace(/<br\s*\/?>/gi, '\n').replace(/<[^>]*>/g, '')
+  return withoutTags
+    .replace(/&(#x[0-9a-f]+|#\d+|[a-z]+);/gi, (match, entity: string) => {
+      if (entity[0] === '#') {
+        const isHex = entity[1] === 'x' || entity[1] === 'X'
+        const codePoint = Number.parseInt(entity.slice(isHex ? 2 : 1), isHex ? 16 : 10)
+        if (!Number.isFinite(codePoint) || codePoint < 0 || codePoint > 0x10ffff) return match
+        try {
+          return String.fromCodePoint(codePoint)
+        } catch {
+          return match
+        }
+      }
+      return NAMED_HTML_ENTITIES[entity.toLowerCase()] ?? match
+    })
 }
 
 export function mapCommentThreads(payload: CommentThreadsResponse): InboundInboxEvent[] {
@@ -151,7 +187,7 @@ export function mapCommentThreads(payload: CommentThreadsResponse): InboundInbox
       externalId: top.id,
       authorHandle: top.snippet.authorDisplayName ?? 'unknown',
       authorAvatarUrl: top.snippet.authorProfileImageUrl,
-      text: top.snippet.textDisplay ?? '',
+      text: top.snippet.textOriginal ?? htmlCommentToPlainText(top.snippet.textDisplay ?? ''),
       receivedAt: top.snippet.publishedAt ?? new Date().toISOString(),
     }
   })
@@ -161,6 +197,9 @@ async function fetchCommentThreads(accessToken: string, params: Record<string, s
   const url = `${COMMENT_THREADS_URL}?${new URLSearchParams({
     part: 'snippet',
     order: 'time',
+    // Ask for plain text so textDisplay is not HTML-encoded; the mapper still
+    // decodes defensively in case the API ignores the parameter.
+    textFormat: 'plainText',
     maxResults: String(COMMENT_PAGE_SIZE),
     ...params,
   }).toString()}`

@@ -56,6 +56,42 @@ describe('mapCommentThreads', () => {
     ])
   })
 
+  it('decodes HTML entities and strips tags from textDisplay before storing', () => {
+    const [event] = mapCommentThreads({
+      items: [
+        {
+          snippet: {
+            topLevelComment: {
+              id: 'c-html',
+              snippet: {
+                textDisplay: 'Tom &amp; Jerry&#39;s &quot;best&quot;<br>see <a href="https://x.test">x.test</a> &lt;b&gt; &#x1F600;',
+              },
+            },
+          },
+        },
+      ],
+    })
+
+    expect(event.text).toBe('Tom & Jerry\'s "best"\nsee x.test <b> \u{1F600}')
+  })
+
+  it('prefers textOriginal over textDisplay when the API returns it', () => {
+    const [event] = mapCommentThreads({
+      items: [
+        {
+          snippet: {
+            topLevelComment: {
+              id: 'c-orig',
+              snippet: { textOriginal: 'a < b & c', textDisplay: 'a &lt; b &amp; c' },
+            },
+          },
+        },
+      ],
+    })
+
+    expect(event.text).toBe('a < b & c')
+  })
+
   it('falls back to "unknown" author and empty items array gracefully', () => {
     expect(mapCommentThreads({})).toEqual([])
     expect(
