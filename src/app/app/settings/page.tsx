@@ -18,6 +18,7 @@ import { CONNECTABLE_PLATFORMS } from '@/lib/services/connectors/platforms'
 import { PUBLISHING_CHANNEL_CONFIG, getPublishingStrategy } from '@/lib/channels/config'
 import type { ConnectionSetupStatus } from '@/lib/services/connectors/platform-status'
 import type { AiStatus } from '@/lib/services/llm-status'
+import { detectAppUrlMismatch } from '@/lib/app-url'
 
 const PLATFORM_ICONS: Record<SocialPlatform, string> = {
   youtube: '▶',
@@ -51,6 +52,7 @@ export default function SettingsPage() {
   const [aiTesting, setAiTesting] = useState(false)
   const [aiTestResult, setAiTestResult] = useState<{ ok: boolean; message: string } | null>(null)
   const publishingStrategy = getPublishingStrategy()
+  const appUrlMismatch = detectAppUrlMismatch(process.env.NEXT_PUBLIC_APP_URL, typeof window === 'undefined' ? undefined : window.location.origin)
   const appBaseUrl = process.env.NEXT_PUBLIC_APP_URL?.trim() || (typeof window === 'undefined' ? '' : window.location.origin)
   const canManageSocialAccounts = Boolean(currentMember && hasPermission(currentMember.role, 'manage_social_accounts'))
 
@@ -312,6 +314,13 @@ export default function SettingsPage() {
               </InlineAlert>
             )}
           </div>
+          {canManageSocialAccounts && appUrlMismatch && (
+            <div className="mb-4">
+              <InlineAlert tone="warning">
+                アプリのURL設定（<code className="rounded bg-white px-1 text-xs">NEXT_PUBLIC_APP_URL</code> = {appUrlMismatch.configured}）が、いま開いているURL（{appUrlMismatch.current}）と違います。SNS接続のRedirect URIは設定側のURLで作られるため、このままだと接続に失敗します。本番では実際のURLに直して再デプロイしてください。
+              </InlineAlert>
+            </div>
+          )}
           {canManageSocialAccounts && setupStatus && !setupStatus.tokenEncryptionReady && (
             <div className="mb-4">
               <InlineAlert tone="warning">
