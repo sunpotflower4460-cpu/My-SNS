@@ -1,5 +1,6 @@
 'use client'
 
+import { describeTooLarge, partitionUploadFiles } from '@/lib/seeds/upload-limits'
 import { useEffect, useRef, useState } from 'react'
 import Link from 'next/link'
 import { useParams } from 'next/navigation'
@@ -163,7 +164,13 @@ export default function SeedMediaPage() {
       setFeedback(`${saved.length}件の素材を追加しました。動画があれば文字入りサムネイルを自動作成します。`)
       setError('')
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : '素材を追加できませんでした。')
+      // Files are saved one after another, so some may already be in. Reload the
+      // list and clear the selection: retrying the same selection would upload
+      // those again.
+      await refreshWorkspaceData().catch(() => undefined)
+      setSelectedFiles([])
+      if (inputRef.current) inputRef.current.value = ''
+      setError(`${cause instanceof Error ? cause.message : '素材を追加できませんでした。'} 一部のファイルは追加済みの可能性があります。素材の一覧を確認してから、残りを選び直してください。`)
       setFeedback('')
     } finally {
       setUploading(false)
@@ -339,7 +346,12 @@ export default function SeedMediaPage() {
                 multiple
                 accept="image/*,video/*,audio/*,.pdf,.txt,.md"
                 className="sr-only"
-                onChange={(event) => setSelectedFiles(Array.from(event.target.files ?? []))}
+                onChange={(event) => {
+                  const { accepted, tooLarge } = partitionUploadFiles(Array.from(event.target.files ?? []))
+                  setSelectedFiles(accepted)
+                  setError(describeTooLarge(tooLarge))
+                  setFeedback('')
+                }}
               />
             </label>
 

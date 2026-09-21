@@ -10,16 +10,28 @@ export interface CapturedStill {
 
 const STILL_RATIOS = [0.12, 0.4, 0.68]
 
+// A codec the browser cannot decode never fires loadedmetadata / seeked / error
+// on some engines, which used to leave 「作成中…」 spinning forever.
+const MEDIA_EVENT_TIMEOUT_MS = 15_000
+
 function loadVideo(file: File): Promise<HTMLVideoElement> {
   return new Promise((resolve, reject) => {
     const objectUrl = URL.createObjectURL(file)
     const video = document.createElement('video')
+    const timer = window.setTimeout(() => {
+      URL.revokeObjectURL(objectUrl)
+      reject(new Error('動画の読み込みに時間がかかりすぎました。対応していない形式の可能性があります。PNG/JPGのサムネイルをアップロードしてください。'))
+    }, MEDIA_EVENT_TIMEOUT_MS)
     video.muted = true
     video.playsInline = true
     video.preload = 'auto'
     video.src = objectUrl
-    video.onloadedmetadata = () => resolve(video)
+    video.onloadedmetadata = () => {
+      window.clearTimeout(timer)
+      resolve(video)
+    }
     video.onerror = () => {
+      window.clearTimeout(timer)
       URL.revokeObjectURL(objectUrl)
       reject(new Error('動画の読み込みに失敗しました。'))
     }
@@ -28,6 +40,10 @@ function loadVideo(file: File): Promise<HTMLVideoElement> {
 
 function seekVideo(video: HTMLVideoElement, timeSeconds: number): Promise<void> {
   return new Promise((resolve, reject) => {
+    const timer = window.setTimeout(() => {
+      cleanup()
+      reject(new Error('動画の指定位置へ移動できませんでした（時間切れ）。'))
+    }, MEDIA_EVENT_TIMEOUT_MS)
     const onSeeked = () => {
       cleanup()
       resolve()
@@ -37,6 +53,7 @@ function seekVideo(video: HTMLVideoElement, timeSeconds: number): Promise<void> 
       reject(new Error('動画の指定位置へ移動できませんでした。'))
     }
     const cleanup = () => {
+      window.clearTimeout(timer)
       video.removeEventListener('seeked', onSeeked)
       video.removeEventListener('error', onError)
     }

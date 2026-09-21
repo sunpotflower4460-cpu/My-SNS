@@ -44,6 +44,8 @@ import * as workspacesRepo from '@/lib/repositories/supabase/workspaces'
 import * as socialAccountsRepo from '@/lib/repositories/supabase/social-accounts'
 import * as seedsRepo from '@/lib/repositories/supabase/seeds'
 import * as brandProfilesRepo from '@/lib/repositories/supabase/brand-profiles'
+import { detectFileAspectRatio, suggestedPublishingChannelsForAspect } from '@/lib/media/aspect'
+import { readJsonBody } from '@/lib/api/read-json'
 import { hasDraftContentChanged } from '@/lib/publish/draft-content'
 import * as draftsRepo from '@/lib/repositories/supabase/drafts'
 import * as draftRevisionsRepo from '@/lib/repositories/supabase/draft-revisions'
@@ -537,11 +539,19 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           })
 
           for (const preparedAsset of preparedAssets) {
+            // Same as appendSeedAssets: without the aspect ratio a phone-shot
+            // vertical video is treated as a 16:9 master (wrong crops, offered
+            // to YouTube long-form) because no ratio means "unknown".
+            const aspectRatio = await detectFileAspectRatio(preparedAsset.file)
             await assetStorage.saveAssetMetadata({
               workspaceId: currentWorkspace.id,
               seedId: seed.id,
               uploadedBy: currentUserId,
-              preparedAsset,
+              preparedAsset: {
+                ...preparedAsset,
+                aspectRatio: aspectRatio ?? undefined,
+                publishingChannels: suggestedPublishingChannelsForAspect(aspectRatio, preparedAsset.type),
+              },
             })
           }
         }
@@ -691,7 +701,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ workspaceId: currentWorkspace.id, accountId }),
         })
-        const payload = await response.json()
+        const payload = await readJsonBody(response)
         if (!response.ok) throw new Error(payload.error ?? 'このアカウントの接続を解除できませんでした。')
 
         await refreshWorkspaceData()
@@ -711,7 +721,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ workspaceId: currentWorkspace.id }),
         })
-        const payload = await response.json()
+        const payload = await readJsonBody(response)
         if (!response.ok) throw new Error(payload.error ?? 'LINEの接続に失敗しました。')
 
         await refreshWorkspaceData()
@@ -731,7 +741,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ workspaceId: currentWorkspace.id, platform }),
         })
-        const payload = await response.json()
+        const payload = await readJsonBody(response)
         if (!response.ok) throw new Error(payload.error ?? '受信箱を同期できませんでした。')
 
         await refreshWorkspaceData()
@@ -884,7 +894,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ workspaceId: currentWorkspace.id, inboxItemId }),
         })
-        const payload = await response.json()
+        const payload = await readJsonBody(response)
         if (!response.ok) throw new Error(payload.error ?? '返信案を生成できませんでした。')
 
         await refreshWorkspaceData()
@@ -917,7 +927,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ workspaceId: currentWorkspace.id, inboxItemId, replyText, suggestionId, sendNow }),
         })
-        const payload = await response.json()
+        const payload = await readJsonBody(response)
         if (!response.ok) throw new Error(payload.error ?? '返信を送信できませんでした。')
 
         await refreshWorkspaceData()
@@ -1058,7 +1068,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ workspaceId: currentWorkspace.id, eventId }),
         })
-        const payload = await response.json()
+        const payload = await readJsonBody(response)
         if (!response.ok) throw new Error(payload.error ?? '外部カレンダーへの同期に失敗しました。')
 
         return (payload.outcomes ?? []) as ProviderSyncOutcome[]
@@ -1075,7 +1085,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ workspaceId: currentWorkspace.id, inboxItemId }),
         })
-        const payload = await response.json()
+        const payload = await readJsonBody(response)
         if (!response.ok) throw new Error(payload.error ?? '予定を抽出できませんでした。')
 
         // Extraction doesn't write anything, so no refresh is needed here — the
@@ -1245,7 +1255,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ workspaceId: currentWorkspace.id, jobId }),
         })
-        const payload = await response.json()
+        const payload = await readJsonBody(response)
         if (!response.ok) throw new Error(payload.error ?? 'この投稿の指標を取得できませんでした。')
 
         return payload as PostMetrics
@@ -1373,9 +1383,12 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           body: JSON.stringify({ workspaceId: currentWorkspace.id, seedId, channels, tone, length }),
         })
 
-        const payload = await response.json()
+        const payload = await readJsonBody(response)
         if (!response.ok) {
-          throw new Error(payload.error ?? '下書きを生成できませんでした。')
+          throw new Error(payload.error ?? '下書きの生成に時間がかかっているか、失敗しました。少し待ってからもう一度お試しください。')
+        }
+        if (!Array.isArray(payload.drafts)) {
+          throw new Error('下書きを受け取れませんでした。もう一度お試しください。')
         }
 
         return payload as { source: 'ai' | 'template-fallback'; reason?: string; styleExamplesUsed?: number; drafts: SocialDraft[] }

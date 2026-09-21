@@ -278,7 +278,7 @@ export async function generateChannelDraftsWithAnthropic(
     context?.styleExamples,
     context?.styleTendencies,
   )
-  const client = new Anthropic({ apiKey })
+  const client = new Anthropic({ apiKey, timeout: 50_000, maxRetries: 1 })
 
   const response = await client.messages.create({
     model,

@@ -151,7 +151,12 @@ export default function QueuePage() {
 
     // Open synchronously from the click event so browsers do not treat this as
     // an async popup. Clipboard work can safely finish after the new tab opens.
-    const opened = window.open(target.url, '_blank', 'noopener,noreferrer')
+    // No 'noopener' in the features string: with it window.open() always returns
+    // null, which made every successful handoff look like a blocked popup. The
+    // opener is cut manually instead (same protection).
+    const openedWindow = window.open(target.url, '_blank')
+    if (openedWindow) openedWindow.opener = null
+    const opened = Boolean(openedWindow)
     setBusyJobId(job.id)
 
     try {

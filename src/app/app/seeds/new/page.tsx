@@ -1,5 +1,6 @@
 'use client'
 
+import { describeTooLarge, partitionUploadFiles } from '@/lib/seeds/upload-limits'
 import Link from 'next/link'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
@@ -87,7 +88,11 @@ export default function NewSeedPage() {
     if (!files?.length) return
     setError('')
 
-    const nextAssets = Array.from(files).map((file) => {
+    const { accepted, tooLarge } = partitionUploadFiles(Array.from(files))
+    if (tooLarge.length > 0) setError(describeTooLarge(tooLarge))
+    if (accepted.length === 0) return
+
+    const nextAssets = accepted.map((file) => {
       const type = inferAssetType(file.name, file.type)
       return {
         id: crypto.randomUUID(),

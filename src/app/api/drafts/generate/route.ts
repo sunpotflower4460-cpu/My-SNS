@@ -37,6 +37,12 @@ interface GenerateRequestBody {
   length?: string
 }
 
+// A multi-channel generation can take tens of seconds. Without this the
+// platform default (10s on Hobby) kills the request and the client gets a
+// non-JSON gateway error. The Anthropic call is capped just below it so a slow
+// model becomes a clean, recorded failure instead of a hard kill.
+export const maxDuration = 60
+
 export async function POST(request: NextRequest) {
   let body: GenerateRequestBody
   try {
@@ -244,7 +250,10 @@ export async function POST(request: NextRequest) {
         drafts: result.drafts,
       })
     } catch (cause) {
-      const message = cause instanceof Error ? cause.message : 'AIによる下書き生成に失敗しました。'
+      // The raw provider message is English and can carry request ids; keep it in
+      // the server log and give the creator something they can act on.
+      console.error('AI draft generation failed:', cause)
+      const message = 'AIによる下書き生成に失敗しました。しばらく待ってからもう一度お試しください。'
 
       if (cause instanceof AnthropicGenerationError) {
         try {

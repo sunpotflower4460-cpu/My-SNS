@@ -12,7 +12,7 @@ import { PUBLISHING_CHANNEL_CONFIG, getPublishingStrategy } from '@/lib/channels
 import { useApp } from '@/lib/app/app-provider'
 import { CORE_PUBLISHING_CHANNELS, type PublishingChannel, type SocialDraft } from '@/lib/domain/types'
 import { hasPermission } from '@/lib/permissions'
-import { mergeDraftPublishOptions } from '@/lib/publish/draft-publish-options'
+import { mergeDraftPublishOptions, parseDraftPublishOptions } from '@/lib/publish/draft-publish-options'
 import { type SendAllPlan } from '@/lib/presentation/send-plan'
 import { resetTemplateDraft } from '@/lib/services/ai-draft'
 import { generatePerformanceThumbnailsForSeed } from '@/lib/media/thumbnail-pipeline'
@@ -34,6 +34,8 @@ function isUnsavedGeneratedId(id: string): boolean {
 
 export default function DraftsPage() {
   const publishingStrategy = getPublishingStrategy()
+  // The Seed currently shown, readable from async work that outlives a render.
+  const activeSeedIdRef = useRef<string | null>(null)
   const router = useRouter()
   const searchParams = useSearchParams()
   const {
@@ -72,6 +74,7 @@ export default function DraftsPage() {
   const [liveEdits, setLiveEdits] = useState<Record<string, { text: string; metadata: Record<string, unknown> }>>({})
 
   const selectedSeed = useMemo(() => seeds.find((seed) => seed.id === seedId) ?? null, [seedId, seeds])
+  activeSeedIdRef.current = selectedSeed?.id ?? null
   const selectedSeedAssets = selectedSeed ? getSeedDetail(selectedSeed.id).assets : []
   const existingDrafts = useMemo(() => seedId ? getDraftsForSeed(seedId) : drafts, [drafts, getDraftsForSeed, seedId])
   const draftsByChannel = useMemo(
@@ -131,28 +134,47 @@ export default function DraftsPage() {
     try {
       const result = await generateChannelDrafts(selectedSeed.id, channels, tone, length)
       const usageWarning = (result as typeof result & { usageWarning?: string }).usageWarning
-      let nextDrafts = result.drafts
+      // Show the proposals right away. Thumbnail stills need the whole video in
+      // memory and can take a long time (or never finish on an unsupported
+      // codec); the drafts are already generated and paid for, so they must not
+      // wait for it.
+      setGeneratedDrafts(result.drafts)
       if (currentWorkspace) {
-        try {
-          const thumbs = await generatePerformanceThumbnailsForSeed({
-            workspaceId: currentWorkspace.id,
-            seedId: selectedSeed.id,
-            seedTitle: selectedSeed.title,
-            assets: getSeedDetail(selectedSeed.id).assets,
-            drafts: nextDrafts,
-          })
-          nextDrafts = thumbs.drafts
-          setThumbFeedback(thumbs.message)
-          if (thumbs.assets.length > 0) await refreshWorkspaceData()
-        } catch (cause) {
-          setThumbFeedback(
-            cause instanceof Error
-              ? cause.message
-              : '文字入りサムネイルの作成に失敗しました。PNG/JPGをアップロードしてください。',
-          )
-        }
+        const requestedSeedId = selectedSeed.id
+        void (async () => {
+          try {
+            const thumbs = await generatePerformanceThumbnailsForSeed({
+              workspaceId: currentWorkspace.id,
+              seedId: requestedSeedId,
+              seedTitle: selectedSeed.title,
+              assets: getSeedDetail(requestedSeedId).assets,
+              drafts: result.drafts,
+            })
+            // The user may have moved to another Seed while this ran.
+            if (activeSeedIdRef.current !== requestedSeedId) return
+            const byId = new Map(thumbs.drafts.map((entry) => [entry.id, parseDraftPublishOptions(entry.metadata)]))
+            setGeneratedDrafts((current) => current.map((entry) => {
+              const options = byId.get(entry.id)
+              if (!options) return entry
+              // Only the images the pipeline chose; anything the user changed in
+              // the meantime (account, Shorts flag, …) is left as it is.
+              const patch: Parameters<typeof mergeDraftPublishOptions>[1] = {}
+              if (options.thumbnailAssetId) patch.thumbnailAssetId = options.thumbnailAssetId
+              if (options.coverAssetId) patch.coverAssetId = options.coverAssetId
+              return { ...entry, metadata: mergeDraftPublishOptions(entry.metadata, patch) }
+            }))
+            setThumbFeedback(thumbs.message)
+            if (thumbs.assets.length > 0) await refreshWorkspaceData()
+          } catch (cause) {
+            if (activeSeedIdRef.current !== requestedSeedId) return
+            setThumbFeedback(
+              cause instanceof Error
+                ? cause.message
+                : '文字入りサムネイルの作成に失敗しました。PNG/JPGをアップロードしてください。',
+            )
+          }
+        })()
       }
-      setGeneratedDrafts(nextDrafts)
       setWarning(usageWarning ?? '')
       setFeedback(
         result.source === 'ai'
