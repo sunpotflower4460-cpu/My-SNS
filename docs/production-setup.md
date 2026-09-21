@@ -45,7 +45,7 @@
 
 ## 3. 重複プロジェクトの整理
 
-同じリポジトリから Vercel プロジェクトが2つ（`my-sns` と `mysns`）作られている。`mysns` は実行時に500エラーで、環境変数が入っていない。使わないほうを **Settings > Advanced > Delete Project** で消すか、GitHub連携を外す（PRごとの重複デプロイも止まる）。
+同じリポジトリから Vercel プロジェクトが2つ（`my-sns` と `mysns`）作られている。`mysns-yoshirouself.vercel.app` は実行時に500エラーを返している（環境変数が未設定の可能性が高い）。使わないほうを **Settings > Advanced > Delete Project** で消すか、GitHub連携を外す（PRごとの重複デプロイも止まる）。
 
 ## 4. 各SNSの開発者アプリ（自動投稿にする場合）
 
