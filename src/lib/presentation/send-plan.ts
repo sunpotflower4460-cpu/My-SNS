@@ -1,4 +1,4 @@
-import { PUBLISHING_CHANNEL_CONFIG } from '@/lib/channels/config'
+import { PUBLISHING_CHANNEL_CONFIG, getPublishingStrategy, type PublishingStrategy } from '@/lib/channels/config'
 import { CORE_PUBLISHING_CHANNELS, type PublishingChannel, type SocialAccount, type SocialDraft } from '@/lib/domain/types'
 import { connectedAccountsForPlatform, isSocialPlatformChannel } from '@/lib/publish/account-target'
 import { parseDraftPublishOptions } from '@/lib/publish/draft-publish-options'
@@ -41,7 +41,28 @@ export function latestDraftsByChannel(drafts: SocialDraft[]): SocialDraft[] {
     .filter((draft): draft is SocialDraft => Boolean(draft))
 }
 
-export function buildSendChannelState(draft: SocialDraft, accounts: SocialAccount[]): SendChannelState {
+/**
+ * Why a selected channel cannot be sent yet, or undefined when it can.
+ *
+ * In zero-cost (manual handoff) mode a connected account is never required: the
+ * job is prepared here and the human posts from the platform's own screen. An
+ * account only matters in api-first mode, where the Worker publishes with it.
+ */
+export function resolveChannelBlockedReason(
+  channel: Pick<SendChannelState, 'accounts' | 'noteHandoff' | 'selectedAccountId'>,
+  strategy: PublishingStrategy = getPublishingStrategy(),
+): string | undefined {
+  if (channel.noteHandoff || strategy === 'zero-cost') return undefined
+  if (channel.accounts.length === 0) return '設定からアカウントを接続してください。'
+  if (!channel.selectedAccountId) return '投稿するアカウントを選んでください。'
+  return undefined
+}
+
+export function buildSendChannelState(
+  draft: SocialDraft,
+  accounts: SocialAccount[],
+  strategy: PublishingStrategy = getPublishingStrategy(),
+): SendChannelState {
   const label = PUBLISHING_CHANNEL_CONFIG[draft.channel]?.shortLabel ?? draft.channel
   const base = {
     channel: draft.channel,
@@ -60,25 +81,20 @@ export function buildSendChannelState(draft: SocialDraft, accounts: SocialAccoun
 
   const connected = connectedAccountsForPlatform(accounts, draft.channel)
   const options = parseDraftPublishOptions(draft.metadata)
-  if (connected.length === 0) {
-    return {
-      ...base,
-      selected: false,
-      blockedReason: '設定からアカウントを接続してください。',
-    }
-  }
 
   const storedId = options.socialAccountId
   const storedOk = storedId ? connected.some((account) => account.id === storedId) : false
   const selectedAccountId = storedOk ? storedId : connected.length === 1 ? connected[0].id : undefined
 
-  return {
+  const state: SendChannelState = {
     ...base,
-    selected: Boolean(selectedAccountId),
     accounts: connected.map((account) => ({ id: account.id, handle: account.handle })),
     selectedAccountId,
-    blockedReason: selectedAccountId ? undefined : '投稿するアカウントを選んでください。',
   }
+  state.blockedReason = resolveChannelBlockedReason(state, strategy)
+  // Blocked channels start unchecked so a plain "send" never trips over them.
+  state.selected = !state.blockedReason
+  return state
 }
 
 export function validateSendPlan(

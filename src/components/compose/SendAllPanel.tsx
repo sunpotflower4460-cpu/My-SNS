@@ -2,15 +2,18 @@
 
 import { useEffect, useState } from 'react'
 import { Button, Card, InlineAlert, SegmentedControl, StickyActionBar } from '@/components/ui/kit'
+import { getPublishingStrategy } from '@/lib/channels/config'
 import { PUBLISH_WORKER_DELAY_JA } from '@/lib/presentation/cron-honesty'
 import {
   buildSendChannelState,
   latestDraftsByChannel,
+  resolveChannelBlockedReason,
   validateSendPlan,
   type SendAllPlan,
   type SendChannelState,
   type SendTiming,
 } from '@/lib/presentation/send-plan'
+import { parseDraftPublishOptions } from '@/lib/publish/draft-publish-options'
 import type { SocialAccount, SocialDraft } from '@/lib/domain/types'
 
 function clientScheduleInputValue(): string {
@@ -33,14 +36,36 @@ export default function SendAllPanel({ drafts, accounts, canSend, busy = false, 
   const [scheduleInput, setScheduleInput] = useState('')
   const [error, setError] = useState('')
 
-  const draftKey = drafts.map((draft) => `${draft.id}:${draft.updatedAt}:${draft.status}`).join('|')
+  // The account picked inside a card lives in metadata, not in id/updatedAt, so it
+  // has to be part of the key for the panel to follow it.
+  const draftKey = drafts
+    .map((draft) => `${draft.id}:${draft.updatedAt}:${draft.status}:${parseDraftPublishOptions(draft.metadata).socialAccountId ?? ''}`)
+    .join('|')
   const accountKey = accounts.map((account) => `${account.id}:${account.connected}`).join('|')
 
   useEffect(() => {
     const next = latestDraftsByChannel(drafts).map((draft) => buildSendChannelState(draft, accounts))
-    setChannels(next)
+    // Keep what the user already chose. Rebuilding from scratch on every change
+    // would silently re-check a channel they had just unchecked.
+    setChannels((previous) => next.map((entry) => {
+      // Match on channel only: saving a card swaps its draft id, and that must
+      // not re-check a channel the user had unchecked.
+      const before = previous.find((candidate) => candidate.channel === entry.channel)
+      if (!before) return entry
+      // The account written into the draft (from its card) wins when it changed;
+      // otherwise keep the panel's own pick.
+      const cardChangedAccount = entry.selectedAccountId !== before.selectedAccountId && before.draftId === entry.draftId
+      const keepAccount = !cardChangedAccount && before.selectedAccountId && entry.accounts.some((account) => account.id === before.selectedAccountId)
+      const selectedAccountId = keepAccount ? before.selectedAccountId : entry.selectedAccountId
+      const merged = { ...entry, selectedAccountId }
+      const blockedReason = resolveChannelBlockedReason(merged)
+      return { ...merged, blockedReason, selected: blockedReason ? false : before.selected }
+    }))
     setError('')
-  }, [accountKey, draftKey, accounts, drafts])
+    // Keyed on the content keys, not on `drafts`/`accounts` identity: the parent
+    // builds new arrays on every keystroke, which must not reset the selection.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [accountKey, draftKey])
 
   useEffect(() => {
     setScheduleInput(clientScheduleInputValue())
@@ -52,13 +77,7 @@ export default function SendAllPanel({ drafts, accounts, canSend, busy = false, 
     setChannels((current) => current.map((entry) => {
       if (entry.channel !== channelId) return entry
       const next = { ...entry, ...patch }
-      if (next.accounts.length > 1 && next.selected && !next.selectedAccountId) {
-        next.blockedReason = '投稿するアカウントを選んでください。'
-      } else if (next.accounts.length === 0 && !next.noteHandoff) {
-        next.blockedReason = '設定からアカウントを接続してください。'
-      } else if (next.selectedAccountId || next.noteHandoff) {
-        next.blockedReason = undefined
-      }
+      next.blockedReason = resolveChannelBlockedReason(next)
       return next
     }))
   }
@@ -151,7 +170,11 @@ export default function SendAllPanel({ drafts, accounts, canSend, busy = false, 
           </label>
         )}
         <p className="text-xs leading-5 text-[color:var(--text-muted)]">
-          {timing === 'now' ? '接続済みの媒体はすぐ公開を試します。' : PUBLISH_WORKER_DELAY_JA}
+          {timing === 'scheduled'
+            ? PUBLISH_WORKER_DELAY_JA
+            : getPublishingStrategy() === 'api-first'
+              ? '接続済みの媒体はすぐ公開を試します。'
+              : '公開予定に追加します。各SNSの投稿画面から投稿し、「投稿済みにする」を押してください。'}
         </p>
       </div>
 

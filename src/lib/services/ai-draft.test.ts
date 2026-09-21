@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { Seed } from '@/lib/domain/types'
+import { formatRevisionForHandoff } from './publish-handoff'
 import { TemplateDraftGeneratorService } from './ai-draft'
 
 const seed: Seed = {
@@ -45,5 +46,26 @@ describe('template draft generator', () => {
     )
 
     expect(drafts[0].draftText.length).toBeLessThanOrEqual(280)
+  })
+
+  it('does not repeat the title, CTA or hashtags once the handoff appends them', async () => {
+    const drafts = await new TemplateDraftGeneratorService().generateDrafts(
+      { ...seed, callToAction: 'プロフィールのリンクから', tags: ['sora', 'daily'], sourceText: 'a'.repeat(500) },
+      seed.targetChannels,
+      'calm',
+      'medium',
+    )
+
+    for (const draft of drafts) {
+      const copied = formatRevisionForHandoff(
+        { title: draft.title, body: draft.draftText, hashtags: draft.hashtags, cta: draft.cta },
+        draft.channel,
+      )
+      const count = (needle: string) => copied.split(needle).length - 1
+      expect(count('プロフィールのリンクから'), `${draft.channel} CTA`).toBeLessThanOrEqual(1)
+      expect(count('#sora'), `${draft.channel} hashtag`).toBeLessThanOrEqual(1)
+      if (draft.title) expect(count(draft.title), `${draft.channel} title`).toBeLessThanOrEqual(1)
+      if (draft.channel === 'x') expect(copied.length).toBeLessThanOrEqual(280)
+    }
   })
 })

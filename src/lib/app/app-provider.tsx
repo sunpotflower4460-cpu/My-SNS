@@ -44,6 +44,7 @@ import * as workspacesRepo from '@/lib/repositories/supabase/workspaces'
 import * as socialAccountsRepo from '@/lib/repositories/supabase/social-accounts'
 import * as seedsRepo from '@/lib/repositories/supabase/seeds'
 import * as brandProfilesRepo from '@/lib/repositories/supabase/brand-profiles'
+import { hasDraftContentChanged } from '@/lib/publish/draft-content'
 import * as draftsRepo from '@/lib/repositories/supabase/drafts'
 import * as draftRevisionsRepo from '@/lib/repositories/supabase/draft-revisions'
 import * as inboxRepo from '@/lib/repositories/supabase/inbox'
@@ -1066,7 +1067,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         // mobile "まとめて送る" flow uses (generate → approve → schedule).
         const draft = await draftsRepo.getSocialDraft(currentWorkspace.id, draftId)
         if (!draft) throw new Error('下書きが見つかりません')
-        if (draft.status !== 'approved') throw new Error('承認済みの下書きのみ予約できます。')
+        if (draft.status !== 'approved') throw new Error('承認済みの下書きのみ予約できます。本文を編集した場合は、もう一度承認してください。')
 
         // Always the latest approval, not the (possibly since-edited) mutable
         // draft row — a schedule always publishes an immutable Revision.
@@ -1082,8 +1083,14 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
             platform: draft.channel,
             requestedAccountId: options.socialAccountId,
           })
-          if (!selected.ok) throw new Error(selected.message)
-          socialAccountId = selected.account.id
+          if (selected.ok) {
+            socialAccountId = selected.account.id
+          } else if (publishMode !== 'manual') {
+            // Only an automated publish needs an account to post with. A manual
+            // job is a handoff prepared here and finished by the human in the
+            // platform's own screen, so it never requires a connection.
+            throw new Error(selected.message)
+          }
         }
 
         const job = await queueRepo.createPublishJob({
@@ -1226,7 +1233,16 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         if (!currentWorkspace || !currentUserId) throw new Error('準備ができていません')
 
         const isFirstSave = !draft.id
-        const saved = await draftsRepo.upsertSocialDraft(currentWorkspace.id, draft)
+        // Changing the words of an approved draft makes the approved Revision
+        // stale: scheduling would still publish the old text. Send it back to
+        // 'draft' so it has to be approved again (which writes a new Revision).
+        // Metadata-only changes (e.g. picking an account) keep the approval.
+        const existing = draft.id ? drafts.find((entry) => entry.id === draft.id) : undefined
+        const contentChanged = existing ? hasDraftContentChanged(existing, draft) : false
+        const saved = await draftsRepo.upsertSocialDraft(
+          currentWorkspace.id,
+          existing?.status === 'approved' && contentChanged ? { ...draft, status: 'draft' } : draft,
+        )
 
         await auditRepo.appendAuditLog({
           workspaceId: currentWorkspace.id,

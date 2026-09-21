@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useMemo, useState } from 'react'
+import { PUBLISHING_CHANNEL_CONFIG } from '@/lib/channels/config'
 import type { Asset, SocialAccount, SocialDraft } from '@/lib/domain/types'
 import { connectedAccountsForPlatform, isSocialPlatformChannel } from '@/lib/publish/account-target'
 import { mergeDraftPublishOptions, parseDraftPublishOptions } from '@/lib/publish/draft-publish-options'
@@ -43,11 +44,15 @@ export default function DraftEditorCard({
   // browser uses Asia/Tokyo, which would hydrate with a mismatched value.
   const [scheduleInput, setScheduleInput] = useState('')
 
+  // Re-sync only when the saved draft itself changes (its id, text, or
+  // updatedAt) — not on `draft.metadata` identity, which is a fresh object on
+  // every workspace refresh and would wipe an unsaved edit the user is typing.
   useEffect(() => {
     setText(draft.draftText)
     setMetadata(draft.metadata ?? {})
     setIsDirty(false)
-  }, [draft.draftText, draft.id, draft.metadata])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [draft.draftText, draft.id, draft.updatedAt])
 
   useEffect(() => {
     setScheduleInput(clientScheduleInputValue())
@@ -90,11 +95,11 @@ export default function DraftEditorCard({
           : ''
 
   const updatePublishOptions = (patch: Parameters<typeof mergeDraftPublishOptions>[1]) => {
-    setMetadata((current) => {
-      const next = mergeDraftPublishOptions(current, { ...parseDraftPublishOptions(current), ...patch })
-      onLiveChange?.(draft.id, text, next)
-      return next
-    })
+    // Compute the next value here: calling the parent's onLiveChange from
+    // inside a state updater runs during render (and twice in Strict Mode).
+    const next = mergeDraftPublishOptions(metadata, { ...parseDraftPublishOptions(metadata), ...patch })
+    setMetadata(next)
+    onLiveChange?.(draft.id, text, next)
     setIsDirty(true)
   }
 
@@ -136,8 +141,13 @@ export default function DraftEditorCard({
         value={text}
         onChange={(e) => handleChange(e.target.value)}
         rows={4}
+        aria-label={`${PUBLISHING_CHANNEL_CONFIG[draft.channel]?.label ?? draft.channel}の投稿本文`}
         className="ui-input w-full resize-none rounded-card p-3 text-sm text-[color:var(--text-default)] focus:outline-none"
       />
+
+      {draft.cta && (
+        <p className="mt-2 text-xs text-[color:var(--text-muted)]">CTA（投稿時に末尾へ追加）: {draft.cta}</p>
+      )}
 
       {draft.hashtags.length > 0 && (
         <p className="mt-2 text-xs text-[color:var(--text-subtle)]">{draft.hashtags.map((tag) => `#${tag}`).join(' ')}</p>

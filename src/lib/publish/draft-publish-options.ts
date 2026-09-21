@@ -45,7 +45,11 @@ export function mergeDraftPublishOptions(
 ): Record<string, unknown> {
   const next: Record<string, unknown> = { ...(metadata ?? {}) }
 
+  // A key the patch does not mention is left alone; a key that is present with
+  // undefined (or '') is removed. Treating "absent" as "delete" silently wiped
+  // the thumbnail, cover and Shorts flag whenever a caller patched one field.
   const assign = (key: keyof DraftPublishOptions, value: string | boolean | number | undefined) => {
+    if (!(key in patch)) return
     if (value === undefined || value === '') delete next[key]
     else next[key] = value
   }
