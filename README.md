@@ -16,7 +16,7 @@ The app is now backed by **real Supabase infrastructure** while preserving the e
 - **Row-level security (RLS)** policies protecting all workspace data
 - **Seed Library and one-place Seed intake** for source text, files, purpose, audience, key facts, CTA, and five target channels
 - **Workspace Brand Profile** kept separate from each Seed, including voice, values, preferred wording, and avoided claims
-- **Real AI draft proposals** via `/api/drafts/generate` (Anthropic), with explicit `assumptions` surfaced for every guess and a labeled deterministic template fallback when no API key is configured
+- **Real AI draft proposals** via `/api/drafts/generate` (DeepSeek by default; Anthropic optional), with explicit `assumptions` surfaced for every guess and a labeled deterministic template fallback when no API key is configured
 - **Immutable Revisions**: approving a draft permanently snapshots what was approved into `draft_revisions`; later Seed or Brand Profile edits cannot change history
 - **AI cost/usage tracking** in `ai_generations` (model, token counts, estimated cost)
 - **Scheduling Engine**: schedule an approved draft's Revision to the Publish Queue, a Worker (`/api/publish/run`, run on a schedule — see `vercel.json`) executes due `auto`-mode jobs and records a `publish_attempts` history with classified failure reasons; `note` (and any future manual-copy channel) is `publish_mode: 'manual'` and is completed by a human from the Queue instead
@@ -57,7 +57,7 @@ NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=your-anon-key-here
 SUPABASE_SECRET_KEY=your-service-role-key-here
 ```
 
-Optionally set `ANTHROPIC_API_KEY` to enable real AI draft proposals (server-only, never sent to the browser). Without it, `/api/drafts/generate` falls back to deterministic templates and says so explicitly in the response — it never presents a template as an AI proposal. See `.env.example` for the full list of AI-related variables (model override, optional cost-per-token for `ai_generations.cost_usd`).
+Optionally set `DEEPSEEK_API_KEY` (default provider; `ANTHROPIC_API_KEY` works as an alternative) to enable real AI draft proposals (server-only, never sent to the browser). Without it, `/api/drafts/generate` falls back to deterministic templates and says so explicitly in the response — it never presents a template as an AI proposal. See `.env.example` for the full list of AI-related variables (model override, optional cost-per-token for `ai_generations.cost_usd`).
 
 Set `CRON_SECRET` to enable the publish Worker (`/api/publish/run`). Without it, the Worker refuses every request rather than running unauthenticated.
 
@@ -65,7 +65,7 @@ To connect a platform, set `SOCIAL_TOKEN_ENCRYPTION_KEY`, `NEXT_PUBLIC_APP_URL`,
 
 Set `META_WEBHOOK_VERIFY_TOKEN` to enable Instagram's webhook (`/api/webhooks/meta`) — it reuses `META_APP_SECRET` for signature verification. Without it, the webhook route refuses every request rather than accepting unverified payloads.
 
-Optionally set `ANTHROPIC_MONTHLY_BUDGET_USD` to cap AI spend per workspace per calendar month. Unset means no cap. Only meaningful once the cost-per-token vars above are set — with those unset, cost stays 0 and a cap can never be reached.
+Optionally set `AI_MONTHLY_BUDGET_USD` (older name `ANTHROPIC_MONTHLY_BUDGET_USD` still works) to cap AI spend per workspace per calendar month. Unset means no cap. Only meaningful once the cost-per-token vars above are set — with those unset, cost stays 0 and a cap can never be reached.
 
 ### Setting up Supabase
 
@@ -143,7 +143,7 @@ src/
     storage/supabase/          Supabase Storage adapter
     supabase/                  Supabase client setup (browser, server, and service-role for the Worker/OAuth callback/webhook)
     domain/                    Shared domain types
-    services/                  Template drafts, Anthropic-backed drafts (style-learning aware: generation-time snapshot, field-level few-shot corrections, fact-free tendencies), the shared publish-attempt/failure-classification logic, real X/Instagram/YouTube/TikTok connector adapters (including live metrics fetch), note-to-Markdown formatting, Meta webhook signature verification + payload mapping (all server-only where relevant), and the fail-closed stub for every other platform
+    services/                  Template drafts, LLM-backed drafts (DeepSeek/Anthropic via `llm-provider.ts`) (style-learning aware: generation-time snapshot, field-level few-shot corrections, fact-free tendencies), the shared publish-attempt/failure-classification logic, real X/Instagram/YouTube/TikTok connector adapters (including live metrics fetch), note-to-Markdown formatting, Meta webhook signature verification + payload mapping (all server-only where relevant), and the fail-closed stub for every other platform
 ```
 
 ## Database schema
@@ -255,7 +255,7 @@ MVP (`docs/master-plan.md` §4) is code-complete as of PR5. What's left is eithe
 - A workspace may connect more than one account per platform. `publish_jobs.social_account_id` records the target. Two connected accounts and no selection fail closed. The webhook invariant remains: one real LINE/Instagram account cannot be `connected=true` in two workspaces.
 - 9:16 vs 16:9: Seed media can detect aspect, auto-assign channels, and crop/export a variant in the browser (often WebM). Serverless ffmpeg is not used. A landscape file is never treated as a Short.
 - X requires a **confidential** OAuth 2.0 client (client secret) in the X developer portal, not a public/PKCE-only client
-- AI draft generation requires `ANTHROPIC_API_KEY`; without it, `/api/drafts/generate` returns clearly labeled deterministic templates instead
+- AI draft generation requires `DEEPSEEK_API_KEY` (or `ANTHROPIC_API_KEY`); check it in Settings > AI連携; without it, `/api/drafts/generate` returns clearly labeled deterministic templates instead
 - **Instagram `mentions` sync is not implemented.** Meta's mentions webhook field only carries a media_id/comment_id pointer, not the comment text itself — resolving it needs an extra Graph API call this app does not make yet. Comments and DMs (`fetchComments`/`fetchMessages`/the webhook) work; mentions fail closed with a clear reason.
 - **X and TikTok have no comment/mention/DM sync at all**, by design rather than oversight: X's v2 read endpoints and Account Activity API webhooks require a paid API tier this app does not request (it only asks for the free-tier write scopes needed to publish); TikTok's Content Posting API scope doesn't include reading engagement data, and its separate Display API needs an application review this app hasn't completed. Both fail closed with the specific reason rather than silently returning nothing.
 - YouTube inbox sync is pull-only (a **Sync inbox** button in Settings, or `POST /api/inbox/sync`) — there is no YouTube webhook for comments, so nothing arrives automatically the way Instagram's does
@@ -266,7 +266,7 @@ MVP (`docs/master-plan.md` §4) is code-complete as of PR5. What's left is eithe
 - Analytics metrics are fetched live and never cached/stored — the "Load metrics" button makes a real API call every time it's clicked; there is no background refresh or historical trend chart
 - **Notifications are poll-on-load, not real-time push.** There is no Supabase Realtime subscription anywhere in this app — a new notification appears the next time `refreshWorkspaceData()` runs (page load, workspace switch, or right after your own next action), the same cadence every other list in this app already uses. A teammate's publish failure at 3am is not pushed to anyone; it's there next time someone opens the app.
 - **"Co-approval" means notification fan-out, not dual sign-off.** Every teammate who can approve drafts is notified when one needs review, and any one of them can still approve solo — there is no second-approver requirement. This was a deliberate scoping choice for PR9's one-line "共同承認" spec (see `docs/master-plan.md` §5), not a partial implementation of something stricter.
-- The AI budget cap can only block the *next* generation call once a workspace's spend already meets `ANTHROPIC_MONTHLY_BUDGET_USD` — it cannot know or limit one specific call's cost before making it, since Anthropic only reports token usage after a call completes
+- The AI budget cap can only block the *next* generation call once a workspace's spend already meets `AI_MONTHLY_BUDGET_USD` — it cannot know or limit one specific call's cost before making it, since the provider only reports token usage after a call completes
 
 ## Security
 

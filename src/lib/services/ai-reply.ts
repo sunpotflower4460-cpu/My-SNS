@@ -1,6 +1,6 @@
 import type { ReplyGenerationContext, ReplyGeneratorService, ReplyProposal } from './interfaces'
 
-// Deterministic fallback shown honestly when Anthropic is unconfigured — it is
+// Deterministic fallback shown honestly when no AI provider is configured — it is
 // never presented as an AI proposal. It makes no guesses (assumptions: []) and
 // offers a neutral, polite acknowledgment the human can rewrite.
 

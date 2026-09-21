@@ -12,7 +12,7 @@ function newClaimToken(): string {
 }
 
 export function configuredMonthlyAiBudgetUsd(): number | null {
-  const raw = Number(process.env.ANTHROPIC_MONTHLY_BUDGET_USD)
+  const raw = Number(process.env.AI_MONTHLY_BUDGET_USD ?? process.env.ANTHROPIC_MONTHLY_BUDGET_USD)
   return Number.isFinite(raw) && raw > 0 ? raw : null
 }
 

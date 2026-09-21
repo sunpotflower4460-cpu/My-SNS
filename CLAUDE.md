@@ -19,7 +19,7 @@
 
 | 領域 | ファイル |
 |---|---|
-| Draft生成の抽象 | `src/lib/services/interfaces.ts`（`DraftGeneratorService`）/ 実装は `src/lib/services/ai-draft.ts` |
+| Draft生成の抽象 | `src/lib/services/interfaces.ts`（`DraftGeneratorService`）/ テンプレートは `src/lib/services/ai-draft.ts`、LLMは `llm-draft.ts`（プロバイダ切替は `llm-provider.ts`：既定DeepSeek、Anthropicも可） |
 | AI修正の記憶 | `src/lib/services/draft-style-learning.ts`（生成時スナップショット凍結、few-shot例、傾向メモ）。次回生成への受け渡しは `DraftGenerationContext.styleExamples` |
 | 投稿コネクタの抽象 | `src/lib/services/interfaces.ts`（`SocialConnectorAdapter`）/ 実装は `src/lib/services/social-connector.ts`（未実装時は fail-closed） |
 | チャンネル定義 | `src/lib/domain/types.ts`（`PublishingChannel`, `CORE_PUBLISHING_CHANNELS`）/ 表示設定は `src/lib/channels/config.ts` |

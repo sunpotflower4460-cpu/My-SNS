@@ -5,8 +5,8 @@ import { createClient } from '@/lib/supabase/server'
 import { isNextResponse, requireWorkspaceMember } from '@/lib/api/workspace-access'
 import { createServiceClient } from '@/lib/supabase/service'
 import { getWorkspaceMonthlyAiCost, recordAiGeneration } from '@/lib/repositories/supabase/ai-generations'
-import { AnthropicScheduleGenerationError, extractScheduleWithAnthropic } from '@/lib/services/anthropic-schedule'
-import { calculateGenerationCost, isAnthropicConfigured } from '@/lib/services/anthropic-draft'
+import { AiScheduleGenerationError, extractScheduleWithAi } from '@/lib/services/llm-schedule'
+import { calculateGenerationCost, isAiConfigured } from '@/lib/services/llm-provider'
 import {
   claimWorkspaceAiBudget,
   configuredMonthlyAiBudgetUsd,
@@ -55,9 +55,9 @@ export async function POST(request: NextRequest) {
   }
   if (!item) return NextResponse.json({ error: '受信メッセージが見つかりません。' }, { status: 404 })
 
-  if (!isAnthropicConfigured()) {
+  if (!isAiConfigured()) {
     return NextResponse.json(
-      { source: 'unavailable', reason: 'ANTHROPIC_API_KEYが未設定のため、会話からの予定抽出は利用できません。', proposals: [] },
+      { source: 'unavailable', reason: 'AIのAPIキー（DEEPSEEK_API_KEY）が未設定のため、会話からの予定抽出は利用できません。', proposals: [] },
       { status: 200 },
     )
   }
@@ -135,7 +135,7 @@ export async function POST(request: NextRequest) {
     const generationId = randomUUID()
 
     try {
-      const result = await extractScheduleWithAnthropic(item.text, { nowJst, contactDisplayName })
+      const result = await extractScheduleWithAi(item.text, { nowJst, contactDisplayName })
       const costUsd = calculateGenerationCost(result.inputTokens, result.outputTokens)
       let usageRecorded = false
       let usageWarning: string | undefined
@@ -180,7 +180,7 @@ export async function POST(request: NextRequest) {
       })
     } catch (cause) {
       const message = cause instanceof Error ? cause.message : '予定の抽出に失敗しました。'
-      if (cause instanceof AnthropicScheduleGenerationError) {
+      if (cause instanceof AiScheduleGenerationError) {
         try {
           await recordAiGeneration(serviceClient, {
             id: generationId,

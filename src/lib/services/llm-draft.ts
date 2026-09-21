@@ -1,4 +1,3 @@
-import Anthropic from '@anthropic-ai/sdk'
 import { PUBLISHING_CHANNEL_CONFIG } from '@/lib/channels/config'
 import type { PublishingChannel, Seed, SocialDraft } from '@/lib/domain/types'
 import { isValidThumbnailHook, shortenThumbnailHook } from '@/lib/media/thumbnail-hook'
@@ -8,38 +7,12 @@ import {
   freezeAiOriginalSnapshot,
 } from './draft-style-learning'
 import type { DraftGenerationContext, DraftGeneratorService } from './interfaces'
+import { LlmOutputError, runStructuredCompletion, type LlmUsage } from './llm-provider'
 
-// Server-only. Never import this file from client components — it reads
-// ANTHROPIC_API_KEY and talks to the Anthropic API directly.
+// Server-only. Never import this file from client components — it calls the
+// configured LLM provider (see llm-provider.ts).
 
 type DraftLength = 'short' | 'medium' | 'long'
-
-const DEFAULT_MODEL = 'claude-haiku-4-5-20251001'
-
-export function isAnthropicConfigured(): boolean {
-  return Boolean(process.env.ANTHROPIC_API_KEY?.trim())
-}
-
-export function resolveAnthropicModel(): string {
-  return process.env.ANTHROPIC_MODEL?.trim() || DEFAULT_MODEL
-}
-
-/**
- * Approximate USD cost from token counts. Anthropic's published per-model
- * pricing changes over time, so this project does not hardcode it — set
- * ANTHROPIC_INPUT_COST_PER_MTOK / ANTHROPIC_OUTPUT_COST_PER_MTOK (USD per
- * million tokens) to get a real estimate. Token counts themselves (the
- * ground truth) are always recorded even when cost is left at 0.
- */
-export function calculateGenerationCost(inputTokens: number, outputTokens: number): number {
-  const inputRate = Number(process.env.ANTHROPIC_INPUT_COST_PER_MTOK ?? 0)
-  const outputRate = Number(process.env.ANTHROPIC_OUTPUT_COST_PER_MTOK ?? 0)
-  const safeInputRate = Number.isFinite(inputRate) && inputRate >= 0 ? inputRate : 0
-  const safeOutputRate = Number.isFinite(outputRate) && outputRate >= 0 ? outputRate : 0
-
-  const cost = (inputTokens / 1_000_000) * safeInputRate + (outputTokens / 1_000_000) * safeOutputRate
-  return Math.round(cost * 100_000) / 100_000
-}
 
 export const DRAFT_PROPOSAL_TOOL_NAME = 'propose_channel_drafts'
 
@@ -228,47 +201,35 @@ export function parseDraftProposals(
   })
 }
 
-export interface AnthropicGenerationResult {
+export interface AiGenerationResult {
   drafts: SocialDraft[]
   model: string
   inputTokens: number
   outputTokens: number
 }
 
-export interface AnthropicUsage {
-  model: string
-  inputTokens: number
-  outputTokens: number
-}
-
 /**
- * Thrown when the Anthropic call itself succeeded (and was billed) but the
+ * Thrown when the provider call itself succeeded (and was billed) but the
  * response could not be turned into valid drafts. Carries `usage` so the
  * caller can still record what was actually spent instead of losing it.
  */
-export class AnthropicGenerationError extends Error {
-  usage: AnthropicUsage
+export class AiDraftGenerationError extends Error {
+  usage: LlmUsage
 
-  constructor(message: string, usage: AnthropicUsage) {
+  constructor(message: string, usage: LlmUsage) {
     super(message)
-    this.name = 'AnthropicGenerationError'
+    this.name = 'AiDraftGenerationError'
     this.usage = usage
   }
 }
 
-export async function generateChannelDraftsWithAnthropic(
+export async function generateChannelDraftsWithAi(
   seed: Seed,
   channels: PublishingChannel[],
   tone: string,
   length: DraftLength,
   context?: DraftGenerationContext,
-): Promise<AnthropicGenerationResult> {
-  const apiKey = process.env.ANTHROPIC_API_KEY?.trim()
-  if (!apiKey) {
-    throw new Error('ANTHROPIC_API_KEY is not configured.')
-  }
-
-  const model = resolveAnthropicModel()
+): Promise<AiGenerationResult> {
   const { system, user } = buildDraftGenerationPrompt(
     seed,
     channels,
@@ -278,48 +239,34 @@ export async function generateChannelDraftsWithAnthropic(
     context?.styleExamples,
     context?.styleTendencies,
   )
-  // One attempt, capped well under the route's maxDuration (60s): a retry would
-  // push the total past it, and a hard kill skips the budget-claim release.
-  const client = new Anthropic({ apiKey, timeout: 40_000, maxRetries: 0 })
 
-  const response = await client.messages.create({
-    model,
-    max_tokens: 4096,
-    system,
-    messages: [{ role: 'user', content: user }],
-    tools: [
-      {
-        name: DRAFT_PROPOSAL_TOOL_NAME,
-        description: 'Submit the proposed channel drafts.',
-        input_schema: DRAFT_PROPOSAL_TOOL_SCHEMA,
-      },
-    ],
-    tool_choice: { type: 'tool', name: DRAFT_PROPOSAL_TOOL_NAME },
-  })
-
-  const usage: AnthropicUsage = {
-    model,
-    inputTokens: response.usage.input_tokens,
-    outputTokens: response.usage.output_tokens,
-  }
-
-  const toolUse = response.content.find((block) => block.type === 'tool_use')
-  if (!toolUse || toolUse.type !== 'tool_use') {
-    throw new AnthropicGenerationError('The model did not call the drafts tool.', usage)
+  let result
+  try {
+    result = await runStructuredCompletion({
+      system,
+      user,
+      toolName: DRAFT_PROPOSAL_TOOL_NAME,
+      toolDescription: 'Submit the proposed channel drafts.',
+      schema: DRAFT_PROPOSAL_TOOL_SCHEMA,
+      maxTokens: 4096,
+    })
+  } catch (cause) {
+    if (cause instanceof LlmOutputError) throw new AiDraftGenerationError(cause.message, cause.usage)
+    throw cause
   }
 
   let drafts: SocialDraft[]
   try {
-    drafts = parseDraftProposals(toolUse.input, seed, channels, tone, length, context)
+    drafts = parseDraftProposals(result.output, seed, channels, tone, length, context)
   } catch (cause) {
     const message = cause instanceof Error ? cause.message : 'The model returned an unusable response.'
-    throw new AnthropicGenerationError(message, usage)
+    throw new AiDraftGenerationError(message, result.usage)
   }
 
-  return { drafts, ...usage }
+  return { drafts, ...result.usage }
 }
 
-export class AnthropicDraftGeneratorService implements DraftGeneratorService {
+export class AiDraftGeneratorService implements DraftGeneratorService {
   async generateDrafts(
     seed: Seed,
     channels: PublishingChannel[],
@@ -327,7 +274,7 @@ export class AnthropicDraftGeneratorService implements DraftGeneratorService {
     length: DraftLength,
     context?: DraftGenerationContext,
   ): Promise<SocialDraft[]> {
-    const result = await generateChannelDraftsWithAnthropic(seed, channels, tone, length, context)
+    const result = await generateChannelDraftsWithAi(seed, channels, tone, length, context)
     return result.drafts
   }
 }
