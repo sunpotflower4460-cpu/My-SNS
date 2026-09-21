@@ -278,7 +278,9 @@ export async function generateChannelDraftsWithAnthropic(
     context?.styleExamples,
     context?.styleTendencies,
   )
-  const client = new Anthropic({ apiKey, timeout: 50_000, maxRetries: 1 })
+  // One attempt, capped well under the route's maxDuration (60s): a retry would
+  // push the total past it, and a hard kill skips the budget-claim release.
+  const client = new Anthropic({ apiKey, timeout: 40_000, maxRetries: 0 })
 
   const response = await client.messages.create({
     model,

@@ -705,6 +705,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         if (!response.ok) throw new Error(payload.error ?? 'このアカウントの接続を解除できませんでした。')
 
         await refreshWorkspaceData()
+        if (!payload.account) throw new Error('接続解除の結果を受け取れませんでした。画面を再読み込みして確認してください。')
         return payload.account as SocialAccount
       },
 
@@ -896,6 +897,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         })
         const payload = await readJsonBody(response)
         if (!response.ok) throw new Error(payload.error ?? '返信案を生成できませんでした。')
+        if (typeof payload.reply !== 'string') throw new Error('返信案を受け取れませんでした。もう一度お試しください。')
 
         await refreshWorkspaceData()
         return payload as {
@@ -1090,6 +1092,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
         // Extraction doesn't write anything, so no refresh is needed here — the
         // caller approves individual proposals via createCalendarEvent.
+        if (!Array.isArray(payload.proposals)) throw new Error('予定の抽出結果を受け取れませんでした。もう一度お試しください。')
         return payload as { source: 'ai' | 'unavailable'; reason?: string; proposals: ScheduleProposal[] }
       },
 
@@ -1258,6 +1261,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         const payload = await readJsonBody(response)
         if (!response.ok) throw new Error(payload.error ?? 'この投稿の指標を取得できませんでした。')
 
+        if (Object.keys(payload).length === 0) throw new Error('指標を受け取れませんでした。もう一度お試しください。')
         return payload as PostMetrics
       },
 

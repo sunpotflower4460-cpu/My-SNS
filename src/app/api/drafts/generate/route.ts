@@ -39,8 +39,9 @@ interface GenerateRequestBody {
 
 // A multi-channel generation can take tens of seconds. Without this the
 // platform default (10s on Hobby) kills the request and the client gets a
-// non-JSON gateway error. The Anthropic call is capped just below it so a slow
-// model becomes a clean, recorded failure instead of a hard kill.
+// non-JSON gateway error. The Anthropic call is a single 40s attempt, so a slow
+// model becomes a clean failure (and the budget claim is released) instead of
+// a hard kill.
 export const maxDuration = 60
 
 export async function POST(request: NextRequest) {

@@ -168,6 +168,8 @@ export default function SeedMediaPage() {
       // list and clear the selection: retrying the same selection would upload
       // those again.
       await refreshWorkspaceData().catch(() => undefined)
+      // Some videos may already be saved; let the auto-thumbnail pass look at them.
+      autoThumbAttemptedRef.current = false
       setSelectedFiles([])
       if (inputRef.current) inputRef.current.value = ''
       setError(`${cause instanceof Error ? cause.message : '素材を追加できませんでした。'} 一部のファイルは追加済みの可能性があります。素材の一覧を確認してから、残りを選び直してください。`)

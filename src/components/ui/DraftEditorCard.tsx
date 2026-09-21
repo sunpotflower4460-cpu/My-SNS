@@ -54,6 +54,21 @@ export default function DraftEditorCard({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [draft.draftText, draft.id, draft.updatedAt])
 
+  // Thumbnails are chosen after the card is already on screen (generation runs
+  // in the background). Pick those two ids up without touching the text or the
+  // dirty flag, otherwise a later save/approve would send stale metadata and
+  // drop the thumbnail.
+  const incomingThumbnailId = typeof draft.metadata?.thumbnailAssetId === 'string' ? draft.metadata.thumbnailAssetId : undefined
+  const incomingCoverId = typeof draft.metadata?.coverAssetId === 'string' ? draft.metadata.coverAssetId : undefined
+  useEffect(() => {
+    setMetadata((current) => {
+      const patch: Parameters<typeof mergeDraftPublishOptions>[1] = {}
+      if (incomingThumbnailId && current.thumbnailAssetId !== incomingThumbnailId) patch.thumbnailAssetId = incomingThumbnailId
+      if (incomingCoverId && current.coverAssetId !== incomingCoverId) patch.coverAssetId = incomingCoverId
+      return Object.keys(patch).length === 0 ? current : mergeDraftPublishOptions(current, patch)
+    })
+  }, [incomingThumbnailId, incomingCoverId])
+
   useEffect(() => {
     setScheduleInput(clientScheduleInputValue())
   }, [draft.id])

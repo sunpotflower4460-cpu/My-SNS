@@ -71,6 +71,9 @@ export default function DraftsPage() {
   const [warning, setWarning] = useState('')
   const [error, setError] = useState('')
   const [thumbFeedback, setThumbFeedback] = useState('')
+  // Thumbnails are made in the background; a second run started meanwhile would
+  // not see the first one's images yet and would create duplicates.
+  const [thumbBusy, setThumbBusy] = useState(false)
   const [liveEdits, setLiveEdits] = useState<Record<string, { text: string; metadata: Record<string, unknown> }>>({})
 
   const selectedSeed = useMemo(() => seeds.find((seed) => seed.id === seedId) ?? null, [seedId, seeds])
@@ -141,6 +144,7 @@ export default function DraftsPage() {
       setGeneratedDrafts(result.drafts)
       if (currentWorkspace) {
         const requestedSeedId = selectedSeed.id
+        setThumbBusy(true)
         void (async () => {
           try {
             const thumbs = await generatePerformanceThumbnailsForSeed({
@@ -150,6 +154,8 @@ export default function DraftsPage() {
               assets: getSeedDetail(requestedSeedId).assets,
               drafts: result.drafts,
             })
+            // The new images exist whatever Seed is on screen now, so reload first.
+            if (thumbs.assets.length > 0) await refreshWorkspaceData()
             // The user may have moved to another Seed while this ran.
             if (activeSeedIdRef.current !== requestedSeedId) return
             const byId = new Map(thumbs.drafts.map((entry) => [entry.id, parseDraftPublishOptions(entry.metadata)]))
@@ -163,8 +169,21 @@ export default function DraftsPage() {
               if (options.coverAssetId) patch.coverAssetId = options.coverAssetId
               return { ...entry, metadata: mergeDraftPublishOptions(entry.metadata, patch) }
             }))
+            // A card the user already touched keeps its own copy of the metadata
+            // in liveEdits; give it the chosen images too.
+            setLiveEdits((current) => {
+              const next = { ...current }
+              for (const [id, options] of byId) {
+                const edit = next[id]
+                if (!edit) continue
+                const patch: Parameters<typeof mergeDraftPublishOptions>[1] = {}
+                if (options.thumbnailAssetId) patch.thumbnailAssetId = options.thumbnailAssetId
+                if (options.coverAssetId) patch.coverAssetId = options.coverAssetId
+                next[id] = { ...edit, metadata: mergeDraftPublishOptions(edit.metadata, patch) }
+              }
+              return next
+            })
             setThumbFeedback(thumbs.message)
-            if (thumbs.assets.length > 0) await refreshWorkspaceData()
           } catch (cause) {
             if (activeSeedIdRef.current !== requestedSeedId) return
             setThumbFeedback(
@@ -172,6 +191,8 @@ export default function DraftsPage() {
                 ? cause.message
                 : '文字入りサムネイルの作成に失敗しました。PNG/JPGをアップロードしてください。',
             )
+          } finally {
+            setThumbBusy(false)
           }
         })()
       }
@@ -369,7 +390,7 @@ export default function DraftsPage() {
 
           <div className="mt-4"><label className="mb-2 block text-sm font-medium text-gray-700">このシードの媒体</label><div className="flex flex-wrap gap-2">{CORE_PUBLISHING_CHANNELS.map((channel) => <button key={channel} type="button" onClick={() => toggleChannel(channel)} className={`rounded-full transition ${selectedChannels.includes(channel) ? 'ring-2 ring-violet-400 ring-offset-2' : 'opacity-50 hover:opacity-80'}`}><ChannelBadge channel={channel} /></button>)}</div></div>
           {selectedChannels.includes('note') && <p className="mt-3 text-xs text-emerald-700">noteは引き続き「確認してコピー」のみに対応しています。このアプリが自動投稿を行うことはありません。</p>}
-          <button onClick={() => void handleGenerate()} disabled={!canCreateDrafts || loading || selectedChannels.length === 0 || !selectedSeed} className="mt-5 rounded-2xl bg-violet-600 px-5 py-2.5 text-sm font-medium text-white transition hover:bg-violet-700 disabled:opacity-50">{loading ? '作成中…' : canCreateDrafts ? '下書きを作成' : '作成権限がありません'}</button>
+          <button onClick={() => void handleGenerate()} disabled={!canCreateDrafts || loading || thumbBusy || selectedChannels.length === 0 || !selectedSeed} className="mt-5 rounded-2xl bg-violet-600 px-5 py-2.5 text-sm font-medium text-white transition hover:bg-violet-700 disabled:opacity-50">{loading ? '作成中…' : thumbBusy ? 'サムネイルを作成中…' : canCreateDrafts ? '下書きを作成' : '作成権限がありません'}</button>
           {thumbFeedback && <p className="mt-3 text-xs leading-5 text-gray-600">{thumbFeedback}</p>}
         </div>
       )}
