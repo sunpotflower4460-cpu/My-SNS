@@ -2,7 +2,7 @@ import { createServerClient } from '@supabase/ssr'
 import { NextResponse, type NextRequest } from 'next/server'
 
 export async function updateSession(request: NextRequest) {
-  const supabaseResponse = NextResponse.next({
+  let supabaseResponse = NextResponse.next({
     request,
   })
 
@@ -19,10 +19,13 @@ export async function updateSession(request: NextRequest) {
         return request.cookies.getAll()
       },
       setAll(cookiesToSet) {
-        cookiesToSet.forEach(({ name, value, options }) => {
-          request.cookies.set(name, value)
-          supabaseResponse.cookies.set(name, value, options)
-        })
+        cookiesToSet.forEach(({ name, value }) => request.cookies.set(name, value))
+        // Rebuild the response so the refreshed cookies are forwarded to the
+        // route handlers / server components on this same request, not only set
+        // on the browser. A response created before setAll snapshots the old
+        // request headers.
+        supabaseResponse = NextResponse.next({ request })
+        cookiesToSet.forEach(({ name, value, options }) => supabaseResponse.cookies.set(name, value, options))
       },
     },
   })

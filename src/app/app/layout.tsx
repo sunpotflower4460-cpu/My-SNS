@@ -16,6 +16,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
     isReady: appReady,
     workspaceDataError,
     refreshWorkspaceData,
+    reloadWorkspaces,
     workspaces,
     createWorkspace,
   } = useApp()
@@ -52,7 +53,9 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
           <p className="mt-2 text-amber-900">{workspaceDataError}</p>
           <button
             type="button"
-            onClick={() => void refreshWorkspaceData()}
+            // With no workspace loaded yet the list itself failed, and refreshing the
+            // (absent) active workspace would do nothing.
+            onClick={() => void (workspaces.length > 0 ? refreshWorkspaceData() : reloadWorkspaces())}
             className="mt-4 rounded-2xl border border-amber-300 bg-white px-4 py-2 text-sm text-amber-950 transition hover:bg-amber-100"
           >
             再読み込み
@@ -117,8 +120,8 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
                 </button>
                 <button
                   type="button"
-                  onClick={() => {
-                    signOut()
+                  onClick={async () => {
+                    await signOut()
                     router.replace('/login')
                   }}
                   className="rounded-2xl border border-stone-200 bg-white px-4 py-2 text-sm text-gray-700 transition hover:bg-stone-50"

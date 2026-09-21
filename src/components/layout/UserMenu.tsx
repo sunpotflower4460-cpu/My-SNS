@@ -35,8 +35,10 @@ export default function UserMenu() {
     }
   }, [open])
 
-  const handleSignOut = () => {
-    signOut()
+  const handleSignOut = async () => {
+    // Wait for the session to clear: /login redirects an authenticated visitor
+    // straight back to the dashboard, which would bounce here.
+    await signOut()
     router.replace('/login')
   }
 

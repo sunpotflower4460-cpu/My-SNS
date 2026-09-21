@@ -17,7 +17,7 @@ const MAX_AUTOMATIC_RETRIES = 3
  */
 export default function WorkspaceConsistencyGuard({ children }: { children: React.ReactNode }) {
   const { currentUserId, isReady: authReady } = useAuth()
-  const { currentWorkspace, refreshWorkspaceData } = useApp()
+  const { currentWorkspace, refreshWorkspaceData, workspaces } = useApp()
   const [expectedWorkspaceId, setExpectedWorkspaceId] = useState<string | null | undefined>(undefined)
   const [retryCount, setRetryCount] = useState(0)
   const refreshingFor = useRef<string | null>(null)
@@ -32,8 +32,12 @@ export default function WorkspaceConsistencyGuard({ children }: { children: Reac
       refreshingFor.current = null
       return
     }
-    setExpectedWorkspaceId(localStorage.getItem('activeWorkspaceId'))
-  }, [authReady, currentUserId, currentWorkspace?.id, refreshWorkspaceData])
+    const stored = localStorage.getItem('activeWorkspaceId')
+    // An id that is not one of this user's workspaces (left over from an earlier
+    // session or a removed membership) is not something to wait for — waiting
+    // would block the whole app, including creating a first workspace.
+    setExpectedWorkspaceId(stored && workspaces.some((workspace) => workspace.id === stored) ? stored : null)
+  }, [authReady, currentUserId, currentWorkspace?.id, refreshWorkspaceData, workspaces])
 
   useEffect(() => {
     if (!authReady || !currentUserId || !expectedWorkspaceId || currentWorkspace?.id === expectedWorkspaceId) {
