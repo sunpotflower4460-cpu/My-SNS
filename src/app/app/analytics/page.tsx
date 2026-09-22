@@ -7,6 +7,7 @@ import ChannelBadge from '@/components/ui/ChannelBadge'
 import EmptyState from '@/components/ui/EmptyState'
 import { Badge, Button, Card, InlineAlert } from '@/components/ui/kit'
 import { useApp } from '@/lib/app/app-provider'
+import ShadowStrategySection from './shadow-strategy-section'
 import { computeAnalytics, formatCost, selectRecentPublished } from '@/lib/presentation/analytics-presenter'
 import { selectRecentStyleCorrections, STYLE_FIELD_LABELS_JA, truncateStylePreview } from '@/lib/services/draft-style-learning'
 import type { PostMetrics, PublishFailureReason } from '@/lib/domain/types'
@@ -155,6 +156,8 @@ export default function AnalyticsPage() {
           )}
         </Card>
       </div>
+
+      <ShadowStrategySection />
 
       <div className="mt-6">
         <Card size="container" padded>
