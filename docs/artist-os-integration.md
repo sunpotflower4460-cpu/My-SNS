@@ -19,3 +19,13 @@ Artist OS（横断管制の別リポジトリ）が My-SNS の状態を**読む*
 
 - 承認は ブラウザ→Postgres RPC のため、イベント通知は無い。Artist OS はポーリングする。
 - 投稿cronは Vercel Hobby で1日1回。予約時刻はあくまで予定で、実行は遅れうる。
+
+## Managed mode（Artist OS 管理下）
+
+`ARTIST_OS_MODE=artist_os_managed` で明示的に有効化する（未設定＝`standalone`、従来どおり。不正な値は最も厳しい managed 扱いで `modeInvalid` として報告）。
+
+- My-SNS は **inbound の正本**であり **Meta webhook の canonical receiver**。外部返信（現状は LINE のみ実送信）は **Artist OS の Action Ledger** で `reserve → begin → send → complete` を踏んでからでないと送らない。
+- ledger 未設定・到達不能・未知の応答・`ALREADY_*`・`OUTCOME_UNKNOWN`・`CONFLICT` のどれでも **送信しない**（fail closed）。プロバイダの結果が不明（タイムアウト等）なら `OUTCOME_UNKNOWN` を記録し、人間が照合するまで誰も再送しない。送信が確実に拒否された（`LINE push failed (4xx)`、408/409/425を除く）場合のみ `failed_safe`。
+- 冪等キーは `platform:operation:<プラットフォームのネイティブなイベントID>`。返信本文のハッシュは使わない。
+- 通常の予約投稿（publish）はこの ledger に依存しない。
+- 追加ルート: `GET /api/service/v1/inbound-events`（読み取り専用。公開コメントのみ本文抜粋、DM本文は返さない）。`/api/service/health` に `runtimeMode` / `ownership` を追加。

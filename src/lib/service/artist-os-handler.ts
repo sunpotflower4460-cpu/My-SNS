@@ -1,4 +1,5 @@
 import { isBearerAuthorized } from '@/lib/api/timing-safe'
+import { buildInboundEvents } from './artist-os-inbound'
 import { buildArtistOsStatus, type ArtistOsStatusReport, type StatusInput } from './artist-os-status'
 
 export interface ServiceEnv {
@@ -40,5 +41,25 @@ export async function handleArtistOsStatus(
     return { status: 200, body: buildArtistOsStatus({ ...data, now, appUrl }) }
   } catch {
     return { status: 502, body: { error: 'Status could not be loaded.' } }
+  }
+}
+
+export type InboundLoader = (workspaceId: string) => Promise<{ rows: import('./artist-os-inbound').InboxRow[]; replyJobs: import('./artist-os-inbound').ReplyJobRef[] }>
+
+/** Same fail-closed gate as the status handler, for GET /api/service/v1/inbound-events. */
+export async function handleArtistOsInbound(
+  authorization: string | null,
+  env: ServiceEnv,
+  load: InboundLoader,
+  now: Date = new Date(),
+): Promise<{ status: 200; body: ReturnType<typeof buildInboundEvents> } | { status: 401 | 502 | 503; body: { error: string } }> {
+  const token = env.token?.trim()
+  const workspaceId = env.workspaceId?.trim()
+  if (!token || !workspaceId) return { status: 503, body: { error: 'Artist OS service access is not configured.' } }
+  if (!isBearerAuthorized(authorization, token)) return { status: 401, body: { error: 'Not authorized.' } }
+  try {
+    return { status: 200, body: buildInboundEvents({ now, ...(await load(workspaceId)) }) }
+  } catch {
+    return { status: 502, body: { error: 'Inbound events could not be loaded.' } }
   }
 }

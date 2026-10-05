@@ -5,6 +5,9 @@ import { createNotifications } from '@/lib/repositories/supabase/notifications'
 import { getConnectorAdapter } from '@/lib/services/connectors'
 import { classifyFailure, resolveCredentials } from '@/lib/services/publish-worker'
 import { hasPermission } from '@/lib/permissions'
+import { resolveArtistOsMode } from '@/lib/service/artist-os-mode'
+import { ledgerClientFromEnv, type ActionKeyParts } from '@/lib/service/action-ledger-client'
+import { runWithInboundReplyLedger } from '@/lib/service/managed-reply-guard'
 
 // The messaging-side twin of publish-worker.ts. Shared with the publish side:
 // resolveCredentials (decrypts the connected account's token, refreshes if
@@ -114,6 +117,43 @@ async function notifyReplyFailure(supabase: SupabaseClient, job: ReplyableJob, e
   )
 }
 
+const NATIVE_ID_PREFIXES = ['ig-comment-', 'ig-dm-', 'sa-ig-comment-', 'sa-ig-dm-']
+
+/**
+ * The CrossSystemActionKey parts for the inbound event this job answers: platform + operation + the
+ * platform-native event id (inbox_items.external_id). Never derived from the reply text.
+ * Returns null when it cannot be built; managed mode then refuses to send.
+ */
+async function loadInboundActionParts(supabase: SupabaseClient, job: ReplyableJob): Promise<ActionKeyParts | null> {
+  const { data, error } = await supabase
+    .from('inbox_items')
+    .select('platform, kind, external_id')
+    .eq('id', job.inboxItemId)
+    .eq('workspace_id', job.workspaceId)
+    .maybeSingle()
+  if (error || !data) return null
+  const row = data as { platform: string; kind: string; external_id: string | null }
+  if (!row.external_id) return null
+  const operation = row.kind === 'dm' ? 'dm_reply' : row.kind === 'mention' ? 'mention_reply' : 'comment_reply'
+  let id = row.external_id.trim()
+  for (const p of NATIVE_ID_PREFIXES) if (id.startsWith(p)) id = id.slice(p.length)
+  return { platform: row.platform, operation, externalEventId: id }
+}
+
+/**
+ * `true` ONLY when the provider's own answer proves the reply was NOT accepted: an explicit HTTP 4xx from the
+ * send call (excluding 408/409/425, which can mean "accepted, retry to reconcile"). classifyFailure() is
+ * deliberately NOT used: it falls back to 'validation' for any unrecognised text, and an unrecognised error
+ * must be treated as an UNCERTAIN outcome (the ledger then blocks every sender until a human reconciles).
+ */
+function isDefinitiveReplyFailure(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error)
+  const m = /^LINE push failed \((\d{3})\)/.exec(message)
+  if (!m) return false
+  const status = Number(m[1])
+  return status >= 400 && status < 500 && ![408, 409, 425].includes(status)
+}
+
 export interface ReplyableJob {
   id: string
   workspaceId: string
@@ -170,17 +210,35 @@ export async function processReplyJob(supabase: SupabaseClient, job: ReplyableJo
     }
 
     const adapter = getConnectorAdapter(job.platform)
-    const result = await adapter.sendMessage({
-      platform: job.platform,
-      accessToken: credentials.accessToken,
-      target: job.sendTarget,
-      text: job.replyText,
-      externalAccountId: credentials.externalAccountId,
-      // Stable across every attempt for this immutable reply job. LINE receives
-      // this on the first push and on every safe retry, so a lost DB response
-      // cannot turn into a duplicate recipient message.
-      retryKey: job.id,
+    const send = () =>
+      adapter.sendMessage({
+        platform: job.platform,
+        accessToken: credentials.accessToken,
+        target: job.sendTarget,
+        text: job.replyText,
+        externalAccountId: credentials.externalAccountId,
+        // Stable across every attempt for this immutable reply job. LINE receives
+        // this on the first push and on every safe retry, so a lost DB response
+        // cannot turn into a duplicate recipient message.
+        retryKey: job.id,
+      })
+
+    // Artist OS managed mode: the external write is coordinated through the Action Ledger and fails
+    // closed (no ledger / no reservation / unknown outcome ⇒ no send). Standalone: exactly the old call.
+    const { mode } = resolveArtistOsMode()
+    const outcome = await runWithInboundReplyLedger({
+      mode,
+      ledger: mode === 'standalone' ? null : ledgerClientFromEnv(),
+      parts: mode === 'standalone' ? null : await loadInboundActionParts(supabase, job),
+      send,
+      isDefinitiveFailure: isDefinitiveReplyFailure,
     })
+    if (outcome.kind === 'blocked') {
+      // Not sent, by design. Recorded as a failed attempt (visible to humans); OUTCOME_UNKNOWN / ALREADY_* stay blocked on every retry.
+      throw new Error(`MANAGED_MODE_BLOCKED: reply not sent (${outcome.reason}${outcome.detail ? `: ${outcome.detail}` : ''}).`)
+    }
+    if (outcome.kind === 'failed') throw outcome.error
+    const result = outcome.value
     confirmedReply = result
 
     await recordReplyAttempt(supabase, {
