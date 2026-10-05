@@ -30,6 +30,27 @@ describe('buildInboundEvents', () => {
   })
 })
 
+describe('seedRef and token scope', () => {
+  it('exposes only the related Seed id (no seed content)', () => {
+    const r = buildInboundEvents({ now, rows: [row({ seed_id: 'seed-7' })], replyJobs: [] })
+    expect(r.events[0]!.seedRef).toBe('seed-7')
+    expect(buildInboundEvents({ now, rows: [row()], replyJobs: [] }).events[0]!.seedRef).toBeUndefined()
+  })
+  it('a dedicated inbound read token works for inbound-events, and is not enough to configure the route on its own without a workspace', async () => {
+    const load = async () => ({ rows: [row()], replyJobs: [] })
+    expect((await handleArtistOsInbound('Bearer rd', { inboundReadToken: 'rd', workspaceId: 'w' }, load, now)).status).toBe(200)
+    expect((await handleArtistOsInbound('Bearer rd', { token: 's', inboundReadToken: 'rd', workspaceId: 'w' }, load, now)).status).toBe(200)
+    expect((await handleArtistOsInbound('Bearer s', { token: 's', inboundReadToken: 'rd', workspaceId: 'w' }, load, now)).status).toBe(200)
+    expect((await handleArtistOsInbound('Bearer rd', { inboundReadToken: 'rd' }, load, now)).status).toBe(503)
+    expect((await handleArtistOsInbound('Bearer other', { token: 's', inboundReadToken: 'rd', workspaceId: 'w' }, load, now)).status).toBe(401)
+  })
+  it('the inbound read token does NOT authorize the status route (least privilege)', async () => {
+    const { handleArtistOsStatus } = await import('./artist-os-handler')
+    const r = await handleArtistOsStatus('Bearer rd', { token: 's', inboundReadToken: 'rd', workspaceId: 'w', appUrl: 'https://a' }, async () => ({ draftsAwaitingApproval: [], publishJobs: [], replyJobs: [], inboxNeedsAction: 0 }), now)
+    expect(r.status).toBe(401)
+  })
+})
+
 describe('handleArtistOsInbound (fail closed)', () => {
   const env = { token: 's', workspaceId: 'w' }
   const load = async () => ({ rows: [row()], replyJobs: [] })

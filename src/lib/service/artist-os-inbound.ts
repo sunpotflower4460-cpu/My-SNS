@@ -21,6 +21,8 @@ export interface InboxRow {
   received_at: string
   needs_action: boolean
   contact_external_id: string | null
+  /** Seed this item relates to (id only: no title/body). */
+  seed_id?: string | null
 }
 export interface ReplyJobRef {
   inbox_item_id: string
@@ -37,6 +39,8 @@ export interface InboundEventOut {
   contactRef?: { platform: string; externalContactId: string }
   authorHandle?: string
   textExcerpt?: string
+  /** Related Seed id (opaque ref; no content). */
+  seedRef?: string
   needsAction: boolean
   replyState: 'none' | 'scheduled' | 'sent' | 'failed' | 'cancelled'
   ownerSystem: 'my-sns'
@@ -66,6 +70,7 @@ export function buildInboundEvents(input: { now: Date; rows: InboxRow[]; replyJo
       receivedAt: new Date(r.received_at).toISOString(),
       ...(r.contact_external_id ? { contactRef: { platform: r.platform, externalContactId: r.contact_external_id.slice(0, 200) } } : {}),
       ...(r.author_handle ? { authorHandle: r.author_handle.slice(0, 100) } : {}),
+      ...(r.seed_id ? { seedRef: r.seed_id } : {}),
       ...(!isDm && r.text ? { textExcerpt: r.text.slice(0, EXCERPT_MAX) } : {}),
       needsAction: r.needs_action,
       replyState: best.get(r.id) ?? 'none',

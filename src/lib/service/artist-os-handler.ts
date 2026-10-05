@@ -4,6 +4,8 @@ import { buildArtistOsStatus, type ArtistOsStatusReport, type StatusInput } from
 
 export interface ServiceEnv {
   token?: string
+  /** Optional second credential accepted ONLY by the inbound-events route (least privilege for relationship intelligence). */
+  inboundReadToken?: string
   workspaceId?: string
   appUrl?: string
 }
@@ -53,10 +55,12 @@ export async function handleArtistOsInbound(
   load: InboundLoader,
   now: Date = new Date(),
 ): Promise<{ status: 200; body: ReturnType<typeof buildInboundEvents> } | { status: 401 | 502 | 503; body: { error: string } }> {
-  const token = env.token?.trim()
+  const tokens = [env.token?.trim(), env.inboundReadToken?.trim()].filter((t): t is string => Boolean(t))
   const workspaceId = env.workspaceId?.trim()
-  if (!token || !workspaceId) return { status: 503, body: { error: 'Artist OS service access is not configured.' } }
-  if (!isBearerAuthorized(authorization, token)) return { status: 401, body: { error: 'Not authorized.' } }
+  if (tokens.length === 0 || !workspaceId) return { status: 503, body: { error: 'Artist OS service access is not configured.' } }
+  // Evaluate every candidate (no early exit on the first match) so timing does not reveal which token matched.
+  const authorized = tokens.map((t) => isBearerAuthorized(authorization, t)).some(Boolean)
+  if (!authorized) return { status: 401, body: { error: 'Not authorized.' } }
   try {
     return { status: 200, body: buildInboundEvents({ now, ...(await load(workspaceId)) }) }
   } catch {

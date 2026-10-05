@@ -11,7 +11,7 @@ const loadInbound: InboundLoader = async (workspaceId) => {
   const supabase = createServiceClient()
   const items = await supabase
     .from('inbox_items')
-    .select('id, platform, kind, external_id, author_handle, text, received_at, needs_action, contact_id')
+    .select('id, platform, kind, external_id, author_handle, text, received_at, needs_action, contact_id, seed_id')
     .eq('workspace_id', workspaceId)
     .order('received_at', { ascending: false })
     .limit(INBOUND_ROW_LIMIT)
@@ -41,6 +41,7 @@ const loadInbound: InboundLoader = async (workspaceId) => {
       text: (r.text as string | null) ?? null,
       received_at: r.received_at as string,
       needs_action: Boolean(r.needs_action),
+      seed_id: typeof r.seed_id === 'string' ? r.seed_id : null,
       contact_external_id: typeof r.contact_id === 'string' ? (contactById.get(r.contact_id) ?? null) : null,
     })),
     replyJobs: (jobs.data ?? []) as never,
@@ -50,7 +51,7 @@ const loadInbound: InboundLoader = async (workspaceId) => {
 export async function GET(request: NextRequest) {
   const result = await handleArtistOsInbound(
     request.headers.get('authorization'),
-    { token: process.env.ARTIST_OS_SERVICE_TOKEN, workspaceId: process.env.ARTIST_OS_WORKSPACE_ID },
+    { token: process.env.ARTIST_OS_SERVICE_TOKEN, inboundReadToken: process.env.ARTIST_OS_INBOUND_READ_TOKEN, workspaceId: process.env.ARTIST_OS_WORKSPACE_ID },
     loadInbound,
   )
   return NextResponse.json(result.body, { status: result.status, headers: { 'Cache-Control': 'no-store' } })
