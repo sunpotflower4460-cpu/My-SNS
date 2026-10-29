@@ -10,7 +10,7 @@ export default function PageHeader({ title, description, eyebrow, actions }: Pag
     <div className="mb-8 flex flex-col gap-5 border-b border-[color:var(--border-default)] pb-7 sm:flex-row sm:items-end sm:justify-between">
       <div className="max-w-3xl">
         {eyebrow && (
-          <p className="mb-2 text-[11px] font-semibold tracking-[0.08em] text-[color:var(--accent)]">
+          <p className="mb-2 text-sm font-semibold tracking-[0.08em] text-[color:var(--accent)]">
             {eyebrow}
           </p>
         )}

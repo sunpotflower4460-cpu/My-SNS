@@ -28,8 +28,8 @@ export const PUBLISHING_CHANNEL_CONFIG: Record<PublishingChannel, PublishingChan
     shortLabel: 'YouTube',
     icon: '▶',
     delivery: 'api-later',
-    description: '動画のタイトル・概要欄・補足コピーを作成します。',
-    mvpPublishMode: 'assisted',
+    description: '動画のタイトル・概要欄・補足コピーを作成します。予約時刻のあと、日次Workerが公開（public）します（Hobbyでは最大約1日のずれ）。急ぎなら「今すぐ公開」。',
+    mvpPublishMode: 'auto',
   },
   note: {
     label: 'note',
@@ -60,8 +60,8 @@ export const PUBLISHING_CHANNEL_CONFIG: Record<PublishingChannel, PublishingChan
     shortLabel: 'TikTok',
     icon: '♪',
     delivery: 'api-later',
-    description: 'ショート動画向けのキャプションと冒頭のフックを作成します。',
-    mvpPublishMode: 'draft',
+    description: 'ショート動画向けのキャプションと冒頭のフックを作成します。監査前はTikTok側がSELF_ONLY（自分のみ）に固定します。',
+    mvpPublishMode: 'auto',
   },
   threads: {
     label: 'Threads',

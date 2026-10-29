@@ -27,6 +27,7 @@ interface PublishJobRow {
   claimed_at?: string | null
   created_by: string
   created_at: string
+  social_account_id?: string | null
 }
 
 function mapJob(row: PublishJobRow): PublishJob {
@@ -45,6 +46,7 @@ function mapJob(row: PublishJobRow): PublishJob {
     claimedAt: row.claimed_at ?? undefined,
     createdBy: row.created_by,
     createdAt: row.created_at,
+    socialAccountId: row.social_account_id ?? undefined,
   }
 }
 
@@ -93,6 +95,7 @@ export interface CreatePublishJobInput {
   publishMode: PublishMode
   scheduledAt?: string
   createdBy: string
+  socialAccountId?: string
 }
 
 export async function createPublishJob(input: CreatePublishJobInput): Promise<PublishJob> {
@@ -116,6 +119,7 @@ export async function createPublishJob(input: CreatePublishJobInput): Promise<Pu
       status,
       scheduled_at: requestedScheduledAt,
       created_by: input.createdBy,
+      social_account_id: input.socialAccountId ?? null,
     })
     .select()
     .single()
@@ -149,6 +153,7 @@ export async function createPublishJob(input: CreatePublishJobInput): Promise<Pu
       && row.publish_mode === input.publishMode
       && (row.scheduled_at ?? null) === requestedScheduledAt
       && row.created_by === input.createdBy
+      && (row.social_account_id ?? null) === (input.socialAccountId ?? null)
 
     if (identicalRequest) return mapJob(row)
   }

@@ -1,4 +1,5 @@
 import type { AuditLog, AuditAction } from '@/lib/domain/types'
+import type { SupabaseClient } from '@supabase/supabase-js'
 import { createClient } from '@/lib/supabase/client'
 
 export async function listWorkspaceAuditLogs(
@@ -95,16 +96,17 @@ export async function listTargetAuditLogs(
  * that the already-completed action itself failed (which could trigger a
  * duplicate retry). Worker/server routes follow the same best-effort policy.
  */
-export async function appendAuditLog(params: {
-  workspaceId: string
-  actorId: string
-  action: AuditAction
-  targetType?: string
-  targetId?: string
-  metadata?: Record<string, unknown>
-}): Promise<AuditLog | null> {
-  const supabase = createClient()
-
+export async function appendAuditLogWithClient(
+  supabase: SupabaseClient,
+  params: {
+    workspaceId: string
+    actorId: string
+    action: AuditAction
+    targetType?: string
+    targetId?: string
+    metadata?: Record<string, unknown>
+  },
+): Promise<AuditLog | null> {
   const { data, error } = await supabase
     .from('audit_logs')
     .insert({
@@ -150,4 +152,15 @@ export async function appendAuditLog(params: {
       createdAt: actor.created_at,
     } : undefined,
   }
+}
+
+export async function appendAuditLog(params: {
+  workspaceId: string
+  actorId: string
+  action: AuditAction
+  targetType?: string
+  targetId?: string
+  metadata?: Record<string, unknown>
+}): Promise<AuditLog | null> {
+  return appendAuditLogWithClient(createClient(), params)
 }

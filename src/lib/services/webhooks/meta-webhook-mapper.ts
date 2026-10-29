@@ -43,6 +43,9 @@ export function mapMetaWebhookEntry(entry: MetaWebhookEntry): InboundInboxEvent[
     if (change.field !== 'comments') continue
     const value = change.value
     if (!value?.id || !value.text) continue
+    // The connected account's own comments (including its replies) are also
+    // delivered to this webhook. They are not inbound audience items.
+    if (value.from?.id && value.from.id === entry.id) continue
 
     events.push({
       platform: 'instagram',
@@ -58,6 +61,7 @@ export function mapMetaWebhookEntry(entry: MetaWebhookEntry): InboundInboxEvent[
     // Our own reply, echoed back by the Messenger Platform — not an inbound item.
     if (event.message?.is_echo) continue
     if (!event.message?.mid || !event.message.text || !event.sender?.id) continue
+    if (event.sender.id === entry.id) continue
 
     events.push({
       platform: 'instagram',

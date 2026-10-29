@@ -65,6 +65,10 @@ export class SupabaseAssetStorage implements AssetStorageAdapter {
           type: preparedAsset.type,
           size: preparedAsset.size,
           uploaded_by: params.uploadedBy,
+          aspect_ratio: preparedAsset.aspectRatio ?? null,
+          media_role: preparedAsset.mediaRole ?? 'source',
+          source_asset_id: preparedAsset.sourceAssetId ?? null,
+          publishing_channels: preparedAsset.publishingChannels ?? [],
         })
         .select()
         .single()
@@ -82,6 +86,9 @@ export class SupabaseAssetStorage implements AssetStorageAdapter {
         size: data.size,
         uploadedBy: data.uploaded_by,
         createdAt: data.created_at,
+        aspectRatio: data.aspect_ratio ?? undefined,
+        mediaRole: data.media_role ?? undefined,
+        sourceAssetId: data.source_asset_id ?? undefined,
       }
     } catch (cause) {
       const { error: cleanupError } = await this.supabase.storage

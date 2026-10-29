@@ -1,10 +1,12 @@
 'use client'
 
+import { useEffect, useRef } from 'react'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { X } from 'lucide-react'
-import type { User, Workspace } from '@/lib/domain/types'
-import { NAV_GROUPS, isNavActive } from './nav-items'
+import type { User, Workspace, WorkspaceRole } from '@/lib/domain/types'
+import { useFocusTrap } from '@/components/ui/kit/use-focus-trap'
+import { getNavGroups, isNavActive } from './nav-items'
 
 // The "その他" drawer on mobile — opened from the bottom nav's その他 tab. Lists
 // every section (grouped, same source as the desktop sidebar) so the sections
@@ -13,19 +15,50 @@ import { NAV_GROUPS, isNavActive } from './nav-items'
 interface MobileNavProps {
   workspace: Workspace
   user: User
+  role: WorkspaceRole
   isOpen: boolean
   onClose: () => void
 }
 
-export default function MobileNav({ workspace, user, isOpen, onClose }: MobileNavProps) {
+export default function MobileNav({ workspace, user, role, isOpen, onClose }: MobileNavProps) {
   const pathname = usePathname()
+  const panelRef = useRef<HTMLDivElement>(null)
+  const onCloseRef = useRef(onClose)
+  onCloseRef.current = onClose
+  const lastPathnameRef = useRef(pathname)
+
+  // Real modal behaviour: Tab trap, Escape, and focus restore to the opener.
+  useFocusTrap(panelRef, isOpen, onClose)
+
+  // Close when the route changes (e.g. browser back while the drawer is open).
+  useEffect(() => {
+    if (lastPathnameRef.current === pathname) return
+    lastPathnameRef.current = pathname
+    onCloseRef.current()
+  }, [pathname])
+
+  // Lock background scroll while the drawer is open.
+  useEffect(() => {
+    if (!isOpen) return
+    const previous = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+    return () => {
+      document.body.style.overflow = previous
+    }
+  }, [isOpen])
 
   if (!isOpen) return null
 
   return (
     <div className="fixed inset-0 z-50 xl:hidden">
-      <button aria-label="メニューを閉じる" onClick={onClose} className="absolute inset-0 bg-slate-950/30 backdrop-blur-md" />
-      <aside className="ui-floating absolute inset-y-0 left-0 flex w-72 max-w-[85vw] flex-col rounded-r-container border-l-0">
+      <div aria-hidden onClick={onClose} className="absolute inset-0 bg-slate-950/30 backdrop-blur-md" />
+      <div
+        ref={panelRef}
+        role="dialog"
+        aria-modal="true"
+        aria-label="メニュー"
+        tabIndex={-1}
+        className="ui-floating absolute inset-y-0 left-0 flex w-72 max-w-[85vw] flex-col rounded-r-container border-l-0 outline-none">
         <div className="flex items-center justify-between border-b border-[color:var(--border-default)] px-5 py-5">
           <div className="flex min-w-0 items-center gap-3">
             <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-card bg-[color:var(--accent)] text-sm font-bold text-white shadow-[0_10px_24px_rgba(109,93,246,0.22)]">
@@ -39,7 +72,7 @@ export default function MobileNav({ workspace, user, isOpen, onClose }: MobileNa
         </div>
 
         <nav className="flex-1 overflow-y-auto px-3 py-4">
-          {NAV_GROUPS.map((group) => (
+          {getNavGroups(role).map((group) => (
             <div key={group.heading} className="mb-4 last:mb-0">
               <p className="px-3 pb-1 text-[11px] font-semibold tracking-[0.08em] text-[color:var(--text-subtle)]">{group.heading}</p>
               <div className="space-y-0.5">
@@ -79,7 +112,7 @@ export default function MobileNav({ workspace, user, isOpen, onClose }: MobileNa
             </div>
           </div>
         </div>
-      </aside>
+      </div>
     </div>
   )
 }

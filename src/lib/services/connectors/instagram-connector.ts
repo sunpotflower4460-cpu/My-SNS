@@ -254,12 +254,22 @@ export class InstagramConnectorAdapter implements SocialConnectorAdapter {
 
     const caption = buildCaption(request)
     const isVideo = request.metadata.mediaType === 'video' || request.metadata.mediaType === 'reel'
+    const coverUrl = typeof request.metadata.coverUrl === 'string' ? request.metadata.coverUrl : undefined
+    const trustedCoverUrl = coverUrl ? assertTrustedPublishMediaUrl(coverUrl).toString() : undefined
+
+    if (trustedCoverUrl && !isVideo) {
+      throw new Error('Instagram cover images apply to Reels only. This job is an image post, so remove the cover or attach a 9:16 video.')
+    }
 
     const creation = await graphPost<{ id: string }>(`/${igUserId}/media`, {
       access_token: request.accessToken,
       caption,
       ...(isVideo
-        ? { video_url: trustedMediaUrl, media_type: 'REELS' }
+        ? {
+            video_url: trustedMediaUrl,
+            media_type: 'REELS',
+            ...(trustedCoverUrl ? { cover_url: trustedCoverUrl } : {}),
+          }
         : { image_url: trustedMediaUrl }),
     })
 

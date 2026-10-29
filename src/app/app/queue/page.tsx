@@ -58,6 +58,7 @@ export default function QueuePage() {
     publishJobs,
     retryQueueJob,
     seeds,
+    socialAccounts,
     triggerPublishJob,
   } = useApp()
   const canManageQueue = Boolean(currentMember && hasPermission(currentMember.role, 'manage_queue'))
@@ -150,7 +151,12 @@ export default function QueuePage() {
 
     // Open synchronously from the click event so browsers do not treat this as
     // an async popup. Clipboard work can safely finish after the new tab opens.
-    const opened = window.open(target.url, '_blank', 'noopener,noreferrer')
+    // No 'noopener' in the features string: with it window.open() always returns
+    // null, which made every successful handoff look like a blocked popup. The
+    // opener is cut manually instead (same protection).
+    const openedWindow = window.open(target.url, '_blank')
+    if (openedWindow) openedWindow.opener = null
+    const opened = Boolean(openedWindow)
     setBusyJobId(job.id)
 
     try {
@@ -219,6 +225,11 @@ export default function QueuePage() {
                   </div>
                   <div className="min-w-0 flex-1">
                     <p className="truncate text-sm font-medium text-gray-900">{getSeedTitle(job.seedId)}</p>
+                    {job.socialAccountId && (
+                      <p className="mt-0.5 text-xs text-gray-500">
+                        投稿先: {socialAccounts.find((account) => account.id === job.socialAccountId)?.handle ?? job.socialAccountId}
+                      </p>
+                    )}
                     <p className="mt-1 text-xs text-gray-500">{describeJobStatus(job)}</p>
                     {job.errorMessage && <p className="mt-2 text-xs text-rose-600">{job.errorMessage}</p>}
                     <QueueMediaKit seedId={job.seedId} assets={assets} />

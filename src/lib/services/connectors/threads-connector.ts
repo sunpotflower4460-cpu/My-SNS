@@ -40,7 +40,7 @@ function requireEnv(name: string): string {
 }
 
 export function isThreadsConfigured(): boolean {
-  return Boolean(process.env.THREADS_CLIENT_ID?.trim())
+  return Boolean(process.env.THREADS_CLIENT_ID?.trim() && process.env.THREADS_CLIENT_SECRET?.trim())
 }
 
 export function buildThreadsAuthorizeUrl(state: string, redirectUri: string): string {
