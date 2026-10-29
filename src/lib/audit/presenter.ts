@@ -79,6 +79,8 @@ export function describeAuditLog(log: AuditLog): string {
       return `${actor}さんがLINE公式アカウントを接続しました${typeof log.metadata?.handle === 'string' ? `（${log.metadata.handle}）` : ''}。`
     case 'workspace_data_exported':
       return `${actor}さんがワークスペースデータをエクスポートしました${typeof log.metadata?.seeds === 'number' ? `（シード${log.metadata.seeds}件）` : ''}。`
+    case 'shadow_strategy_imported':
+      return `${actor}さんが分析表示専用の Shadow Strategy を読み込みました${typeof log.metadata?.platform === 'string' ? `（${log.metadata.platform}）` : ''}。`
     default:
       return `${actor}さんがワークスペースを更新しました。`
   }
