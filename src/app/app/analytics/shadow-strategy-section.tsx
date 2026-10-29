@@ -40,6 +40,7 @@ export default function ShadowStrategySection() {
   const [importText, setImportText] = useState('')
   const [importError, setImportError] = useState<string | null>(null)
   const [importing, setImporting] = useState(false)
+  const [reloadVersion, setReloadVersion] = useState(0)
 
   const selectedId = accounts.some((account) => account.id === selectedSocialAccountId)
     ? selectedSocialAccountId
@@ -80,7 +81,7 @@ export default function ShadowStrategySection() {
     const controller = new AbortController()
     void loadStrategy(workspaceId, selectedId, controller.signal)
     return () => controller.abort()
-  }, [canView, workspaceId, loadStrategy, selectedId])
+  }, [canView, workspaceId, loadStrategy, selectedId, reloadVersion])
 
   if (!canView) return null
 
@@ -107,14 +108,17 @@ export default function ShadowStrategySection() {
           payload,
         }),
       })
-      const body = (await response.json().catch(() => null)) as { error?: string; strategy?: ShadowGrowthStrategy } | null
+      const body = (await response.json().catch(() => null)) as { error?: string } | null
       if (!response.ok) {
         setImportError(body?.error ?? '取り込みに失敗しました。')
         return
       }
       setImportText('')
       setImportOpen(false)
-      setLoadState({ status: 'loaded', workspaceId: currentWorkspace.id, socialAccountId: selectedId, latest: body?.strategy ?? null })
+      // The imported snapshot may be older than the latest one. Reload the
+      // account's ordered list through the GET endpoint before displaying it.
+      // Re-running the effect also aborts any earlier in-flight account fetch.
+      setReloadVersion((version) => version + 1)
     } catch {
       setImportError('取り込みに失敗しました。')
     } finally {
