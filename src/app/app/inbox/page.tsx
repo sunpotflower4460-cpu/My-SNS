@@ -4,8 +4,10 @@ import { useMemo, useState } from 'react'
 import PageHeader from '@/components/ui/PageHeader'
 import InboxItemCard from '@/components/ui/InboxItemCard'
 import ConciergeReplyPanel from '@/components/ui/ConciergeReplyPanel'
+import BulkReplyReviewPanel from '@/components/ui/BulkReplyReviewPanel'
 import CreatorStatusBar from '@/components/ui/CreatorStatusBar'
 import EmptyState from '@/components/ui/EmptyState'
+import { Button, StickyActionBar } from '@/components/ui/kit'
 import { useApp } from '@/lib/app/app-provider'
 import { hasPermission } from '@/lib/permissions'
 import {
@@ -14,6 +16,8 @@ import {
   inboxCounts,
   type FilterTab,
 } from '@/lib/presentation/inbox-presenter'
+
+const MAX_BULK_SELECTION = 20
 
 const TABS: Array<{ label: string; value: FilterTab }> = [
   { label: 'すべて', value: 'all' },
@@ -27,12 +31,28 @@ const TABS: Array<{ label: string; value: FilterTab }> = [
 ]
 
 export default function InboxPage() {
-  const { addInboxNote, currentMember, getInboxNotes, inboxItems, seeds, toggleInboxNeedsAction, toggleInboxRead, toggleInboxStar } = useApp()
+  const {
+    addInboxNote,
+    currentMember,
+    generateBulkInboxReplies,
+    getInboxNotes,
+    inboxItems,
+    seeds,
+    toggleInboxNeedsAction,
+    toggleInboxRead,
+    toggleInboxStar,
+  } = useApp()
   const canMutateInbox = Boolean(currentMember && hasPermission(currentMember.role, 'reply_inbox'))
   const [activeTab, setActiveTab] = useState<FilterTab>('all')
   const [draftNotes, setDraftNotes] = useState<Record<string, string>>({})
   const [feedback, setFeedback] = useState('')
   const [error, setError] = useState('')
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
+  const [bulkGenerating, setBulkGenerating] = useState(false)
+  const [reviewBatch, setReviewBatch] = useState<{
+    items: typeof inboxItems
+    proposals: Record<string, { text: string; suggestionId?: string }>
+  } | null>(null)
 
   // Filter first, then split into priority groups (急ぎ / 対応が必要 / そのほか) so
   // the messages that need a fast reply stay at the top even within a filter.
@@ -55,10 +75,66 @@ export default function InboxPage() {
     }
   }
 
+  const toggleSelected = (itemId: string) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev)
+      if (next.has(itemId)) {
+        next.delete(itemId)
+      } else if (next.size < MAX_BULK_SELECTION) {
+        next.add(itemId)
+      }
+      return next
+    })
+  }
+
+  const handleBulkGenerate = async () => {
+    const ids = Array.from(selectedIds)
+    if (ids.length === 0) return
+    setBulkGenerating(true)
+    setError('')
+    try {
+      const outcome = await generateBulkInboxReplies(ids)
+      const successful = outcome.results.filter((result) => result.status >= 200 && result.status < 300 && typeof result.body.reply === 'string')
+      if (successful.length === 0) {
+        const reason = outcome.results.find((result) => result.body.error)?.body.error
+        throw new Error(reason ?? '選択した項目の返信案を生成できませんでした。')
+      }
+      const generatedIds = new Set(successful.map((result) => result.inboxItemId))
+      setReviewBatch({
+        items: inboxItems.filter((item) => generatedIds.has(item.id)),
+        // Use the actual API results, not a state snapshot from before the
+        // provider refresh; the latter could show empty/stale suggestions.
+        proposals: Object.fromEntries(successful.map((result) => [result.inboxItemId, {
+          text: result.body.reply as string,
+          suggestionId: typeof result.body.suggestionId === 'string' ? result.body.suggestionId : undefined,
+        }])),
+      })
+      const failedCount = ids.length - successful.length
+      if (failedCount > 0) setError(`${failedCount}件は生成できませんでした。成功した${successful.length}件を確認できます。`)
+      setSelectedIds(new Set())
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'おすすめ返信を一括作成できませんでした。')
+    } finally {
+      setBulkGenerating(false)
+    }
+  }
+
   const renderItem = (item: (typeof inboxItems)[number]) => {
     const notes = getInboxNotes(item.id)
     return (
       <div key={item.id}>
+        {canMutateInbox && (
+          <label className="mb-1.5 flex items-center gap-2 text-xs text-gray-500">
+            <input
+              type="checkbox"
+              checked={selectedIds.has(item.id)}
+              onChange={() => toggleSelected(item.id)}
+              disabled={!selectedIds.has(item.id) && selectedIds.size >= MAX_BULK_SELECTION}
+              className="h-4 w-4 rounded border-stone-300 text-violet-600 focus:ring-violet-400"
+            />
+            一括操作用に選択
+          </label>
+        )}
         <InboxItemCard
           item={item}
           notes={notes}
@@ -151,6 +227,22 @@ export default function InboxPage() {
             </section>
           ))}
         </div>
+      )}
+
+      {canMutateInbox && selectedIds.size > 0 && (
+        <StickyActionBar>
+          <span className="text-sm text-gray-600">{selectedIds.size}件選択中</span>
+          <div className="flex items-center gap-2">
+            <Button variant="secondary" size="sm" onClick={() => setSelectedIds(new Set())}>選択解除</Button>
+            <Button variant="primary" size="sm" loading={bulkGenerating} onClick={() => void handleBulkGenerate()}>
+              おすすめ返信を一括生成
+            </Button>
+          </div>
+        </StickyActionBar>
+      )}
+
+      {reviewBatch && (
+        <BulkReplyReviewPanel open onClose={() => setReviewBatch(null)} items={reviewBatch.items} proposals={reviewBatch.proposals} />
       )}
     </div>
   )

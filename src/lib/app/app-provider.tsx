@@ -140,6 +140,12 @@ interface AppContextValue {
   addInboxNote: (inboxItemId: string, text: string) => Promise<InboxNote>
   getInboxNotes: (inboxItemId: string) => InboxNote[]
   generateInboxReply: (inboxItemId: string) => Promise<{ source: 'ai' | 'template-fallback'; reason?: string; summary: string; reply: string; tone: string; assumptions: string[]; priority: 'high' | 'normal' | 'low'; suggestionId: string }>
+  /** Generates up to 20 suggestions in bounded sequential batches. Never sends anything. */
+  generateBulkInboxReplies: (inboxItemIds: string[]) => Promise<{
+    results: Array<{ inboxItemId: string; status: number; body: { error?: string; reply?: string; [key: string]: unknown } }>
+    succeeded: number
+    failed: number
+  }>
   getReplySuggestion: (inboxItemId: string) => AiReplySuggestion | null
   approveAndSendReply: (input: { inboxItemId: string; replyText: string; suggestionId?: string; sendNow?: boolean }) => Promise<{ status: 'scheduled' | 'sent' | 'failed'; job: ReplyJob }>
   triggerReplyJob: (jobId: string) => Promise<void>
@@ -910,6 +916,38 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           priority: 'high' | 'normal' | 'low'
           suggestionId: string
         }
+      },
+
+      generateBulkInboxReplies: async (inboxItemIds) => {
+        if (!currentWorkspace) throw new Error('準備ができていません')
+        if (!currentMember || !hasPermission(currentMember.role, 'reply_inbox')) {
+          throw new Error('あなたの役割では返信を作成できません。')
+        }
+
+        const results: Array<{ inboxItemId: string; status: number; body: { error?: string; reply?: string; [key: string]: unknown } }> = []
+        for (let start = 0; start < inboxItemIds.length; start += 5) {
+          const ids = inboxItemIds.slice(start, start + 5)
+          try {
+            const response = await fetch('/api/inbox/reply/generate-bulk', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ workspaceId: currentWorkspace.id, inboxItemIds: ids }),
+            })
+            const payload = await readJsonBody(response)
+            if (!response.ok || !Array.isArray(payload.results) || payload.results.length !== ids.length) {
+              throw new Error(payload.error ?? 'おすすめ返信を一括作成できませんでした。')
+            }
+            results.push(...payload.results)
+          } catch (cause) {
+            const message = cause instanceof Error ? cause.message : '返信案を生成できませんでした。'
+            for (const inboxItemId of ids) results.push({ inboxItemId, status: 503, body: { error: message } })
+          }
+        }
+
+        // Refresh once after the whole selection, not between paid batches.
+        await refreshWorkspaceData()
+        const succeeded = results.filter((result) => result.status >= 200 && result.status < 300).length
+        return { results, succeeded, failed: results.length - succeeded }
       },
 
       getReplySuggestion: (inboxItemId) => {
