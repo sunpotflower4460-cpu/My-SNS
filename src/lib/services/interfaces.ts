@@ -1,11 +1,19 @@
 import type { BrandProfile, Seed, SocialDraft, PublishingChannel, SocialPlatform, InboundInboxEvent, PostMetrics } from '@/lib/domain/types'
 
 // ─── Draft Generator ──────────────────────────────────────────────────────────
+/** Frozen fields of one AI proposal (or the human-approved counterpart) used as a few-shot style hint. */
+export interface DraftStyleSnapshot {
+  title?: string
+  body: string
+  hashtags: string[]
+  cta?: string
+}
+
 /** One prior AI proposal a human edited before approving, for the same channel — used as a few-shot style hint (PR7's "learn from corrections"). */
 export interface DraftStyleExample {
   channel: PublishingChannel
-  aiProposed: string
-  humanApproved: string
+  aiProposed: DraftStyleSnapshot
+  humanApproved: DraftStyleSnapshot
 }
 
 export interface DraftGenerationContext {
@@ -14,6 +22,8 @@ export interface DraftGenerationContext {
   brandProfile?: BrandProfile | null
   /** Recent human edits to AI proposals on this workspace, passed as in-context examples so future proposals drift toward the creator's actual style rather than needing supervised retraining. */
   styleExamples?: DraftStyleExample[]
+  /** Compact, fact-free notes derived from several corrections on the same channel. Never overrides Brand Profile or Seed facts. */
+  styleTendencies?: string[]
 }
 
 export interface DraftGeneratorService {

@@ -12,6 +12,7 @@ import PublishFlowSteps from '@/components/publish/PublishFlowSteps'
 import { describeAuditLog, getAuditLogMeta } from '@/lib/audit/presenter'
 import { PUBLISHING_CHANNEL_CONFIG } from '@/lib/channels/config'
 import { formatBytes, normalizeTags } from '@/lib/seeds/input'
+import { assetTypeLabel } from '@/lib/presentation/asset-presenter'
 import { useApp } from '@/lib/app/app-provider'
 import { hasPermission } from '@/lib/permissions'
 import {
@@ -214,8 +215,8 @@ export default function SeedDetailPage() {
           </div>
 
           <div className="rounded-[2rem] border border-stone-200 bg-white p-6 shadow-sm shadow-stone-100/80">
-            <div className="mb-4 flex items-center justify-between"><h2 className="text-base font-semibold text-gray-900">添付ファイル</h2><span className="rounded-full border border-stone-200 bg-stone-50 px-2.5 py-1 text-xs text-gray-500">{assets.length}</span></div>
-            {assets.length === 0 ? <p className="text-sm text-gray-500">添付されているファイルはありません。</p> : <div className="space-y-3">{assets.map((asset) => <div key={asset.id} className="flex items-center gap-4 rounded-2xl border border-stone-100 bg-stone-50 px-4 py-3">{asset.type === 'image' && asset.url ? <div aria-label={asset.name} className="h-14 w-14 rounded-2xl bg-cover bg-center" style={{ backgroundImage: `url(${asset.url})` }} /> : <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-white text-2xl">📎</div>}<div className="min-w-0 flex-1"><p className="truncate text-sm font-medium text-gray-900">{asset.name}</p><p className="text-xs text-gray-500">{asset.type} · {formatBytes(asset.size)}</p></div>{asset.url && <a href={asset.url} target="_blank" rel="noreferrer" className="text-xs font-medium text-violet-700">開く</a>}</div>)}</div>}
+            <div className="mb-4 flex flex-wrap items-center justify-between gap-2"><h2 className="text-base font-semibold text-gray-900">添付ファイル</h2><div className="flex items-center gap-3"><Link href={`/app/seeds/${seed.id}/media`} className="text-xs font-medium text-violet-700 hover:text-violet-900">素材を追加・管理</Link><span className="rounded-full border border-stone-200 bg-stone-50 px-2.5 py-1 text-xs text-gray-500">{assets.length}</span></div></div>
+            {assets.length === 0 ? <p className="text-sm text-gray-500">添付されているファイルはありません。</p> : <div className="space-y-3">{assets.map((asset) => <div key={asset.id} className="flex items-center gap-4 rounded-2xl border border-stone-100 bg-stone-50 px-4 py-3">{asset.type === 'image' && asset.url ? <div aria-label={asset.name} className="h-14 w-14 rounded-2xl bg-cover bg-center" style={{ backgroundImage: `url(${asset.url})` }} /> : <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-white text-2xl">📎</div>}<div className="min-w-0 flex-1"><p className="truncate text-sm font-medium text-gray-900">{asset.name}</p><p className="text-xs text-gray-500">{assetTypeLabel(asset.type)} · {formatBytes(asset.size)}</p></div>{asset.url && <a href={asset.url} target="_blank" rel="noreferrer" className="text-xs font-medium text-violet-700">開く</a>}</div>)}</div>}
           </div>
 
           <div className="rounded-[2rem] border border-stone-200 bg-white p-6 shadow-sm shadow-stone-100/80">

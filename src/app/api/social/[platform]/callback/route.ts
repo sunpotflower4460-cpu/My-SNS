@@ -9,12 +9,12 @@ import {
   upsertPendingSocialAccount,
 } from '@/lib/repositories/supabase/social-accounts'
 import { deleteSocialCredentials, saveSocialCredentials } from '@/lib/repositories/supabase/social-credentials'
-import { getConnectorAdapter, isConnectablePlatform } from '@/lib/services/connectors'
+import { getConnectorAdapter, isConnectablePlatform, type ConnectablePlatform } from '@/lib/services/connectors'
+import { buildPlatformRedirectUri } from '@/lib/services/connectors/platform-setup'
 import { finalizeSocialConnectionWithCleanup } from '@/lib/services/social-connection-finalization'
 
-function redirectUriFor(request: NextRequest, platform: string): string {
-  const base = process.env.NEXT_PUBLIC_APP_URL?.trim() || request.nextUrl.origin
-  return `${base}/api/social/${platform}/callback`
+function redirectUriFor(request: NextRequest, platform: ConnectablePlatform): string {
+  return buildPlatformRedirectUri(process.env.NEXT_PUBLIC_APP_URL?.trim() || request.nextUrl.origin, platform)
 }
 
 export async function GET(request: NextRequest, { params }: { params: Promise<{ platform: string }> }) {

@@ -87,12 +87,28 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error }, { status: 409 })
   }
 
+  // Only the public-reply path uses the new source-account column. LINE must
+  // remain fully functional before the optional public-reply migration runs.
+  let sourceSocialAccountId: string | null = null
+  if (kind !== 'dm') {
+    const { data: sourceItem, error: sourceError } = await supabase
+      .from('inbox_items')
+      .select('social_account_id')
+      .eq('id', inboxItemId)
+      .eq('workspace_id', workspaceId)
+      .maybeSingle()
+    if (sourceError) {
+      return NextResponse.json({ error: '公開返信には受信元アカウントのDB移行が必要です。管理者に確認してください。' }, { status: 409 })
+    }
+    sourceSocialAccountId = sourceItem?.social_account_id ?? null
+  }
+
   const target =
     kind === 'dm'
       ? await resolveDmSendTarget(supabase, workspaceId, platform, item.contact_id, sendNow)
-      : await resolveContentSendTarget(supabase, workspaceId, platform, item.external_id)
+      : await resolveContentSendTarget(supabase, workspaceId, platform, item.external_id, sourceSocialAccountId)
   if (isNextResponse(target)) return target
-  const { sendTarget, contactId, scheduledAt } = target
+  const { sendTarget, contactId, socialAccountId, scheduledAt } = target
 
   let job: ReplyJob
   let reusedExistingJob = false
@@ -105,6 +121,7 @@ export async function POST(request: NextRequest) {
       platform,
       replyText,
       sendTarget,
+      socialAccountId,
       replyMode: 'scheduled',
       scheduledAt,
       createdBy: user.id,
@@ -225,6 +242,7 @@ export async function POST(request: NextRequest) {
     platform,
     inboxItemId: job.inboxItemId,
     sendTarget: job.sendTarget,
+    socialAccountId: job.socialAccountId,
     replyText: job.replyText,
     createdBy: job.createdBy,
   })

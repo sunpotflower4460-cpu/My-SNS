@@ -12,9 +12,43 @@ test('login renders My-SNS and validates an empty email locally', async ({ page 
 
   await expect(page.getByRole('heading', { name: 'My-SNS', exact: true })).toBeVisible()
   await expect(page.getByLabel('メールアドレス')).toBeVisible()
+  await expect(page.getByLabel('パスワード')).toBeVisible()
 
-  await page.getByRole('button', { name: 'マジックリンクを送る' }).click()
+  await page.getByRole('button', { name: 'ログイン' }).click()
   await expect(page.getByText('メールアドレスを入力してください')).toBeVisible()
+})
+
+test('login validates a missing password locally', async ({ page }) => {
+  await page.goto('/login')
+  await page.getByLabel('メールアドレス').fill('demo@example.com')
+  await page.getByRole('button', { name: 'ログイン' }).click()
+  await expect(page.getByText('パスワードを入力してください')).toBeVisible()
+})
+
+test('login maps invalid credentials to Japanese copy', async ({ page }) => {
+  await page.route('https://example.supabase.co/auth/v1/token**', async (route) => {
+    await route.fulfill({
+      status: 400,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        code: 'invalid_credentials',
+        error_code: 'invalid_credentials',
+        msg: 'Invalid login credentials',
+        message: 'Invalid login credentials',
+      }),
+    })
+  })
+
+  await page.goto('/login')
+  await page.getByLabel('メールアドレス').fill('wrong@example.com')
+  await page.getByLabel('パスワード').fill('bad-password')
+  await page.getByRole('button', { name: 'ログイン' }).click()
+  await expect(
+    page.getByText(
+      'メールアドレスまたはパスワードが違います。初めての方は「アカウント作成」から始めてください。',
+    ),
+  ).toBeVisible()
+  await expect(page.getByLabel('メールアドレス')).toHaveValue('wrong@example.com')
 })
 
 test('signed-out visitors are redirected away from protected app routes', async ({ page }) => {
@@ -39,9 +73,26 @@ test('PWA manifest is linked and launches into the publishing dashboard', async 
   expect(manifest.start_url).toBe('/app/dashboard')
   expect(manifest.display).toBe('standalone')
   expect(manifest.icons).toEqual(expect.arrayContaining([
+    expect.objectContaining({ src: '/icons/icon-192.png', sizes: '192x192', type: 'image/png' }),
+    expect.objectContaining({ src: '/icons/icon-512.png', sizes: '512x512', type: 'image/png' }),
+    expect.objectContaining({ src: '/icons/icon-512-maskable.png', purpose: 'maskable' }),
     expect.objectContaining({ src: '/icons/my-sns.svg' }),
     expect.objectContaining({ src: '/icons/my-sns-maskable.svg', purpose: 'maskable' }),
   ]))
+})
+
+test('PWA PNG icons are served as real files, not SVG placeholders', async ({ page, request }) => {
+  const icon512 = await request.get('/icons/icon-512.png')
+  expect(icon512.ok()).toBe(true)
+  expect(icon512.headers()['content-type']).toMatch(/image\/png/)
+
+  const appleIcon = await request.get('/apple-icon.png')
+  expect(appleIcon.ok()).toBe(true)
+  expect(appleIcon.headers()['content-type']).toMatch(/image\/png/)
+
+  await page.goto('/login')
+  const appleTouch = page.locator('link[rel="apple-touch-icon"]')
+  await expect(appleTouch).toHaveCount(1)
 })
 
 test('security headers protect the app without disabling Web Share', async ({ page }) => {
@@ -73,7 +124,7 @@ test('mobile-width login shell does not overflow horizontally', async ({ page })
   await page.setViewportSize({ width: 390, height: 844 })
   await page.goto('/login')
 
-  await expect(page.getByRole('button', { name: 'マジックリンクを送る' })).toBeVisible()
+  await expect(page.getByRole('button', { name: 'ログイン' })).toBeVisible()
   const horizontalOverflow = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth)
   expect(horizontalOverflow).toBeLessThanOrEqual(1)
 })

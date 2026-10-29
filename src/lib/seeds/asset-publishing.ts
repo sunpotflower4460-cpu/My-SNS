@@ -1,4 +1,4 @@
-import type { Asset, PublishingChannel } from '@/lib/domain/types'
+import type { Asset, AssetAspectRatio, AssetMediaRole, PublishingChannel } from '@/lib/domain/types'
 import { createClient } from '@/lib/supabase/client'
 
 export type AssetPublishingAssignments = Record<string, PublishingChannel[]>
@@ -113,6 +113,23 @@ export async function listSeedAssetPublishingAssignments(params: {
   }
 
   return assignments
+}
+
+export async function updateSeedAssetMediaAttributes(params: {
+  assetId: string
+  aspectRatio?: AssetAspectRatio | null
+  mediaRole?: AssetMediaRole
+  sourceAssetId?: string | null
+}): Promise<void> {
+  const supabase = createClient()
+  const { error } = await supabase.rpc('set_asset_media_attributes', {
+    asset_uuid: params.assetId,
+    aspect: params.aspectRatio ?? null,
+    role: params.mediaRole ?? null,
+    source: params.sourceAssetId ?? null,
+  })
+
+  if (error) throw new Error(`素材の比率・役割を保存できませんでした: ${error.message}`)
 }
 
 export async function updateSeedAssetPublishingChannels(params: {

@@ -67,7 +67,8 @@ export default function InboxPage() {
             item.seedId ? seeds.find((seed) => seed.id === item.seedId)?.title ?? 'リンクされたシード' : null
           }
           relatedSeedHref={item.seedId ? `/app/seeds/${item.seedId}` : null}
-          onChangeNote={(value) => setDraftNotes((prev) => ({ ...prev, [item.id]: value }))}
+          // Roles that cannot save a note (no reply_inbox) get no note input at all.
+          onChangeNote={canMutateInbox ? (value) => setDraftNotes((prev) => ({ ...prev, [item.id]: value })) : undefined}
           onSaveNote={canMutateInbox ? () => {
             if (!draftNotes[item.id]?.trim()) return
             void runInboxAction(async () => {

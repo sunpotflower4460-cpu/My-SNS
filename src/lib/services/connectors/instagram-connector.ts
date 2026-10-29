@@ -138,6 +138,34 @@ async function publishInstagramContainer(
   return { id }
 }
 
+/** A public comment reply is irreversible and has no provider retry key. */
+async function postInstagramCommentReply(commentId: string, message: string, accessToken: string): Promise<string> {
+  let response: Response
+  try {
+    response = await fetch(`${GRAPH_URL}/${encodeURIComponent(commentId)}/replies`, {
+      method: 'POST',
+      body: new URLSearchParams({ access_token: accessToken, message }),
+      signal: AbortSignal.timeout(GRAPH_REQUEST_TIMEOUT_MS),
+    })
+  } catch {
+    throw new Error('EXTERNAL_RESULT_UNKNOWN: Instagram comment reply response was lost. The reply may already be public.')
+  }
+
+  const payload = await response.json().catch(() => null)
+  if (!response.ok) {
+    const detail = (payload as { error?: { message?: string } } | null)?.error?.message ?? 'unknown error'
+    if (response.status >= 500) {
+      throw new Error(`EXTERNAL_RESULT_UNKNOWN: Instagram comment reply returned ${response.status}. Delivery is uncertain: ${detail}`)
+    }
+    throw new Error(`Instagram Graph API error (${response.status}): ${detail}`)
+  }
+  const id = (payload as { id?: unknown } | null)?.id
+  if (typeof id !== 'string' || !id) {
+    throw new Error('EXTERNAL_RESULT_UNKNOWN: Instagram comment reply succeeded without a usable id. The reply may already be public.')
+  }
+  return id
+}
+
 async function waitForReelContainerReady(containerId: string, accessToken: string): Promise<void> {
   for (let attempt = 0; attempt < REEL_STATUS_POLL_ATTEMPTS; attempt += 1) {
     const status = await graphGet<{ status_code?: string; status?: string }>(`/${containerId}`, {
@@ -263,12 +291,22 @@ export class InstagramConnectorAdapter implements SocialConnectorAdapter {
 
     const caption = buildCaption(request)
     const isVideo = request.metadata.mediaType === 'video' || request.metadata.mediaType === 'reel'
+    const coverUrl = typeof request.metadata.coverUrl === 'string' ? request.metadata.coverUrl : undefined
+    const trustedCoverUrl = coverUrl ? assertTrustedPublishMediaUrl(coverUrl).toString() : undefined
+
+    if (trustedCoverUrl && !isVideo) {
+      throw new Error('Instagram cover images apply to Reels only. This job is an image post, so remove the cover or attach a 9:16 video.')
+    }
 
     const creation = await graphPost<{ id: string }>(`/${igUserId}/media`, {
       access_token: request.accessToken,
       caption,
       ...(isVideo
-        ? { video_url: trustedMediaUrl, media_type: 'REELS' }
+        ? {
+            video_url: trustedMediaUrl,
+            media_type: 'REELS',
+            ...(trustedCoverUrl ? { cover_url: trustedCoverUrl } : {}),
+          }
         : { image_url: trustedMediaUrl }),
     })
 
@@ -320,11 +358,8 @@ export class InstagramConnectorAdapter implements SocialConnectorAdapter {
    * messaging permission + App Review, which this app does not have.
    */
   async sendMessage(request: SendMessageRequest): Promise<SendMessageResult> {
-    const result = await graphPost<{ id: string }>(`/${request.target}/replies`, {
-      access_token: request.accessToken,
-      message: request.text,
-    })
-    return { externalMessageId: result.id }
+    const id = await postInstagramCommentReply(request.target, request.text, request.accessToken)
+    return { externalMessageId: id }
   }
 
   async fetchInbox(): Promise<InboundInboxEvent[]> {

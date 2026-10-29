@@ -28,8 +28,8 @@ export const PUBLISHING_CHANNEL_CONFIG: Record<PublishingChannel, PublishingChan
     shortLabel: 'YouTube',
     icon: '▶',
     delivery: 'api-later',
-    description: '動画のタイトル・概要欄・補足コピーを作成します。',
-    mvpPublishMode: 'assisted',
+    description: '動画のタイトル・概要欄・補足コピーを作成します。予約時刻のあと、日次Workerが公開（public）します（Hobbyでは最大約1日のずれ）。急ぎなら「今すぐ公開」。',
+    mvpPublishMode: 'auto',
   },
   note: {
     label: 'note',
@@ -60,8 +60,8 @@ export const PUBLISHING_CHANNEL_CONFIG: Record<PublishingChannel, PublishingChan
     shortLabel: 'TikTok',
     icon: '♪',
     delivery: 'api-later',
-    description: 'ショート動画向けのキャプションと冒頭のフックを作成します。',
-    mvpPublishMode: 'draft',
+    description: 'ショート動画向けのキャプションと冒頭のフックを作成します。監査前はTikTok側がSELF_ONLY（自分のみ）に固定します。',
+    mvpPublishMode: 'auto',
   },
   threads: {
     label: 'Threads',
@@ -69,7 +69,11 @@ export const PUBLISHING_CHANNEL_CONFIG: Record<PublishingChannel, PublishingChan
     icon: '@',
     delivery: 'api-later',
     description: '会話調のソーシャルコピーを作成します。',
-    mvpPublishMode: 'assisted',
+    // 'auto' (not 'assisted'): Threads has a real connector (threads-connector.ts)
+    // and the same publish_jobs-per-channel Worker model as Instagram/X, so
+    // selecting Threads alongside another auto channel publishes to both —
+    // this is what makes "simultaneous posting" work with no extra orchestration.
+    mvpPublishMode: 'auto',
   },
   facebook: {
     label: 'Facebook',

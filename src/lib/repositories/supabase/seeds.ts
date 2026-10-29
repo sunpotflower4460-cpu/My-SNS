@@ -1,5 +1,7 @@
 import type {
   Asset,
+  AssetAspectRatio,
+  AssetMediaRole,
   BrandProfile,
   PublishingChannel,
   Seed,
@@ -19,6 +21,9 @@ interface AssetRow {
   size: number
   uploaded_by: string
   created_at: string
+  aspect_ratio?: AssetAspectRatio | null
+  media_role?: AssetMediaRole | null
+  source_asset_id?: string | null
 }
 
 interface BrandProfileRow {
@@ -158,9 +163,12 @@ async function resolveAssetUrls(rows: AssetRow[]): Promise<Asset[]> {
     storagePath: asset.storage_path ?? undefined,
     type: asset.type,
     size: asset.size,
-    uploadedBy: asset.uploaded_by,
-    createdAt: asset.created_at,
-  }))
+      uploadedBy: asset.uploaded_by,
+      createdAt: asset.created_at,
+      aspectRatio: asset.aspect_ratio ?? undefined,
+      mediaRole: asset.media_role ?? undefined,
+      sourceAssetId: asset.source_asset_id ?? undefined,
+    }))
 }
 
 export async function listWorkspaceSeeds(workspaceId: string): Promise<Seed[]> {

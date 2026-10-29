@@ -83,7 +83,7 @@ export default function QueueMediaKit({ seedId, assets }: QueueMediaKitProps) {
 
               <div className="min-w-0 flex-1">
                 <p className="truncate text-xs font-medium text-gray-800" title={asset.name}>{asset.name}</p>
-                <p className="mt-0.5 text-[11px] text-gray-400">{assetTypeLabel(asset.type)} · {formatAssetSize(asset.size)}</p>
+                <p className="mt-0.5 text-[11px] text-gray-400">{assetTypeLabel(asset.type)}{asset.mediaRole && asset.mediaRole !== 'source' ? ` · ${asset.mediaRole === 'thumbnail' ? 'サムネイル' : asset.mediaRole === 'cover' ? 'カバー' : asset.mediaRole === 'eyecatch' ? 'アイキャッチ' : 'バリアント'}` : ''} · {formatAssetSize(asset.size)}</p>
                 {failed && <p className="mt-1 text-[11px] text-rose-600">保存できませんでした。ページを更新して再試行してください。</p>}
 
                 <div className="mt-2 flex flex-wrap gap-1.5">

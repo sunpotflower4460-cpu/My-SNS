@@ -1,7 +1,10 @@
 'use client'
 
-import { useEffect, useState } from 'react'
-import type { SocialDraft } from '@/lib/domain/types'
+import { useEffect, useMemo, useState } from 'react'
+import { PUBLISHING_CHANNEL_CONFIG } from '@/lib/channels/config'
+import type { Asset, SocialAccount, SocialDraft } from '@/lib/domain/types'
+import { connectedAccountsForPlatform, isSocialPlatformChannel } from '@/lib/publish/account-target'
+import { mergeDraftPublishOptions, parseDraftPublishOptions } from '@/lib/publish/draft-publish-options'
 import ChannelBadge from './ChannelBadge'
 import StatusBadge from './StatusBadge'
 
@@ -13,50 +16,125 @@ function clientScheduleInputValue(): string {
 
 interface DraftEditorCardProps {
   draft: SocialDraft
-  onEdit?: (id: string, text: string) => void
+  connectedAccounts?: SocialAccount[]
+  seedAssets?: Asset[]
+  onEdit?: (id: string, text: string, metadata: Record<string, unknown>) => void
   /** Receives the editor's current text so approve never freezes a stale saved copy. */
-  onApprove?: (id: string, text: string) => void
+  onApprove?: (id: string, text: string, metadata: Record<string, unknown>) => void
   onRegenerate?: (id: string) => void
-  onSchedule?: (id: string, scheduledAt: string) => void
+  onSchedule?: (id: string, scheduledAt: string, metadata: Record<string, unknown>) => void
+  /** Live editor contents, so a parent (まとめて送る) can send the text currently on screen. */
+  onLiveChange?: (id: string, text: string, metadata: Record<string, unknown>) => void
 }
 
-export default function DraftEditorCard({ draft, onEdit, onApprove, onRegenerate, onSchedule }: DraftEditorCardProps) {
+export default function DraftEditorCard({
+  draft,
+  connectedAccounts = [],
+  seedAssets = [],
+  onEdit,
+  onApprove,
+  onRegenerate,
+  onSchedule,
+  onLiveChange,
+}: DraftEditorCardProps) {
   const [text, setText] = useState(draft.draftText)
+  const [metadata, setMetadata] = useState(draft.metadata ?? {})
   const [isDirty, setIsDirty] = useState(false)
   // datetime-local defaults must be client-only: SSR often runs in UTC while the
   // browser uses Asia/Tokyo, which would hydrate with a mismatched value.
   const [scheduleInput, setScheduleInput] = useState('')
 
+  // Re-sync only when the saved draft itself changes (its id, text, or
+  // updatedAt) — not on `draft.metadata` identity, which is a fresh object on
+  // every workspace refresh and would wipe an unsaved edit the user is typing.
   useEffect(() => {
     setText(draft.draftText)
+    setMetadata(draft.metadata ?? {})
     setIsDirty(false)
-  }, [draft.draftText, draft.id])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [draft.draftText, draft.id, draft.updatedAt])
+
+  // Thumbnails are chosen after the card is already on screen (generation runs
+  // in the background). Pick those two ids up without touching the text or the
+  // dirty flag, otherwise a later save/approve would send stale metadata and
+  // drop the thumbnail.
+  const incomingThumbnailId = typeof draft.metadata?.thumbnailAssetId === 'string' ? draft.metadata.thumbnailAssetId : undefined
+  const incomingCoverId = typeof draft.metadata?.coverAssetId === 'string' ? draft.metadata.coverAssetId : undefined
+  useEffect(() => {
+    setMetadata((current) => {
+      const patch: Parameters<typeof mergeDraftPublishOptions>[1] = {}
+      if (incomingThumbnailId && current.thumbnailAssetId !== incomingThumbnailId) patch.thumbnailAssetId = incomingThumbnailId
+      if (incomingCoverId && current.coverAssetId !== incomingCoverId) patch.coverAssetId = incomingCoverId
+      return Object.keys(patch).length === 0 ? current : mergeDraftPublishOptions(current, patch)
+    })
+  }, [incomingThumbnailId, incomingCoverId])
 
   useEffect(() => {
     setScheduleInput(clientScheduleInputValue())
   }, [draft.id])
 
-  const handleChange = (val: string) => {
-    setText(val)
+  const publishOptions = parseDraftPublishOptions(metadata)
+  const isShort = publishOptions.isShort === true
+  const platformAccounts = isSocialPlatformChannel(draft.channel)
+    ? connectedAccountsForPlatform(connectedAccounts, draft.channel)
+    : []
+  const pickerImages = useMemo(() => {
+    const images = seedAssets.filter((asset) => asset.type === 'image' && asset.url)
+    if (draft.channel === 'youtube' && isShort) {
+      const portraits = images.filter((asset) => asset.aspectRatio === '9:16' || asset.mediaRole === 'cover')
+      return portraits.length > 0 ? portraits : images.filter((asset) => asset.aspectRatio !== '16:9')
+    }
+    if (draft.channel === 'youtube') {
+      const thumbs = images.filter((asset) => asset.mediaRole === 'thumbnail' || asset.aspectRatio === '16:9')
+      return thumbs.length > 0 ? thumbs : images
+    }
+    if (draft.channel === 'instagram' || draft.channel === 'note') {
+      const covers = images.filter((asset) => (
+        asset.mediaRole === 'cover'
+        || asset.mediaRole === 'eyecatch'
+        || asset.aspectRatio === '9:16'
+        || asset.type === 'image'
+      ))
+      return covers
+    }
+    return images
+  }, [draft.channel, isShort, seedAssets])
+  const selectedStillId = draft.channel === 'youtube' && !isShort
+    ? (publishOptions.thumbnailAssetId ?? '')
+    : draft.channel === 'instagram'
+      ? (publishOptions.coverAssetId ?? '')
+      : draft.channel === 'note'
+        ? (publishOptions.eyecatchAssetId ?? '')
+        : draft.channel === 'youtube' && isShort
+          ? (publishOptions.coverAssetId ?? '')
+          : ''
+
+  const updatePublishOptions = (patch: Parameters<typeof mergeDraftPublishOptions>[1]) => {
+    // Compute the next value here: calling the parent's onLiveChange from
+    // inside a state updater runs during render (and twice in Strict Mode).
+    const next = mergeDraftPublishOptions(metadata, { ...parseDraftPublishOptions(metadata), ...patch })
+    setMetadata(next)
+    onLiveChange?.(draft.id, text, next)
     setIsDirty(true)
   }
 
+  const handleChange = (val: string) => {
+    setText(val)
+    setIsDirty(true)
+    onLiveChange?.(draft.id, val, metadata)
+  }
+
   const handleSave = () => {
-    // Keep isDirty until draft.draftText catches up via parent refresh.
-    // Clearing it eagerly would re-enable 予約する against a stale Revision
-    // if persistDraft fails.
-    onEdit?.(draft.id, text)
+    onEdit?.(draft.id, text, metadata)
   }
 
   const handleApprove = () => {
-    // Keep isDirty until the parent confirms via an updated draft prop.
-    // Clearing it eagerly would hide "未保存" if approval fails.
-    onApprove?.(draft.id, text)
+    onApprove?.(draft.id, text, metadata)
   }
 
   const handleSchedule = () => {
     if (isDirty || !scheduleInput) return
-    onSchedule?.(draft.id, new Date(scheduleInput).toISOString())
+    onSchedule?.(draft.id, new Date(scheduleInput).toISOString(), metadata)
   }
 
   return (
@@ -64,7 +142,7 @@ export default function DraftEditorCard({ draft, onEdit, onApprove, onRegenerate
       <div className="mb-3 flex flex-wrap items-center gap-2">
         <ChannelBadge channel={draft.channel} />
         <StatusBadge status={draft.status} />
-        <span className={`rounded-full px-2.5 py-1 text-[11px] font-semibold ${draft.source === 'ai' ? 'border border-[color:rgba(109,93,246,0.16)] bg-[color:var(--accent-soft)] text-[color:var(--accent)]' : 'border border-[color:var(--border-default)] bg-black/[0.03] text-[color:var(--text-muted)]'}`}>
+        <span className={`rounded-full px-2.5 py-1 text-xs font-semibold ${draft.source === 'ai' ? 'border border-[color:rgba(109,93,246,0.16)] bg-[color:var(--accent-soft)] text-[color:var(--accent)]' : 'border border-[color:var(--border-default)] bg-black/[0.03] text-[color:var(--text-muted)]'}`}>
           {draft.source === 'ai' ? 'AI提案' : 'テンプレート'}
         </span>
         <span className="ml-auto text-xs text-[color:var(--text-subtle)]">
@@ -78,8 +156,13 @@ export default function DraftEditorCard({ draft, onEdit, onApprove, onRegenerate
         value={text}
         onChange={(e) => handleChange(e.target.value)}
         rows={4}
+        aria-label={`${PUBLISHING_CHANNEL_CONFIG[draft.channel]?.label ?? draft.channel}の投稿本文`}
         className="ui-input w-full resize-none rounded-card p-3 text-sm text-[color:var(--text-default)] focus:outline-none"
       />
+
+      {draft.cta && (
+        <p className="mt-2 text-xs text-[color:var(--text-muted)]">CTA（投稿時に末尾へ追加）: {draft.cta}</p>
+      )}
 
       {draft.hashtags.length > 0 && (
         <p className="mt-2 text-xs text-[color:var(--text-subtle)]">{draft.hashtags.map((tag) => `#${tag}`).join(' ')}</p>
@@ -87,10 +170,132 @@ export default function DraftEditorCard({ draft, onEdit, onApprove, onRegenerate
 
       {draft.assumptions.length > 0 && (
         <div className="mt-3 rounded-card border border-amber-200/80 bg-amber-50/90 p-3">
-          <p className="text-[11px] font-semibold text-amber-700">確認が必要な前提</p>
+          <p className="text-sm font-semibold text-amber-700">確認が必要な前提</p>
           <ul className="mt-1.5 space-y-1 text-xs leading-5 text-amber-800">
             {draft.assumptions.map((assumption, index) => <li key={index}>• {assumption}</li>)}
           </ul>
+        </div>
+      )}
+
+      {(platformAccounts.length > 0 || pickerImages.length > 0 || draft.channel === 'youtube' || draft.channel === 'tiktok') && (
+        <div className="mt-3 space-y-2 rounded-card border border-[color:var(--border-default)] bg-black/[0.025] p-3">
+          {platformAccounts.length > 0 && (
+            <label className="block text-xs">
+              <span className="font-medium text-[color:var(--text-default)]">投稿するアカウント</span>
+              <select
+                value={publishOptions.socialAccountId ?? (platformAccounts.length === 1 ? platformAccounts[0].id : '')}
+                onChange={(event) => updatePublishOptions({ socialAccountId: event.target.value || undefined })}
+                className="ui-input mt-1 w-full rounded-control px-2.5 py-1.5 text-xs focus:outline-none"
+              >
+                {platformAccounts.length > 1 && <option value="">選択してください</option>}
+                {platformAccounts.map((account) => (
+                  <option key={account.id} value={account.id}>{account.handle}</option>
+                ))}
+              </select>
+              {platformAccounts.length > 1 && !publishOptions.socialAccountId && (
+                <span className="mt-1 block text-[11px] text-amber-700">アカウントが複数あるため、予約前に選んでください。</span>
+              )}
+            </label>
+          )}
+
+          {draft.channel === 'youtube' && (
+            <label className="flex items-center gap-2 text-xs text-[color:var(--text-default)]">
+              <input
+                type="checkbox"
+                checked={isShort}
+                onChange={(event) => updatePublishOptions({
+                  isShort: event.target.checked ? true : undefined,
+                  thumbnailAssetId: event.target.checked ? undefined : publishOptions.thumbnailAssetId,
+                })}
+              />
+              YouTube Shorts（9:16）として投稿する
+            </label>
+          )}
+
+          {draft.channel === 'youtube' && isShort && (
+            <p className="text-[11px] leading-5 text-[color:var(--text-subtle)]">
+              Shortsはカスタムサムネイルに対応していません。9:16の文字入りカバーはReels用です。16:9をレターボックスしません。
+            </p>
+          )}
+
+          {pickerImages.length > 0 && (draft.channel === 'youtube' || draft.channel === 'instagram' || draft.channel === 'note') && (
+            <div className="text-xs">
+              <span className="font-medium text-[color:var(--text-default)]">
+                {draft.channel === 'youtube' && !isShort
+                  ? 'カスタムサムネイル'
+                  : draft.channel === 'instagram' || (draft.channel === 'youtube' && isShort)
+                    ? 'カバー画像'
+                    : 'アイキャッチ画像'}
+              </span>
+              <div className="mt-2 flex flex-wrap gap-2">
+                {pickerImages.map((asset) => {
+                  const selected = asset.id === selectedStillId
+                  return (
+                    <button
+                      key={asset.id}
+                      type="button"
+                      onClick={() => {
+                        const value = selected ? undefined : asset.id
+                        if (draft.channel === 'youtube' && !isShort) updatePublishOptions({ thumbnailAssetId: value })
+                        else if (draft.channel === 'instagram' || (draft.channel === 'youtube' && isShort)) {
+                          updatePublishOptions({ coverAssetId: value })
+                        }
+                        else updatePublishOptions({ eyecatchAssetId: value })
+                      }}
+                      className={`overflow-hidden rounded-md border ${selected ? 'border-violet-400 ring-2 ring-violet-300' : 'border-stone-200'}`}
+                    >
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img src={asset.url} alt={asset.name} className="h-14 w-[6.2rem] object-cover" />
+                    </button>
+                  )
+                })}
+              </div>
+              <select
+                value={selectedStillId}
+                onChange={(event) => {
+                  const value = event.target.value || undefined
+                  if (draft.channel === 'youtube' && !isShort) updatePublishOptions({ thumbnailAssetId: value })
+                  else if (draft.channel === 'instagram' || (draft.channel === 'youtube' && isShort)) {
+                    updatePublishOptions({ coverAssetId: value })
+                  }
+                  else updatePublishOptions({ eyecatchAssetId: value })
+                }}
+                className="ui-input mt-2 w-full rounded-control px-2.5 py-1.5 text-xs focus:outline-none"
+              >
+                <option value="">指定しない</option>
+                {pickerImages.map((asset) => (
+                  <option key={asset.id} value={asset.id}>{asset.name}</option>
+                ))}
+              </select>
+              {draft.channel === 'youtube' && !isShort && (
+                <span className="mt-1 block text-[11px] text-[color:var(--text-subtle)]">
+                  巨大な文字入りの実画像です。テキスト案ではありません。未接続のYouTubeは設定から再接続（youtube.force-ssl）が必要な場合があります。
+                </span>
+              )}
+              {typeof metadata.thumbnailHook === 'string' && metadata.thumbnailHook && (
+                <span className="mt-1 block text-[11px] text-[color:var(--text-subtle)]">
+                  サムネイル文字「{String(metadata.thumbnailHook)}」。別の候補を選ぶか、素材を差し替えできます。
+                </span>
+              )}
+              {draft.channel === 'note' && (
+                <span className="mt-1 block text-[11px] text-[color:var(--text-subtle)]">
+                  noteに公式投稿APIはないため、公開予定から画像を保存して手で貼ってください。
+                </span>
+              )}
+            </div>
+          )}
+
+          {draft.channel === 'youtube' && pickerImages.length === 0 && !isShort && (
+            <p className="text-[11px] leading-5 text-amber-700">
+              文字入りサムネイルがまだありません。下書き作成時に自動生成されます。失敗した場合は素材管理からPNG/JPGを追加してください。
+            </p>
+          )}
+
+          {draft.channel === 'tiktok' && (
+            <p className="text-[11px] leading-5 text-[color:var(--text-subtle)]">
+              TikTokは監査前のため公開範囲はSELF_ONLY（自分のみ）です。カスタムカバー画像はAPI非対応です。
+            </p>
+          )}
         </div>
       )}
 
@@ -120,8 +325,13 @@ export default function DraftEditorCard({ draft, onEdit, onApprove, onRegenerate
         </div>
       )}
 
-      <div className="mt-3 flex items-center gap-2">
+      <div className="mt-3 flex flex-wrap items-center gap-2">
         {isDirty && <span className="rounded-full border border-amber-200/80 bg-amber-50/90 px-2.5 py-1 text-[11px] font-semibold text-amber-700">未保存</span>}
+        {draft.source === 'ai' && draft.status === 'draft' && draft.aiOriginalSnapshot && text !== draft.aiOriginalSnapshot.body && (
+          <span className="rounded-full border border-[color:rgba(109,93,246,0.16)] bg-[color:var(--accent-soft)] px-2.5 py-1 text-[11px] font-semibold text-[color:var(--accent)]">
+            承認すると次回の提案に反映
+          </span>
+        )}
         {isDirty && onEdit && (
           <button
             onClick={handleSave}

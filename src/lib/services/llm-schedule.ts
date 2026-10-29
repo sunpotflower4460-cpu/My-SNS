@@ -1,10 +1,9 @@
-import Anthropic from '@anthropic-ai/sdk'
 import type { ScheduleExtractionContext, ScheduleProposal } from './interfaces'
-import { resolveAnthropicModel } from './anthropic-draft'
+import { LlmOutputError, runStructuredCompletion, type LlmUsage } from './llm-provider'
 
 // Server-only. Extracts proposed calendar events from a conversation. Like
-// anthropic-reply, it reuses anthropic-draft's config/model/cost helpers and a
-// forced tool call. The human approves each proposal before it lands on the
+// llm-reply, it asks the configured LLM provider (llm-provider.ts) for a
+// structured answer. The human approves each proposal before it lands on the
 // calendar — this only proposes, it never writes an event.
 
 export const SCHEDULE_PROPOSAL_TOOL_NAME = 'propose_schedule'
@@ -125,76 +124,52 @@ export function parseScheduleProposals(toolInput: unknown): ScheduleProposal[] {
   return proposals
 }
 
-export interface AnthropicScheduleResult {
+export interface AiScheduleResult {
   proposals: ScheduleProposal[]
   model: string
   inputTokens: number
   outputTokens: number
 }
 
-export interface AnthropicUsage {
-  model: string
-  inputTokens: number
-  outputTokens: number
-}
+/** Thrown when the provider call succeeded (and was billed) but the response couldn't be parsed — carries usage so the caller can still record spend. */
+export class AiScheduleGenerationError extends Error {
+  usage: LlmUsage
 
-/** Thrown when the Anthropic call succeeded (and was billed) but the response couldn't be parsed — carries usage so the caller can still record spend. */
-export class AnthropicScheduleGenerationError extends Error {
-  usage: AnthropicUsage
-
-  constructor(message: string, usage: AnthropicUsage) {
+  constructor(message: string, usage: LlmUsage) {
     super(message)
-    this.name = 'AnthropicScheduleGenerationError'
+    this.name = 'AiScheduleGenerationError'
     this.usage = usage
   }
 }
 
-export async function extractScheduleWithAnthropic(
+export async function extractScheduleWithAi(
   conversationText: string,
   context: ScheduleExtractionContext,
-): Promise<AnthropicScheduleResult> {
-  const apiKey = process.env.ANTHROPIC_API_KEY?.trim()
-  if (!apiKey) {
-    throw new Error('ANTHROPIC_API_KEY is not configured.')
-  }
-
-  const model = resolveAnthropicModel()
+): Promise<AiScheduleResult> {
   const { system, user } = buildScheduleExtractionPrompt(conversationText, context)
-  const client = new Anthropic({ apiKey })
 
-  const response = await client.messages.create({
-    model,
-    max_tokens: 1024,
-    system,
-    messages: [{ role: 'user', content: user }],
-    tools: [
-      {
-        name: SCHEDULE_PROPOSAL_TOOL_NAME,
-        description: 'Submit the extracted calendar events.',
-        input_schema: SCHEDULE_PROPOSAL_TOOL_SCHEMA,
-      },
-    ],
-    tool_choice: { type: 'tool', name: SCHEDULE_PROPOSAL_TOOL_NAME },
-  })
-
-  const usage: AnthropicUsage = {
-    model,
-    inputTokens: response.usage.input_tokens,
-    outputTokens: response.usage.output_tokens,
-  }
-
-  const toolUse = response.content.find((block) => block.type === 'tool_use')
-  if (!toolUse || toolUse.type !== 'tool_use') {
-    throw new AnthropicScheduleGenerationError('The model did not call the schedule tool.', usage)
+  let result
+  try {
+    result = await runStructuredCompletion({
+      system,
+      user,
+      toolName: SCHEDULE_PROPOSAL_TOOL_NAME,
+      toolDescription: 'Submit the extracted calendar events.',
+      schema: SCHEDULE_PROPOSAL_TOOL_SCHEMA,
+      maxTokens: 1024,
+    })
+  } catch (cause) {
+    if (cause instanceof LlmOutputError) throw new AiScheduleGenerationError(cause.message, cause.usage)
+    throw cause
   }
 
   let proposals: ScheduleProposal[]
   try {
-    proposals = parseScheduleProposals(toolUse.input)
+    proposals = parseScheduleProposals(result.output)
   } catch (cause) {
     const message = cause instanceof Error ? cause.message : 'The model returned an unusable response.'
-    throw new AnthropicScheduleGenerationError(message, usage)
+    throw new AiScheduleGenerationError(message, result.usage)
   }
 
-  return { proposals, ...usage }
+  return { proposals, ...result.usage }
 }
