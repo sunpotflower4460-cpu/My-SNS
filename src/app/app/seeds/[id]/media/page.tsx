@@ -1,5 +1,6 @@
 'use client'
 
+import { describeTooLarge, partitionUploadFiles } from '@/lib/seeds/upload-limits'
 import { useEffect, useRef, useState } from 'react'
 import Link from 'next/link'
 import { useParams } from 'next/navigation'
@@ -9,15 +10,19 @@ import EmptyState from '@/components/ui/EmptyState'
 import { Button, Card, InlineAlert } from '@/components/ui/kit'
 import { useApp } from '@/lib/app/app-provider'
 import { PUBLISHING_CHANNEL_CONFIG } from '@/lib/channels/config'
-import type { PublishingChannel } from '@/lib/domain/types'
+import type { Asset, AssetMediaRole, PublishingChannel } from '@/lib/domain/types'
 import { appendSeedAssets, deleteSeedAsset } from '@/lib/seeds/assets'
 import {
   listSeedAssetPublishingAssignments,
+  updateSeedAssetMediaAttributes,
   updateSeedAssetPublishingChannels,
   type AssetPublishingAssignments,
 } from '@/lib/seeds/asset-publishing'
 import { hasPermission } from '@/lib/permissions'
-import { assetTypeLabel, formatAssetSize, hasUsableAssetUrl } from '@/lib/presentation/asset-presenter'
+import { assetMediaRoleLabel, assetTypeLabel, formatAssetSize, hasUsableAssetUrl } from '@/lib/presentation/asset-presenter'
+import { aspectLabel } from '@/lib/media/aspect'
+import { captureVideoStill, centerCropForAspect, exportCroppedImage, exportCroppedVideo } from '@/lib/media/crop'
+import { generatePerformanceThumbnailsForSeed } from '@/lib/media/thumbnail-pipeline'
 
 const TYPE_ICON = {
   image: ImageIcon,
@@ -37,6 +42,7 @@ export default function SeedMediaPage() {
   const [uploading, setUploading] = useState(false)
   const [deletingAssetId, setDeletingAssetId] = useState<string | null>(null)
   const [savingAssignmentAssetId, setSavingAssignmentAssetId] = useState<string | null>(null)
+  const [variantBusyAssetId, setVariantBusyAssetId] = useState<string | null>(null)
   const [publishingAssignments, setPublishingAssignments] = useState<AssetPublishingAssignments>({})
   const [assignmentLoadState, setAssignmentLoadState] = useState<AssignmentLoadState>('idle')
   const [assignmentLoadError, setAssignmentLoadError] = useState('')
@@ -44,11 +50,16 @@ export default function SeedMediaPage() {
   const [error, setError] = useState('')
   const seedId = detail.seed?.id
   const assetIdsKey = detail.assets.map((asset) => asset.id).join('|')
+  const autoThumbAttemptedRef = useRef(false)
+  const canUploadAssetsEarly = Boolean(currentMember && hasPermission(currentMember.role, 'upload_assets'))
+  // Depend on the id, not the workspace object: the object identity changes on
+  // every refreshWorkspaceData(), which would reset assignments and flicker.
+  const currentWorkspaceId = currentWorkspace?.id
 
   useEffect(() => {
     let active = true
 
-    if (!currentWorkspace || !seedId) {
+    if (!currentWorkspaceId || !seedId) {
       setPublishingAssignments({})
       setAssignmentLoadState('idle')
       setAssignmentLoadError('')
@@ -61,7 +72,7 @@ export default function SeedMediaPage() {
     setAssignmentLoadError('')
 
     void listSeedAssetPublishingAssignments({
-      workspaceId: currentWorkspace.id,
+      workspaceId: currentWorkspaceId,
       seedId,
       assetIds,
     }).then((assignments) => {
@@ -76,7 +87,37 @@ export default function SeedMediaPage() {
     })
 
     return () => { active = false }
-  }, [assetIdsKey, currentWorkspace, seedId])
+  }, [assetIdsKey, currentWorkspaceId, seedId])
+
+  useEffect(() => {
+    if (!currentWorkspace || !detail.seed) return
+    if (!canUploadAssetsEarly) return
+    if (assignmentLoadState !== 'ready') return
+    if (autoThumbAttemptedRef.current) return
+    const hasVideo = detail.assets.some((asset) => asset.type === 'video' && Boolean(asset.url))
+    if (!hasVideo) return
+    autoThumbAttemptedRef.current = true
+
+    void generatePerformanceThumbnailsForSeed({
+      workspaceId: currentWorkspace.id,
+      seedId: detail.seed.id,
+      seedTitle: detail.seed.title,
+      assets: detail.assets,
+      drafts: [],
+    }).then(async (result) => {
+      if (result.assets.length > 0) {
+        await refreshWorkspaceData()
+        setFeedback(result.message)
+        setError('')
+      } else if (!result.ok) {
+        setError(result.message)
+      }
+    }).catch((cause) => {
+      setError(cause instanceof Error ? cause.message : '文字入りサムネイルの作成に失敗しました。PNG/JPGをアップロードしてください。')
+    })
+    // assetIdsKey stands in for detail.assets identity so this effect does not loop on a new array each render.
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- see above
+  }, [assignmentLoadState, assetIdsKey, canUploadAssetsEarly, currentWorkspace, detail.seed, refreshWorkspaceData])
 
   if (!detail.seed || !currentWorkspace) {
     return (
@@ -119,10 +160,19 @@ export default function SeedMediaPage() {
       await refreshWorkspaceData()
       setSelectedFiles([])
       if (inputRef.current) inputRef.current.value = ''
-      setFeedback(`${saved.length}件の素材を追加しました。初期状態ではすべての投稿先で使われます。`)
+      autoThumbAttemptedRef.current = false
+      setFeedback(`${saved.length}件の素材を追加しました。動画があれば文字入りサムネイルを自動作成します。`)
       setError('')
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : '素材を追加できませんでした。')
+      // Files are saved one after another, so some may already be in. Reload the
+      // list and clear the selection: retrying the same selection would upload
+      // those again.
+      await refreshWorkspaceData().catch(() => undefined)
+      // Some videos may already be saved; let the auto-thumbnail pass look at them.
+      autoThumbAttemptedRef.current = false
+      setSelectedFiles([])
+      if (inputRef.current) inputRef.current.value = ''
+      setError(`${cause instanceof Error ? cause.message : '素材を追加できませんでした。'} 一部のファイルは追加済みの可能性があります。素材の一覧を確認してから、残りを選び直してください。`)
       setFeedback('')
     } finally {
       setUploading(false)
@@ -184,11 +234,87 @@ export default function SeedMediaPage() {
     return [...assignedChannels, channel]
   }
 
+  const fileFromAsset = async (asset: Asset): Promise<File> => {
+    const response = await fetch(asset.url)
+    if (!response.ok) throw new Error('素材ファイルを取得できませんでした。')
+    const blob = await response.blob()
+    return new File([blob], asset.name, { type: blob.type || (asset.type === 'video' ? 'video/mp4' : 'image/jpeg') })
+  }
+
+  const handleVariantExport = async (asset: Asset, kind: '16:9' | '9:16' | 'still') => {
+    if (!canUploadAssets) return
+    setVariantBusyAssetId(asset.id)
+    try {
+      const source = await fileFromAsset(asset)
+      if (kind === 'still') {
+        const blob = asset.type === 'video'
+          ? await captureVideoStill(source)
+          : await exportCroppedImage(source, centerCropForAspect(1, 1, 16 / 9))
+        const file = new File([blob], `${asset.name.replace(/\.[^.]+$/, '')}-thumb.jpg`, { type: 'image/jpeg' })
+        await appendSeedAssets({
+          workspaceId: currentWorkspace.id,
+          seedId: seed.id,
+          files: [file],
+          mediaRole: 'thumbnail',
+          sourceAssetId: asset.id,
+          publishingChannels: ['youtube'],
+          aspectRatio: '16:9',
+        })
+      } else {
+        const targetAspect = kind === '16:9' ? 16 / 9 : 9 / 16
+        let file: File
+        if (asset.type === 'video') {
+          const blob = await exportCroppedVideo(source, targetAspect)
+          file = new File([blob], `${asset.name.replace(/\.[^.]+$/, '')}-${kind.replace(':', 'x')}.webm`, { type: blob.type || 'video/webm' })
+        } else {
+          const image = await createImageBitmap(source)
+          const crop = centerCropForAspect(image.width, image.height, targetAspect)
+          image.close()
+          const blob = await exportCroppedImage(source, crop)
+          file = new File([blob], `${asset.name.replace(/\.[^.]+$/, '')}-${kind.replace(':', 'x')}.jpg`, { type: 'image/jpeg' })
+        }
+        await appendSeedAssets({
+          workspaceId: currentWorkspace.id,
+          seedId: seed.id,
+          files: [file],
+          mediaRole: 'variant',
+          sourceAssetId: asset.id,
+          aspectRatio: kind,
+        })
+      }
+      await refreshWorkspaceData()
+      if (kind === '9:16' || kind === 'still') autoThumbAttemptedRef.current = false
+      setFeedback(kind === 'still' ? 'サムネイル用の静止画を追加しました。' : `${kind}のバリアントを追加しました。ブラウザ書き出しはWebM/JPEGです。SNSが受け付けない場合は書き出したMP4/PNGを追加してください。`)
+      setError('')
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'バリアントを作成できませんでした。')
+      setFeedback('')
+    } finally {
+      setVariantBusyAssetId(null)
+    }
+  }
+
+  const handleRoleChange = async (asset: Asset, role: AssetMediaRole) => {
+    if (!canAssignAssets) return
+    setSavingAssignmentAssetId(asset.id)
+    try {
+      await updateSeedAssetMediaAttributes({ assetId: asset.id, mediaRole: role })
+      await refreshWorkspaceData()
+      setFeedback(`「${asset.name}」の役割を更新しました。`)
+      setError('')
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : '素材の役割を保存できませんでした。')
+      setFeedback('')
+    } finally {
+      setSavingAssignmentAssetId(null)
+    }
+  }
+
   return (
     <div>
       <PageHeader
         title="素材管理"
-        description={`「${seed.title}」で使う画像・動画・音声・資料を後から追加・整理できます。`}
+        description={`「${seed.title}」で使う画像・動画・音声・資料を後から追加・整理できます。動画を追加すると文字入りサムネイルが自動で作られます。`}
         actions={
           <div className="flex flex-wrap gap-3 text-sm">
             <Link href={`/app/seeds/${seed.id}`} className="text-gray-500 hover:text-gray-700">Seedへ戻る</Link>
@@ -222,7 +348,12 @@ export default function SeedMediaPage() {
                 multiple
                 accept="image/*,video/*,audio/*,.pdf,.txt,.md"
                 className="sr-only"
-                onChange={(event) => setSelectedFiles(Array.from(event.target.files ?? []))}
+                onChange={(event) => {
+                  const { accepted, tooLarge } = partitionUploadFiles(Array.from(event.target.files ?? []))
+                  setSelectedFiles(accepted)
+                  setError(describeTooLarge(tooLarge))
+                  setFeedback('')
+                }}
               />
             </label>
 
@@ -279,7 +410,7 @@ export default function SeedMediaPage() {
           <div className="flex items-center justify-between gap-3">
             <div>
               <h2 className="text-base font-semibold text-gray-900">現在の素材</h2>
-              <p className="mt-1 text-sm text-gray-500">「全媒体」は従来どおりSeedのすべての投稿先で使います。媒体を選ぶと、その投稿先の共有時だけ素材を渡します。</p>
+                <p className="mt-1 text-sm text-gray-500">「全媒体」は従来どおりSeedのすべての投稿先で使います。16:9はYouTube向け、9:16はShorts / Reels / TikTok向けです。動画があると文字入りサムネイル（1280×720）を自動作成します。</p>
             </div>
             <span className="rounded-full border border-stone-200 bg-stone-50 px-2.5 py-1 text-xs text-gray-500">{assets.length}</span>
           </div>
@@ -329,7 +460,9 @@ export default function SeedMediaPage() {
                       </div>
                       <div className="min-w-0 flex-1">
                         <p className="truncate text-sm font-medium text-gray-800">{asset.name}</p>
-                        <p className="mt-0.5 text-xs text-gray-400">{assetTypeLabel(asset.type)} · {formatAssetSize(asset.size)}</p>
+                        <p className="mt-0.5 text-xs text-gray-400">
+                          {assetTypeLabel(asset.type)} · {assetMediaRoleLabel(asset.mediaRole)} · {aspectLabel(asset.aspectRatio)} · {formatAssetSize(asset.size)}
+                        </p>
                       </div>
                       <div className="flex shrink-0 items-center gap-2">
                         {usable && (
@@ -348,6 +481,42 @@ export default function SeedMediaPage() {
                         )}
                       </div>
                     </div>
+
+                    {(asset.type === 'image' || asset.type === 'video') && (
+                      <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-stone-100 pt-3">
+                        <label className="flex items-center gap-1.5 text-[11px] text-gray-500">
+                          役割
+                          <select
+                            value={asset.mediaRole ?? 'source'}
+                            disabled={!canAssignAssets || savingAssignment}
+                            onChange={(event) => void handleRoleChange(asset, event.target.value as AssetMediaRole)}
+                            className="rounded-full border border-stone-200 bg-white px-2 py-1 text-[11px] text-gray-700"
+                          >
+                            <option value="source">マスター</option>
+                            <option value="variant">バリアント</option>
+                            <option value="thumbnail">サムネイル</option>
+                            <option value="cover">カバー</option>
+                            <option value="eyecatch">アイキャッチ</option>
+                          </select>
+                        </label>
+                        {canUploadAssets && usable && (
+                          <>
+                            <Button size="sm" variant="secondary" disabled={variantBusyAssetId === asset.id} onClick={() => void handleVariantExport(asset, '16:9')}>
+                              16:9を切り出す
+                            </Button>
+                            <Button size="sm" variant="secondary" disabled={variantBusyAssetId === asset.id} onClick={() => void handleVariantExport(asset, '9:16')}>
+                              9:16を切り出す
+                            </Button>
+                            {asset.type === 'video' && (
+                              <Button size="sm" variant="secondary" disabled={variantBusyAssetId === asset.id} onClick={() => void handleVariantExport(asset, 'still')}>
+                                サムネイルを切り出す
+                              </Button>
+                            )}
+                            {variantBusyAssetId === asset.id && <span className="text-[11px] text-gray-400">書き出し中…</span>}
+                          </>
+                        )}
+                      </div>
+                    )}
 
                     {seed.targetChannels.length > 0 && (
                       <div className="mt-3 border-t border-stone-100 pt-3">

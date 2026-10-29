@@ -19,7 +19,11 @@ import { generateReplySuggestionForItem } from '@/lib/services/inbox-reply-gener
 // goes through /api/inbox/reply/approve per item, one explicit human
 // confirmation per item (or per batch, from the review UI), same as before.
 
-const MAX_ITEMS_PER_REQUEST = 20
+// A provider call can take ~40s; five items stay within the production
+// function's bounded runtime. The client splits a 20-item selection into
+// several sequential requests and presents their combined result.
+const MAX_ITEMS_PER_REQUEST = 5
+export const maxDuration = 300
 
 interface GenerateBulkReplyBody {
   workspaceId?: string
@@ -47,6 +51,9 @@ export async function POST(request: NextRequest) {
 
   if (!workspaceId || !inboxItemIds || inboxItemIds.length === 0) {
     return NextResponse.json({ error: 'workspaceIdと1件以上のinboxItemIdsが必要です。' }, { status: 400 })
+  }
+  if (new Set(inboxItemIds).size !== inboxItemIds.length) {
+    return NextResponse.json({ error: '同じ受信メッセージを重複指定できません。' }, { status: 400 })
   }
   if (inboxItemIds.length > MAX_ITEMS_PER_REQUEST) {
     return NextResponse.json({ error: `一度に処理できるのは${MAX_ITEMS_PER_REQUEST}件までです。選択を絞って再度お試しください。` }, { status: 400 })

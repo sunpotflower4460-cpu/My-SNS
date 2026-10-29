@@ -27,6 +27,8 @@ export type Permission =
   | 'edit_settings'
   | 'manage_social_accounts'
   | 'view_audit_log'
+  | 'view_shadow_strategy'
+  | 'manage_shadow_strategy'
   | 'upload_assets'
   | 'delete_assets'
   | 'transfer_ownership'
@@ -60,6 +62,8 @@ export const ROLE_PERMISSIONS: Record<WorkspaceRole, Permission[]> = {
     'edit_settings',
     'manage_social_accounts',
     'view_audit_log',
+    'view_shadow_strategy',
+    'manage_shadow_strategy',
     'upload_assets',
     'delete_assets',
     'transfer_ownership',
@@ -91,6 +95,8 @@ export const ROLE_PERMISSIONS: Record<WorkspaceRole, Permission[]> = {
     'edit_settings',
     'manage_social_accounts',
     'view_audit_log',
+    'view_shadow_strategy',
+    'manage_shadow_strategy',
     'upload_assets',
     'delete_assets',
   ],

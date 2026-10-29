@@ -5,8 +5,9 @@ import { getDefaultBrandProfileForClient } from '@/lib/repositories/supabase/bra
 import { listContactReplyExamples } from '@/lib/repositories/supabase/reply-learning'
 import { getMyCreatorStatus } from '@/lib/repositories/supabase/creator-status'
 import { TemplateReplyGeneratorService } from '@/lib/services/ai-reply'
-import { AnthropicReplyGenerationError, generateReplyWithAnthropic } from '@/lib/services/anthropic-reply'
-import { calculateGenerationCost, isAnthropicConfigured } from '@/lib/services/anthropic-draft'
+import { AiReplyGenerationError, generateReplyWithAi } from '@/lib/services/llm-reply'
+import { calculateGenerationCost, isAiConfigured } from '@/lib/services/llm-provider'
+import { describeAiFailure } from '@/lib/services/llm-status'
 import {
   claimInboxReplyGeneration,
   claimWorkspaceAiBudget,
@@ -264,7 +265,7 @@ export async function generateReplySuggestionForItem(
       }
     }
 
-    if (!isAnthropicConfigured()) {
+    if (!isAiConfigured()) {
       const proposal = await new TemplateReplyGeneratorService().generateReply(item.text, { brandProfile })
       try {
         const suggestionId = await persistReplyArtifacts(serviceClient, {
@@ -279,7 +280,7 @@ export async function generateReplySuggestionForItem(
           status: 200,
           body: {
             source: 'template-fallback',
-            reason: 'ANTHROPIC_API_KEYが未設定のため、AIではなく定型文を表示しています。',
+            reason: 'AIのAPIキー（DEEPSEEK_API_KEY）が未設定のため、AIではなく定型文を表示しています。',
             summary: proposal.summary,
             reply: proposal.reply,
             tone: proposal.tone,
@@ -333,7 +334,7 @@ export async function generateReplySuggestionForItem(
           return {
             status: 402,
             body: {
-              error: `このワークスペースの今月のAI予算（$${monthlyBudgetUsd.toFixed(2)}）に達しました（使用額 $${spentUsd.toFixed(2)}）。ANTHROPIC_MONTHLY_BUDGET_USDを引き上げるか、来月まで待ってください。`,
+              error: `このワークスペースの今月のAI予算（$${monthlyBudgetUsd.toFixed(2)}）に達しました（使用額 $${spentUsd.toFixed(2)}）。AI_MONTHLY_BUDGET_USDを引き上げるか、来月まで待ってください。`,
             },
           }
         }
@@ -343,7 +344,7 @@ export async function generateReplySuggestionForItem(
       const suggestionId = randomUUID()
 
       try {
-        const result = await generateReplyWithAnthropic(item.text, { brandProfile, styleExamples, creatorStatus })
+        const result = await generateReplyWithAi(item.text, { brandProfile, styleExamples, creatorStatus })
         const costUsd = calculateGenerationCost(result.inputTokens, result.outputTokens)
         let recordedGenerationId: string | null = null
         let usageWarning: string | undefined
@@ -409,8 +410,10 @@ export async function generateReplySuggestionForItem(
           },
         }
       } catch (cause) {
-        const message = cause instanceof Error ? cause.message : 'AIによる返信案の生成に失敗しました。'
-        if (cause instanceof AnthropicReplyGenerationError) {
+        // Never leak raw provider request ids / diagnostics into a client response.
+        console.error('AI reply generation failed:', cause)
+        const message = `AIによる返信案の生成に失敗しました。${describeAiFailure(cause)}`
+        if (cause instanceof AiReplyGenerationError) {
           try {
             await recordAiGeneration(serviceClient, {
               id: generationId,

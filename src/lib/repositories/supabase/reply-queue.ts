@@ -24,6 +24,7 @@ interface ReplyJobRow {
   platform: ReplyJob['platform']
   reply_text: string
   send_target: string
+  social_account_id?: string | null
   reply_mode: ReplyJob['replyMode']
   status: ReplyJob['status']
   scheduled_at: string
@@ -44,6 +45,7 @@ export function mapReplyJob(row: ReplyJobRow): ReplyJob {
     platform: row.platform,
     replyText: row.reply_text,
     sendTarget: row.send_target,
+    socialAccountId: row.social_account_id ?? undefined,
     replyMode: row.reply_mode,
     status: row.status,
     scheduledAt: row.scheduled_at,
@@ -105,6 +107,7 @@ export interface CreateReplyJobInput {
   platform: ReplyJob['platform']
   replyText: string
   sendTarget: string
+  socialAccountId?: string
   replyMode: ReplyJob['replyMode']
   scheduledAt: string
   createdBy: string
@@ -126,6 +129,7 @@ export async function createReplyJob(supabase: SupabaseClient, input: CreateRepl
       platform: input.platform,
       reply_text: input.replyText,
       send_target: input.sendTarget,
+      ...(input.socialAccountId ? { social_account_id: input.socialAccountId } : {}),
       reply_mode: input.replyMode,
       status: 'scheduled',
       scheduled_at: input.scheduledAt,

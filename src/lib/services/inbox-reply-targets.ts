@@ -11,6 +11,7 @@ import type { SocialPlatform } from '@/lib/domain/types'
 export interface ResolvedSendTarget {
   sendTarget: string
   contactId?: string
+  socialAccountId?: string
   scheduledAt: string
 }
 
@@ -81,6 +82,8 @@ export async function resolveDmSendTarget(
         quietEnd: contact.quiet_hours_end ?? undefined,
       })
 
+  // Keep LINE's existing send contract compatible with installations that
+  // have not yet applied the new public-reply account binding migration.
   return { sendTarget: contact.external_contact_id, contactId: contact.id, scheduledAt }
 }
 
@@ -95,10 +98,18 @@ export async function resolveContentSendTarget(
   workspaceId: string,
   platform: SocialPlatform,
   externalId: string | null,
+  sourceSocialAccountId: string | null,
 ): Promise<ResolvedSendTarget | NextResponse> {
+  if (!sourceSocialAccountId) {
+    return NextResponse.json(
+      { error: '受信元のSNSアカウントを特定できません。接続済みアカウントから受信箱を再同期してください。' },
+      { status: 409 },
+    )
+  }
   const { data: account, error: accountError } = await supabase
     .from('social_accounts')
     .select('id')
+    .eq('id', sourceSocialAccountId)
     .eq('workspace_id', workspaceId)
     .eq('platform', platform)
     .eq('connected', true)
@@ -121,5 +132,5 @@ export async function resolveContentSendTarget(
     )
   }
 
-  return { sendTarget: externalId, scheduledAt: new Date().toISOString() }
+  return { sendTarget: externalId, socialAccountId: account.id, scheduledAt: new Date().toISOString() }
 }

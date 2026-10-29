@@ -16,6 +16,7 @@ export async function upsertInboxItems(
   workspaceId: string,
   events: InboundInboxEvent[],
   contactIdByKey?: Map<string, string>,
+  socialAccountId?: string,
 ): Promise<number> {
   if (events.length === 0) return 0
 
@@ -24,6 +25,7 @@ export async function upsertInboxItems(
     platform: event.platform,
     kind: event.kind,
     external_id: event.externalId,
+    ...(socialAccountId ? { social_account_id: socialAccountId } : {}),
     author_handle: event.authorHandle,
     author_avatar_url: event.authorAvatarUrl ?? null,
     text: event.text,
@@ -39,12 +41,49 @@ export async function upsertInboxItems(
   // target a partial index as the ON CONFLICT arbiter). The same platform
   // event delivered twice — a webhook retry, an overlapping manual sync —
   // produces exactly one row.
-  const { data, error } = await supabase
+  const insert = (input: Array<Record<string, unknown>>) => supabase
     .from('inbox_items')
-    .upsert(rows, { onConflict: 'workspace_id,platform,kind,external_id', ignoreDuplicates: true })
+    .upsert(input, { onConflict: 'workspace_id,platform,kind,external_id', ignoreDuplicates: true })
     .select('id')
 
+  let { data, error } = await insert(rows)
+  let sourceColumnAvailable = true
+  if (error && socialAccountId && (error.code === '42703' || error.code === 'PGRST204')) {
+    // Upgrade compatibility: preserve incoming webhooks and the existing LINE
+    // flow before the DB migration is applied. Such rows remain deliberately
+    // ineligible for public sending until a verified account-scoped re-sync.
+    console.warn('Public reply account binding migration not yet applied; saving inbox event read-only.')
+    sourceColumnAvailable = false
+    const legacyRows = rows.map((row) => Object.fromEntries(
+      Object.entries(row).filter(([key]) => key !== 'social_account_id'),
+    ))
+    ;({ data, error } = await insert(legacyRows))
+  }
   if (error) throw new Error(error.message)
+
+  if (socialAccountId && sourceColumnAvailable) {
+    // Upsert uses ignoreDuplicates for webhook idempotency; old inbox rows
+    // remain unbound otherwise. A repeated verified delivery or a manual
+    // account-scoped re-sync may safely attach a previously NULL source.
+    const groups = new Map<string, { platform: SocialPlatform; kind: string; ids: string[] }>()
+    for (const event of events) {
+      if (!event.externalId) continue
+      const key = `${event.platform}:${event.kind}`
+      const group = groups.get(key) ?? { platform: event.platform, kind: event.kind, ids: [] }
+      group.ids.push(event.externalId)
+      groups.set(key, group)
+    }
+    for (const group of groups.values()) {
+      const { error: bindingError } = await supabase.from('inbox_items')
+        .update({ social_account_id: socialAccountId })
+        .eq('workspace_id', workspaceId)
+        .eq('platform', group.platform)
+        .eq('kind', group.kind)
+        .is('social_account_id', null)
+        .in('external_id', group.ids)
+      if (bindingError) throw new Error(bindingError.message)
+    }
+  }
   return data?.length ?? 0
 }
 
@@ -97,14 +136,23 @@ export async function resolveWorkspaceIdByExternalAccount(
   platform: SocialPlatform,
   externalAccountId: string,
 ): Promise<string | null> {
+  return (await resolveConnectedAccountByExternalAccount(supabase, platform, externalAccountId))?.workspaceId ?? null
+}
+
+/** Resolve a signed webhook's recipient to the precise connected account, not just its workspace. */
+export async function resolveConnectedAccountByExternalAccount(
+  supabase: SupabaseClient,
+  platform: SocialPlatform,
+  externalAccountId: string,
+): Promise<{ id: string; workspaceId: string } | null> {
   const { data, error } = await supabase
     .from('social_accounts')
-    .select('workspace_id')
+    .select('id, workspace_id')
     .eq('platform', platform)
     .eq('external_account_id', externalAccountId)
     .eq('connected', true)
     .maybeSingle()
 
   if (error) throw new Error(error.message)
-  return data?.workspace_id ?? null
+  return data ? { id: data.id, workspaceId: data.workspace_id } : null
 }

@@ -12,6 +12,8 @@ import {
   Smartphone,
   type LucideIcon,
 } from 'lucide-react'
+import type { WorkspaceRole } from '@/lib/domain/types'
+import { hasPermission, type Permission } from '@/lib/permissions'
 
 // Shared between the desktop GroupedSidebar, the mobile bottom nav, and the
 // "その他" drawer so every navigation surface stays in sync. Routes are
@@ -24,6 +26,8 @@ export interface NavItem {
   label: string
   href: string
   icon: LucideIcon
+  /** When set, the item is hidden for roles without this permission. */
+  permission?: Permission
 }
 
 export interface NavGroup {
@@ -54,7 +58,7 @@ export const NAV_GROUPS: NavGroup[] = [
     items: [
       { label: '発信スタイル', href: '/app/brand', icon: Palette },
       { label: 'チーム', href: '/app/team', icon: Users },
-      { label: '接続と設定', href: '/app/settings', icon: Settings2 },
+      { label: '接続と設定', href: '/app/settings', icon: Settings2, permission: 'view_settings' },
       { label: 'スマホ共有診断', href: '/app/share-diagnostics', icon: Smartphone },
     ],
   },
@@ -67,3 +71,15 @@ export function isNavActive(pathname: string, href: string): boolean {
 
 // The primary create action, surfaced in the sidebar and as a mobile FAB.
 export const CREATE_ACTION = { label: '新しい発信', href: '/app/seeds/new' }
+
+/** NAV_GROUPS filtered to what the role may open (groups left empty are dropped). */
+export function getNavGroups(role: WorkspaceRole): NavGroup[] {
+  return NAV_GROUPS
+    .map((group) => ({ ...group, items: group.items.filter((item) => !item.permission || hasPermission(role, item.permission)) }))
+    .filter((group) => group.items.length > 0)
+}
+
+/** Whether the role may start a new 発信 (sidebar button, mobile FAB, dashboard). */
+export function canCreateSeed(role: WorkspaceRole): boolean {
+  return hasPermission(role, 'create_seeds')
+}

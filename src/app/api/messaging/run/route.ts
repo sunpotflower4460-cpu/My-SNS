@@ -1,12 +1,14 @@
 import { NextRequest, NextResponse } from 'next/server'
 import type { SupabaseClient } from '@supabase/supabase-js'
+import { isBearerAuthorized } from '@/lib/api/timing-safe'
 import { createServiceClient } from '@/lib/supabase/service'
 import { processReplyJob } from '@/lib/services/reply-worker'
 
 // Scheduled reply Worker — the messaging-side twin of /api/publish/run. Invoked
-// on a schedule (see vercel.json) to send due reply_jobs whose recipient-
-// appropriate time has arrived. Vercel Cron calls this via GET with an
-// Authorization header set from CRON_SECRET.
+// on a schedule (see vercel.json: daily at 01:00 UTC). Vercel Hobby allows at
+// most one cron run per path per day, so a recipient-timed send may wait until
+// the next daily tick. Inbox「今すぐ」remains the immediate path. Vercel Cron
+// calls this via GET with an Authorization header set from CRON_SECRET.
 // https://vercel.com/docs/cron-jobs/manage-cron-jobs#securing-cron-jobs
 
 const BATCH_SIZE = 20
@@ -28,7 +30,7 @@ export async function GET(request: NextRequest) {
   if (!cronSecret) {
     return NextResponse.json({ error: 'Worker is not configured (CRON_SECRET unset).' }, { status: 503 })
   }
-  if (request.headers.get('authorization') !== `Bearer ${cronSecret}`) {
+  if (!isBearerAuthorized(request.headers.get('authorization'), cronSecret)) {
     return NextResponse.json({ error: 'Not authorized.' }, { status: 401 })
   }
 
@@ -60,10 +62,24 @@ export async function GET(request: NextRequest) {
   let skipped = 0
 
   for (const rawJob of (dueJobs ?? []) as unknown as DueReplyRow[]) {
-    // Current DB guards only permit LINE sends, but service-role code must also
-    // defend against legacy rows created before those guards existed. Never
-    // reinterpret another platform's recipient id as a LINE user id.
+    let socialAccountId: string | null = null
     if (rawJob.platform !== 'line') {
+      const { data: sender, error: senderError } = await supabase
+        .from('reply_jobs')
+        .select('social_account_id')
+        .eq('id', rawJob.id)
+        .maybeSingle()
+      if (senderError) {
+        failed += 1
+        console.error(`Cannot verify sender for public reply job ${rawJob.id}:`, senderError)
+        continue
+      }
+      socialAccountId = sender?.social_account_id ?? null
+    }
+    // Legacy jobs without a verified account must never be sent through a
+    // newly connected account. The insert migration also guards this, but
+    // service-role code explicitly quarantines pre-migration rows.
+    if (rawJob.platform !== 'line' && (!['instagram', 'youtube', 'x'].includes(rawJob.platform) || !socialAccountId)) {
       failed += 1
       const errorMessage = `Unsupported reply platform in worker: ${rawJob.platform}`
       const { error: quarantineError } = await supabase
@@ -83,11 +99,12 @@ export async function GET(request: NextRequest) {
       const result = await processReplyJob(supabase, {
         id: rawJob.id,
         workspaceId: rawJob.workspace_id,
-        platform: 'line',
+        platform: rawJob.platform as import('@/lib/domain/types').SocialPlatform,
         inboxItemId: rawJob.inbox_item_id,
         sendTarget: rawJob.send_target,
         replyText: rawJob.reply_text,
         createdBy: rawJob.created_by,
+        socialAccountId: socialAccountId ?? undefined,
       })
 
       if (result.skipped) skipped += 1

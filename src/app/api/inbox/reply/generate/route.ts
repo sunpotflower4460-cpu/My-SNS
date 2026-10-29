@@ -24,9 +24,7 @@ export async function POST(request: NextRequest) {
   }
 
   const supabase = await createClient()
-  const {
-    data: { user },
-  } = await supabase.auth.getUser()
+  const { data: { user } } = await supabase.auth.getUser()
   if (!user) return NextResponse.json({ error: 'ログインしていません。' }, { status: 401 })
 
   const membership = await requireWorkspaceMember(supabase, workspaceId, user.id, 'reply_inbox', 'このワークスペースで返信を作成する権限がありません。')

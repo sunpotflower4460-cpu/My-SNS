@@ -49,7 +49,10 @@ export default function InboxPage() {
   const [error, setError] = useState('')
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
   const [bulkGenerating, setBulkGenerating] = useState(false)
-  const [reviewItems, setReviewItems] = useState<typeof inboxItems | null>(null)
+  const [reviewBatch, setReviewBatch] = useState<{
+    items: typeof inboxItems
+    proposals: Record<string, { text: string; suggestionId?: string }>
+  } | null>(null)
 
   // Filter first, then split into priority groups (急ぎ / 対応が必要 / そのほか) so
   // the messages that need a fast reply stay at the top even within a filter.
@@ -90,8 +93,24 @@ export default function InboxPage() {
     setBulkGenerating(true)
     setError('')
     try {
-      await generateBulkInboxReplies(ids)
-      setReviewItems(inboxItems.filter((item) => selectedIds.has(item.id)))
+      const outcome = await generateBulkInboxReplies(ids)
+      const successful = outcome.results.filter((result) => result.status >= 200 && result.status < 300 && typeof result.body.reply === 'string')
+      if (successful.length === 0) {
+        const reason = outcome.results.find((result) => result.body.error)?.body.error
+        throw new Error(reason ?? '選択した項目の返信案を生成できませんでした。')
+      }
+      const generatedIds = new Set(successful.map((result) => result.inboxItemId))
+      setReviewBatch({
+        items: inboxItems.filter((item) => generatedIds.has(item.id)),
+        // Use the actual API results, not a state snapshot from before the
+        // provider refresh; the latter could show empty/stale suggestions.
+        proposals: Object.fromEntries(successful.map((result) => [result.inboxItemId, {
+          text: result.body.reply as string,
+          suggestionId: typeof result.body.suggestionId === 'string' ? result.body.suggestionId : undefined,
+        }])),
+      })
+      const failedCount = ids.length - successful.length
+      if (failedCount > 0) setError(`${failedCount}件は生成できませんでした。成功した${successful.length}件を確認できます。`)
       setSelectedIds(new Set())
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'おすすめ返信を一括作成できませんでした。')
@@ -124,7 +143,8 @@ export default function InboxPage() {
             item.seedId ? seeds.find((seed) => seed.id === item.seedId)?.title ?? 'リンクされたシード' : null
           }
           relatedSeedHref={item.seedId ? `/app/seeds/${item.seedId}` : null}
-          onChangeNote={(value) => setDraftNotes((prev) => ({ ...prev, [item.id]: value }))}
+          // Roles that cannot save a note (no reply_inbox) get no note input at all.
+          onChangeNote={canMutateInbox ? (value) => setDraftNotes((prev) => ({ ...prev, [item.id]: value })) : undefined}
           onSaveNote={canMutateInbox ? () => {
             if (!draftNotes[item.id]?.trim()) return
             void runInboxAction(async () => {
@@ -221,8 +241,8 @@ export default function InboxPage() {
         </StickyActionBar>
       )}
 
-      {reviewItems && (
-        <BulkReplyReviewPanel open={reviewItems !== null} onClose={() => setReviewItems(null)} items={reviewItems} />
+      {reviewBatch && (
+        <BulkReplyReviewPanel open onClose={() => setReviewBatch(null)} items={reviewBatch.items} proposals={reviewBatch.proposals} />
       )}
     </div>
   )

@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import { Badge, Button, Sheet } from '@/components/ui/kit'
 import { useApp } from '@/lib/app/app-provider'
 import { canSendReply } from '@/lib/channels/reply-capability'
@@ -11,6 +11,7 @@ interface BulkReplyReviewPanelProps {
   open: boolean
   onClose: () => void
   items: InboxItem[]
+  proposals: Record<string, { text: string; suggestionId?: string }>
 }
 
 type SendStatus = 'sent' | 'scheduled' | 'error'
@@ -41,37 +42,24 @@ async function copyText(text: string): Promise<void> {
  * canSendReply() says can't be sent (TikTok, Instagram DM, …) only ever get a
  * copy button here — never included in the bulk send.
  */
-export default function BulkReplyReviewPanel({ open, onClose, items }: BulkReplyReviewPanelProps) {
-  const { getReplySuggestion, approveAndSendReply } = useApp()
+export default function BulkReplyReviewPanel({ open, onClose, items, proposals }: BulkReplyReviewPanelProps) {
+  const { approveAndSendReply, socialAccounts } = useApp()
 
-  const [texts, setTexts] = useState<Record<string, string>>({})
+  const [texts, setTexts] = useState<Record<string, string>>(() => Object.fromEntries(
+    items.map((item) => [item.id, proposals[item.id]?.text ?? '']),
+  ))
   const [sending, setSending] = useState(false)
   const [sendStatus, setSendStatus] = useState<Record<string, SendStatus>>({})
   const [sendErrors, setSendErrors] = useState<Record<string, string>>({})
   const [copiedIds, setCopiedIds] = useState<Set<string>>(new Set())
   const [summary, setSummary] = useState('')
 
-  useEffect(() => {
-    if (!open) return
-    setTexts((current) => {
-      let changed = false
-      const next = { ...current }
-      for (const item of items) {
-        if (!(item.id in next)) {
-          next[item.id] = getReplySuggestion(item.id)?.suggestedText ?? ''
-          changed = true
-        }
-      }
-      return changed ? next : current
-    })
-    // Intentional: seed drafts once per open/items-list change, not on every
-    // getReplySuggestion identity change (it is a fresh closure each render).
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, items])
-
-  const sendableItems = items.filter((item) => canSendReply(item.platform, item.kind))
-  const copyOnlyItems = items.filter((item) => !canSendReply(item.platform, item.kind))
-  const pendingSendableCount = sendableItems.filter((item) => !sendStatus[item.id]).length
+  const isSendable = (item: InboxItem) => canSendReply(item.platform, item.kind)
+    && socialAccounts.some((account) => account.platform === item.platform && account.connected
+      && (item.kind === 'dm' || account.id === item.socialAccountId))
+  const sendableItems = items.filter(isSendable)
+  const copyOnlyItems = items.filter((item) => !isSendable(item))
+  const pendingSendableCount = sendableItems.filter((item) => sendStatus[item.id] !== 'sent' && sendStatus[item.id] !== 'scheduled').length
 
   const handleSendAll = async () => {
     setSending(true)
@@ -79,7 +67,7 @@ export default function BulkReplyReviewPanel({ open, onClose, items }: BulkReply
     let sentCount = 0
     let failedCount = 0
     for (const item of sendableItems) {
-      if (sendStatus[item.id]) continue // already sent/scheduled in an earlier click
+      if (sendStatus[item.id] === 'sent' || sendStatus[item.id] === 'scheduled') continue
       const text = (texts[item.id] ?? '').trim()
       if (!text) {
         setSendStatus((prev) => ({ ...prev, [item.id]: 'error' }))
@@ -88,11 +76,10 @@ export default function BulkReplyReviewPanel({ open, onClose, items }: BulkReply
         continue
       }
       try {
-        const suggestion = getReplySuggestion(item.id)
         const result = await approveAndSendReply({
           inboxItemId: item.id,
           replyText: text,
-          suggestionId: suggestion?.id,
+          suggestionId: proposals[item.id]?.suggestionId,
           sendNow: true,
         })
         setSendStatus((prev) => ({ ...prev, [item.id]: result.status === 'failed' ? 'error' : (result.status as SendStatus) }))
@@ -147,7 +134,11 @@ export default function BulkReplyReviewPanel({ open, onClose, items }: BulkReply
         {sendErrors[item.id] && <p className="mt-1 text-xs text-rose-600">{sendErrors[item.id]}</p>}
         {!sendable && (
           <div className="mt-2 flex items-center justify-between gap-2">
-            <p className="text-[11px] text-gray-400">{label}への返信送信は未対応です。コピーして直接返信してください。</p>
+            <p className="text-[11px] text-gray-400">
+              {canSendReply(item.platform, item.kind)
+                ? '受信元の接続済みアカウントを確認できません。再接続・再同期後に送信できます。'
+                : `${label}への返信送信は未対応です。コピーして直接返信してください。`}
+            </p>
             <Button size="sm" variant="secondary" onClick={() => void handleCopy(item)}>
               {copiedIds.has(item.id) ? 'コピー済み' : 'コピー'}
             </Button>

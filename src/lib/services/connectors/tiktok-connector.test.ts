@@ -95,6 +95,26 @@ describe('TikTokConnectorAdapter publish initialization safety', () => {
     else process.env.NEXT_PUBLIC_SUPABASE_URL = previousSupabaseUrl
   })
 
+  it('refuses a custom cover image before calling TikTok', async () => {
+    process.env.NEXT_PUBLIC_SUPABASE_URL = 'https://project.supabase.co'
+    const fetchMock = vi.fn()
+    vi.stubGlobal('fetch', fetchMock)
+
+    await expect(
+      new TikTokConnectorAdapter().publish({
+        platform: 'tiktok',
+        accessToken: 'token',
+        body: 'Caption',
+        hashtags: [],
+        metadata: {
+          mediaUrl: 'https://project.supabase.co/storage/v1/object/sign/assets/workspace/video.mp4?token=abc',
+          coverUrl: 'https://project.supabase.co/storage/v1/object/sign/assets/workspace/cover.jpg?token=abc',
+        },
+      }),
+    ).rejects.toThrow(/custom cover image/)
+    expect(fetchMock).not.toHaveBeenCalled()
+  })
+
   it('marks a 5xx from irreversible publish init as externally unknown', async () => {
     process.env.NEXT_PUBLIC_SUPABASE_URL = 'https://project.supabase.co'
     const fetchMock = vi

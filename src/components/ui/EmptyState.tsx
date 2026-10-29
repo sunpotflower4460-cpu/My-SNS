@@ -12,7 +12,7 @@ export default function EmptyState({ title, description, action, icon = '📭' }
         {icon}
       </div>
       <h3 className="mb-1 text-base font-semibold text-gray-900">{title}</h3>
-      <p className="mb-4 max-w-sm text-sm leading-6 text-gray-500">{description}</p>
+      <p className="mb-4 max-w-sm text-sm leading-6 text-default">{description}</p>
       {action}
     </div>
   )

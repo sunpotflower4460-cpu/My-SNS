@@ -147,4 +147,15 @@ describe('InstagramConnectorAdapter.sendMessage', () => {
       }),
     ).rejects.toThrow(/comment not found/)
   })
+
+  it.each([
+    ['network response lost', () => Promise.reject(new Error('timeout'))],
+    ['provider 5xx', () => Promise.resolve(response(false, 503, { error: { message: 'unavailable' } }))],
+    ['id-less successful response', () => Promise.resolve(response(true, 200, {}))],
+  ])('blocks an unsafe retry when %s', async (_, answer) => {
+    vi.stubGlobal('fetch', vi.fn().mockImplementation(answer))
+    await expect(new InstagramConnectorAdapter().sendMessage({
+      platform: 'instagram', accessToken: 'token', target: 'comment-123', text: 'hello',
+    })).rejects.toThrow(/^EXTERNAL_RESULT_UNKNOWN:/)
+  })
 })

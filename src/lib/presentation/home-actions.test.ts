@@ -130,9 +130,9 @@ describe('computeNextActions', () => {
     expect(actions[0].priority).toBe('critical')
   })
 
-  it('deep-links a single failed publish to its seed, aggregates when many', () => {
+  it('sends failed publishes to the queue (single or many)', () => {
     const one = computeNextActions({ ...emptySnapshot(), publishJobs: [publishJob({ status: 'failed', seedId: 'seed-x' })] })
-    expect(one[0].href).toBe('/app/seeds/seed-x')
+    expect(one[0].href).toBe('/app/queue')
 
     const many = computeNextActions({
       ...emptySnapshot(),
@@ -140,6 +140,17 @@ describe('computeNextActions', () => {
     })
     expect(many[0].href).toBe('/app/queue')
     expect(many[0].title).toContain('2件')
+  })
+
+  it('sends pending approvals to the drafts screen, scoped to the seed when single', () => {
+    const one = computeNextActions({ ...emptySnapshot(), drafts: [draft({ status: 'draft', seedId: 'seed-y' })] })
+    expect(one.find((a) => a.id === 'drafts-approval')?.href).toBe('/app/drafts?seed=seed-y')
+
+    const many = computeNextActions({
+      ...emptySnapshot(),
+      drafts: [draft({ id: 'd1', status: 'draft', seedId: 'a' }), draft({ id: 'd2', status: 'draft', seedId: 'b' })],
+    })
+    expect(many.find((a) => a.id === 'drafts-approval')?.href).toBe('/app/drafts')
   })
 
   it('does not double-count an urgent DM that also needs action', () => {
@@ -154,6 +165,19 @@ describe('computeNextActions', () => {
 
     const noConn = computeNextActions({ ...emptySnapshot(), socialAccounts: [account({ connected: false })] })
     expect(noConn.some((a) => a.id === 'setup-connect')).toBe(true)
+  })
+
+  it('points the setup nudge at the connections section and explains manual mode', () => {
+    const manual = computeNextActions({ ...emptySnapshot(), socialAccounts: [], publishingStrategy: 'zero-cost' }).find((a) => a.id === 'setup-connect')
+    expect(manual?.href).toBe('/app/settings#connections')
+    expect(manual?.priority).toBe('normal')
+    expect(manual?.description).toContain('手動投稿')
+
+    const byDefault = computeNextActions({ ...emptySnapshot(), socialAccounts: [] }).find((a) => a.id === 'setup-connect')
+    expect(byDefault?.priority).toBe('normal')
+
+    const auto = computeNextActions({ ...emptySnapshot(), socialAccounts: [], publishingStrategy: 'api-first' }).find((a) => a.id === 'setup-connect')
+    expect(auto?.priority).toBe('high')
   })
 
   it('nudges in-progress seeds without counting ready ones', () => {
@@ -235,8 +259,7 @@ describe('getUpcomingPublishJobs', () => {
   it('excludes today and past, keeps future scheduled, soonest first', () => {
     const jobs = [
       publishJob({ id: 'today', status: 'scheduled', scheduledAt: '2026-07-20T09:00:00Z' }),
-      // A past-due scheduled job — e.g. a YouTube (assisted) / TikTok (draft)
-      // job the Worker never auto-runs, left in 'scheduled' with a past time.
+      // A past-due scheduled job left in 'scheduled' with a past time.
       // Must NOT lead the "upcoming" runway.
       publishJob({ id: 'overdue', status: 'scheduled', scheduledAt: '2026-07-18T09:00:00Z' }),
       publishJob({ id: 'far', status: 'scheduled', scheduledAt: '2026-07-25T09:00:00Z' }),

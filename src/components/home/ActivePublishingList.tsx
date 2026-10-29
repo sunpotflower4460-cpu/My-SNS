@@ -29,7 +29,7 @@ export default function ActivePublishingList({ jobs }: { jobs: PublishJob[] }) {
       </div>
 
       {jobs.length === 0 ? (
-        <p className="rounded-card bg-stone-50 px-4 py-6 text-center text-sm text-gray-500">
+        <p className="rounded-card bg-stone-50 px-4 py-6 text-center text-sm text-default">
           この先に予約された公開はありません。
         </p>
       ) : (
@@ -47,7 +47,7 @@ export default function ActivePublishingList({ jobs }: { jobs: PublishJob[] }) {
                   </span>
                   <div className="min-w-0 flex-1">
                     <p className="truncate text-sm font-medium text-gray-800">{channel?.label ?? job.channel}に公開</p>
-                    <p className="flex items-center gap-1 text-xs text-gray-500">
+                    <p className="flex items-center gap-1 text-xs text-muted">
                       <CalendarClock aria-hidden className="h-3 w-3" />
                       {formatWhen(job.scheduledAt)}
                     </p>

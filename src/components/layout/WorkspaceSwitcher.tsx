@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import type { Workspace, WorkspaceRole } from '@/lib/domain/types'
 import { useCurrentWorkspace } from '@/hooks/useCurrentWorkspace'
 import { useAuth } from '@/lib/auth/auth-provider'
@@ -13,6 +13,8 @@ interface WorkspaceSwitcherProps {
 
 export default function WorkspaceSwitcher({ workspace }: WorkspaceSwitcherProps) {
   const [open, setOpen] = useState(false)
+  const rootRef = useRef<HTMLDivElement>(null)
+  const triggerRef = useRef<HTMLButtonElement>(null)
   const { currentUserId } = useAuth()
   const { workspaces, currentMember, workspaceMemberships, setActiveWorkspaceId } = useCurrentWorkspace()
   const fallbackMembershipsByWorkspaceId = useMemo(
@@ -23,6 +25,25 @@ export default function WorkspaceSwitcher({ workspace }: WorkspaceSwitcherProps)
     [workspaceMemberships],
   )
   const [rolesByWorkspaceId, setRolesByWorkspaceId] = useState<Record<string, WorkspaceRole>>(fallbackMembershipsByWorkspaceId)
+
+  // Close on outside click / Escape (focus returns to the trigger).
+  useEffect(() => {
+    if (!open) return
+    const onPointerDown = (event: PointerEvent) => {
+      if (!rootRef.current?.contains(event.target as Node)) setOpen(false)
+    }
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape') return
+      setOpen(false)
+      triggerRef.current?.focus()
+    }
+    document.addEventListener('pointerdown', onPointerDown)
+    document.addEventListener('keydown', onKeyDown)
+    return () => {
+      document.removeEventListener('pointerdown', onPointerDown)
+      document.removeEventListener('keydown', onKeyDown)
+    }
+  }, [open])
 
   useEffect(() => {
     setRolesByWorkspaceId(fallbackMembershipsByWorkspaceId)
@@ -63,10 +84,15 @@ export default function WorkspaceSwitcher({ workspace }: WorkspaceSwitcherProps)
   }, [currentUserId, workspaces])
 
   return (
-    <div className="relative">
+    <div ref={rootRef} className="relative">
       <button
+        ref={triggerRef}
+        type="button"
         onClick={() => setOpen(!open)}
-        className="flex min-w-[220px] items-center gap-3 rounded-2xl border border-stone-200 bg-white px-3 py-2.5 text-left text-sm font-medium text-gray-700 shadow-sm transition hover:border-stone-300 hover:bg-stone-50"
+        aria-expanded={open}
+        aria-haspopup="true"
+        aria-label={`ワークスペースを切り替える（現在: ${workspace.name}）`}
+        className="flex max-w-[9.5rem] items-center sm:max-w-none sm:min-w-[220px] gap-3 rounded-2xl border border-stone-200 bg-white px-3 py-2.5 text-left text-sm font-medium text-gray-700 shadow-sm transition hover:border-stone-300 hover:bg-stone-50"
       >
         <div className="flex h-8 w-8 items-center justify-center rounded-xl bg-violet-600 text-xs font-bold text-white">
           {workspace.name.charAt(0)}
@@ -81,7 +107,10 @@ export default function WorkspaceSwitcher({ workspace }: WorkspaceSwitcherProps)
       </button>
 
       {open && (
-        <div className="absolute right-0 top-full z-50 mt-2 w-80 rounded-3xl border border-stone-200 bg-white p-2 shadow-xl shadow-stone-200/70">
+        // Below xl the panel is fixed to the header (backdrop-blur makes the header its
+        // containing block) so it can never overflow a 375px screen; at xl it hangs
+        // off the trigger.
+        <div className="fixed inset-x-4 top-[4.5rem] z-50 max-h-[calc(100dvh-6rem)] overflow-y-auto rounded-3xl sm:inset-x-auto sm:right-6 sm:w-80 lg:right-8 xl:absolute xl:right-0 xl:top-full xl:mt-2 border border-stone-200 bg-white p-2 shadow-xl shadow-stone-200/70">
           <div className="px-3 py-2">
             <p className="text-xs font-medium text-gray-400">ワークスペース一覧</p>
             <p className="mt-1 text-xs text-gray-500">
@@ -118,14 +147,6 @@ export default function WorkspaceSwitcher({ workspace }: WorkspaceSwitcherProps)
               </div>
             </button>
           ))}
-          <div className="mt-2 border-t border-stone-100 pt-2">
-            <button className="flex w-full items-center gap-3 rounded-2xl px-3 py-3 text-left text-sm text-gray-500 transition hover:bg-stone-50">
-              <span className="flex h-9 w-9 items-center justify-center rounded-2xl border border-dashed border-stone-300 text-xs text-gray-400">+</span>
-              <span>
-                ワークスペースを作成 <span className="text-gray-400">(今後のアップデートで対応予定)</span>
-              </span>
-            </button>
-          </div>
         </div>
       )}
     </div>

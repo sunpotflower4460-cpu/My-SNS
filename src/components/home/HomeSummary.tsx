@@ -20,7 +20,7 @@ export default function HomeSummary({ stats }: { stats: HomeSummaryStat[] }) {
           className="rounded-card border border-stone-200 bg-white px-4 py-3 transition hover:border-violet-200 hover:bg-violet-50/30"
         >
           <p className="text-2xl font-semibold tabular-nums text-gray-900">{stat.value}</p>
-          <p className="mt-0.5 text-xs text-gray-500">{stat.label}</p>
+          <p className="mt-0.5 text-xs text-muted">{stat.label}</p>
         </Link>
       ))}
     </div>

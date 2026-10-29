@@ -35,14 +35,19 @@ function reclaimableClaimFilter(): string {
  * overwrite the newer claim. Claims older than the provider retry-key window
  * are deliberately not reclaimed automatically.
  */
-async function claimReplyJob(supabase: SupabaseClient, jobId: string): Promise<string | null> {
+export async function claimReplyJob(supabase: SupabaseClient, jobId: string, platform: SocialPlatform): Promise<string | null> {
   const claimToken = crypto.randomUUID()
-  const { data, error } = await supabase
+  const query = supabase
     .from('reply_jobs')
     .update({ claimed_at: new Date().toISOString(), claim_token: claimToken })
     .eq('id', jobId)
-    .in('status', ['scheduled', 'failed'])
-    .or(reclaimableClaimFilter())
+  // LINE has a provider-enforced retry key, so a safe failed send / recent
+  // stale claim can be resumed. Public comment APIs have no such protection:
+  // never retry failed sends or reclaim an abandoned in-flight public reply.
+  const eligible = platform === 'line'
+    ? query.or('status.eq.scheduled,and(status.eq.failed,error_message.not.like.EXTERNAL_RESULT_UNKNOWN:%)').or(reclaimableClaimFilter())
+    : query.eq('status', 'scheduled').is('claimed_at', null)
+  const { data, error } = await eligible
     .select('id')
     .maybeSingle()
 
@@ -126,6 +131,7 @@ export interface ReplyableJob {
   sendTarget: string
   replyText: string
   createdBy: string
+  socialAccountId?: string
 }
 
 const ACCOUNT_NOT_CONNECTED_PREFIX = '接続済みの'
@@ -156,7 +162,7 @@ type ConfirmedReplyResult = {
  * rest of the due jobs in the same run.
  */
 export async function processReplyJob(supabase: SupabaseClient, job: ReplyableJob): Promise<ProcessReplyResult> {
-  const claimToken = await claimReplyJob(supabase, job.id)
+  const claimToken = await claimReplyJob(supabase, job.id, job.platform)
   if (!claimToken) {
     // Someone else (another "Send now", or an overlapping Worker tick) is
     // already actively sending this — or this is an old ambiguous claim outside
@@ -179,7 +185,11 @@ export async function processReplyJob(supabase: SupabaseClient, job: ReplyableJo
       return { success: true }
     }
 
-    const credentials = await resolveCredentials(supabase, job.workspaceId, job.platform)
+    if (job.platform !== 'line' && (!['instagram', 'youtube', 'x'].includes(job.platform) || !job.socialAccountId)) {
+      throw new Error('Public reply is missing its verified sender account. Resending through a different account is forbidden.')
+    }
+
+    const credentials = await resolveCredentials(supabase, job.workspaceId, job.platform, job.socialAccountId)
     if (!credentials) {
       throw new Error(accountNotConnectedMessage(job.platform))
     }
@@ -245,7 +255,7 @@ export async function processReplyJob(supabase: SupabaseClient, job: ReplyableJo
         // Leave a durable unsafe marker so cancel cannot open a new send with a
         // fresh job UUID / LINE retry key while this push may already exist.
         const unknownMessage =
-          'EXTERNAL_RESULT_UNKNOWN: LINE may already have accepted this reply, but local bookkeeping failed. Inspect LINE before sending again.'
+          `EXTERNAL_RESULT_UNKNOWN: ${job.platform} may already have accepted this reply, but local bookkeeping failed. Inspect the platform before sending again.`
         try {
           await releaseReplyJobClaim(supabase, job.id, claimToken, {
             status: 'failed',

@@ -44,12 +44,18 @@ describe('POST /api/inbox/reply/generate-bulk', () => {
     expect(mocks.generateReplySuggestionForItem).not.toHaveBeenCalled()
   })
 
-  it('rejects with 400 when more than 20 items are requested', async () => {
+  it('rejects with 400 when more than five items are requested', async () => {
     mocks.getUser.mockResolvedValue({ data: { user: { id: 'user-1' } } })
     mocks.requireWorkspaceMember.mockResolvedValue({ role: 'editor' })
 
-    const ids = Array.from({ length: 21 }, (_, i) => `item-${i}`)
+    const ids = Array.from({ length: 6 }, (_, i) => `item-${i}`)
     const response = await POST(request({ workspaceId: 'w1', inboxItemIds: ids }))
+    expect(response.status).toBe(400)
+    expect(mocks.generateReplySuggestionForItem).not.toHaveBeenCalled()
+  })
+
+  it('rejects duplicate item ids before any paid generation', async () => {
+    const response = await POST(request({ workspaceId: 'w1', inboxItemIds: ['item-1', 'item-1'] }))
     expect(response.status).toBe(400)
     expect(mocks.generateReplySuggestionForItem).not.toHaveBeenCalled()
   })

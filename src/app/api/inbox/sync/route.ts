@@ -3,8 +3,9 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 import { createClient } from '@/lib/supabase/server'
 import { isNextResponse, requireWorkspaceMember } from '@/lib/api/workspace-access'
 import { createServiceClient } from '@/lib/supabase/service'
-import { resolveCredentials } from '@/lib/services/publish-worker'
+import { listConnectedSocialAccounts, resolveCredentials } from '@/lib/services/publish-worker'
 import { getConnectorAdapter } from '@/lib/services/connectors'
+import { syncInboxForAccounts } from '@/lib/services/inbox-sync'
 import { upsertInboxItems } from '@/lib/repositories/supabase/inbox-ingest'
 import type { SocialPlatform } from '@/lib/domain/types'
 
@@ -48,41 +49,45 @@ export async function POST(request: NextRequest) {
     )
   }
 
-  let credentials
+  let accounts
   try {
-    credentials = await resolveCredentials(serviceClient, workspaceId, platform)
+    accounts = await listConnectedSocialAccounts(serviceClient, workspaceId, platform)
   } catch (cause) {
-    console.error(`Failed to resolve ${platform} credentials for inbox sync:`, cause)
+    console.error(`Failed to list ${platform} accounts for inbox sync:`, cause)
     return NextResponse.json(
-      { error: 'SNSの認証情報を確認できませんでした。設定画面で接続状態を確認してから再試行してください。' },
+      { error: 'SNSの接続状態を確認できませんでした。設定画面で接続状態を確認してから再試行してください。' },
       { status: 502 },
     )
   }
-  if (!credentials) {
+  if (accounts.length === 0) {
     return NextResponse.json({ error: `このワークスペースには接続済みの${platform}アカウントがありません。` }, { status: 400 })
   }
 
-  try {
-    const events = await getConnectorAdapter(platform).fetchInbox({
-      platform,
-      accessToken: credentials.accessToken,
-      externalAccountId: credentials.externalAccountId,
-      handle: credentials.handle,
-    })
-    const ingested = await upsertInboxItems(serviceClient, workspaceId, events)
-    return NextResponse.json({ ingested })
-  } catch (cause) {
-    // Connector feature-gap messages are useful to the creator (for example
-    // "Instagram uses webhook push"), but provider/DB internals belong in logs.
-    const detail = cause instanceof Error ? cause.message : '同期に失敗しました。'
-    console.error(`Inbox sync failed for ${platform}:`, cause)
-    const safeMessage =
-      detail.includes('not available')
-      || detail.includes('via webhook')
-      || detail.includes('no direct-message API')
-      || detail.includes('有料API')
-        ? detail
-        : '受信箱の同期に失敗しました。接続状態と通信状況を確認してから再試行してください。'
-    return NextResponse.json({ error: safeMessage }, { status: 502 })
+  const result = await syncInboxForAccounts({
+    accounts,
+    syncAccount: async (account) => {
+      const credentials = await resolveCredentials(serviceClient, workspaceId, platform, account.id)
+      if (!credentials) return null
+      return getConnectorAdapter(platform).fetchInbox({
+        platform,
+        accessToken: credentials.accessToken,
+        externalAccountId: credentials.externalAccountId,
+        handle: credentials.handle,
+      })
+    },
+    ingest: (events, account) => upsertInboxItems(serviceClient, workspaceId, events, undefined, account.id),
+    onError: (account, cause) => {
+      console.error(`Inbox sync failed for ${platform} account ${account.id}:`, cause)
+    },
+  })
+
+  // One account failing (for example a credential refresh) must not hide what
+  // the other accounts ingested. Only when nothing succeeded is it an error.
+  if (result.succeededAccounts === 0) {
+    return NextResponse.json(
+      { error: result.failures[0]?.message ?? '受信箱の同期に失敗しました。接続状態と通信状況を確認してから再試行してください。', failures: result.failures },
+      { status: 502 },
+    )
   }
+  return NextResponse.json({ ingested: result.ingested, failures: result.failures })
 }

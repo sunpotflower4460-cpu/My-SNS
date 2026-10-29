@@ -1,16 +1,23 @@
 import { NextRequest, NextResponse } from 'next/server'
 import type { SupabaseClient } from '@supabase/supabase-js'
+import { isBearerAuthorized } from '@/lib/api/timing-safe'
 import { createServiceClient } from '@/lib/supabase/service'
+import { createPublishRunBudget } from '@/lib/services/publish-run-budget'
 import { processPublishJob, type PublishableJob } from '@/lib/services/publish-worker'
 import { getPublishingStrategy } from '@/lib/channels/config'
+import { PUBLISH_WORKER_BATCH_SIZE } from '@/lib/presentation/cron-honesty'
 import type { SocialPlatform } from '@/lib/domain/types'
 
-// Invoked on a schedule (see vercel.json) to execute due, publish_mode='auto'
-// publish_jobs. The zero-cost strategy hard-disables this external publishing
-// path even if an older auto job still exists in the database. api-first is an
-// explicit opt-in that preserves the OAuth connector behaviour.
+// Invoked on a schedule (see vercel.json: daily at 00:00 UTC). Vercel Hobby
+// allows at most one cron run per path per day, so a scheduled time T may wait
+// until the next daily tick (up to ~24h). Each run processes at most
+// BATCH_SIZE due jobs; the rest wait for the following day. Queue「今すぐ公開」
+// remains the immediate path. The zero-cost strategy hard-disables this
+// external publishing path even if an older auto job still exists in the
+// database. api-first is an explicit opt-in that preserves the OAuth connector
+// behaviour.
 
-const BATCH_SIZE = 20
+const BATCH_SIZE = PUBLISH_WORKER_BATCH_SIZE
 
 // YouTube uploads can run long. 300s needs a Vercel Pro (or higher) plan —
 // on Hobby a large upload can still exceed platform limits. This duration is
@@ -23,6 +30,7 @@ interface DueJobRow {
   channel: SocialPlatform
   created_by: string
   seed_id: string | null
+  social_account_id: string | null
   draft_revisions: PublishableJob['revision'] | null
 }
 
@@ -31,7 +39,7 @@ export async function GET(request: NextRequest) {
   if (!cronSecret) {
     return NextResponse.json({ error: 'Worker is not configured (CRON_SECRET unset).' }, { status: 503 })
   }
-  if (request.headers.get('authorization') !== `Bearer ${cronSecret}`) {
+  if (!isBearerAuthorized(request.headers.get('authorization'), cronSecret)) {
     return NextResponse.json({ error: 'Not authorized.' }, { status: 401 })
   }
 
@@ -56,7 +64,7 @@ export async function GET(request: NextRequest) {
 
   const { data: dueJobs, error: dueJobsError } = await supabase
     .from('publish_jobs')
-    .select('id, workspace_id, channel, created_by, seed_id, draft_revisions!inner(title, body, hashtags, cta, metadata)')
+    .select('id, workspace_id, channel, created_by, seed_id, social_account_id, draft_revisions!inner(title, body, hashtags, cta, metadata)')
     .eq('status', 'scheduled')
     .eq('publish_mode', 'auto')
     .lte('scheduled_at', new Date().toISOString())
@@ -72,13 +80,34 @@ export async function GET(request: NextRequest) {
   let succeeded = 0
   let failed = 0
   let skipped = 0
+  let deferred = 0
 
-  for (const rawJob of (dueJobs ?? []) as unknown as DueJobRow[]) {
+  // Time budget: a started job must be able to finish inside maxDuration, or
+  // the platform kills the function mid-publish and leaves a claimed job with
+  // an unknown external result. Long-media jobs (youtube/tiktok, up to ~270s)
+  // are limited to one per invocation; jobs that do not fit are never claimed
+  // and stay `scheduled` for the next run. Claim/fence semantics live in
+  // processPublishJob and are untouched.
+  const budget = createPublishRunBudget({ maxDurationMs: maxDuration * 1000 })
+  const jobs = (dueJobs ?? []) as unknown as DueJobRow[]
+
+  for (const [index, rawJob] of jobs.entries()) {
     if (!rawJob.draft_revisions) {
       failed += 1
       console.error(`publish_job ${rawJob.id} has no linked draft revision; skipping.`)
       continue
     }
+
+    const decision = budget.decide(rawJob.channel)
+    if (decision === 'stop') {
+      deferred += jobs.length - index
+      break
+    }
+    if (decision === 'defer') {
+      deferred += 1
+      continue
+    }
+    budget.markStarted(rawJob.channel)
 
     try {
       const result = await processPublishJob(supabase, {
@@ -87,6 +116,7 @@ export async function GET(request: NextRequest) {
         channel: rawJob.channel,
         createdBy: rawJob.created_by,
         seedId: rawJob.seed_id ?? undefined,
+        socialAccountId: rawJob.social_account_id ?? undefined,
         revision: rawJob.draft_revisions,
       })
 
@@ -99,5 +129,5 @@ export async function GET(request: NextRequest) {
     }
   }
 
-  return NextResponse.json({ mode: 'api-first', processed: succeeded + failed, succeeded, failed, skipped })
+  return NextResponse.json({ mode: 'api-first', processed: succeeded + failed, succeeded, failed, skipped, deferred })
 }
