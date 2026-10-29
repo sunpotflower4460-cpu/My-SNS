@@ -8,51 +8,57 @@ function truncate(text: string, limit: number): string {
   return normalized.length <= limit ? normalized : `${normalized.slice(0, Math.max(0, limit - 1)).trimEnd()}…`
 }
 
-function hashtags(seed: Seed, limit = seed.tags.length): string {
-  return seed.tags.slice(0, limit).map((tag) => `#${tag}`).join(' ')
-}
-
 function keyPoints(seed: Seed): string {
   return seed.keyPoints.map((point) => `- ${point}`).join('\n')
 }
 
+// The body of a template draft holds only the writing. Title, CTA and hashtags
+// are stored as their own fields on the draft, and the publish handoff
+// (formatRevisionForHandoff) appends the CTA and hashtags — and prepends the
+// title for note / YouTube / website / Facebook. Repeating them here would make
+// every copied or shared post say them twice. The channels whose handoff does
+// NOT add a title (Instagram, X, TikTok, Threads, LINE) keep it as a first line.
+const X_POST_LIMIT = 280
+
 const CHANNEL_TEMPLATES: Record<PublishingChannel, (seed: Seed, tone: string, length: DraftLength) => string> = {
   instagram: (seed, _tone, length) => {
     const sourceLimit = length === 'short' ? 120 : length === 'medium' ? 360 : 900
-    return [seed.title, truncate(seed.sourceText ?? '', sourceLimit), seed.callToAction, hashtags(seed)]
-      .filter(Boolean)
-      .join('\n\n')
+    return [seed.title, truncate(seed.sourceText ?? '', sourceLimit)].filter(Boolean).join('\n\n')
   },
   x: (seed) => {
-    return truncate([seed.title, seed.sourceText, seed.callToAction, hashtags(seed, 2)].filter(Boolean).join(' — '), 280)
+    // Leave room for what the handoff appends (CTA + hashtags, each after a
+    // blank line) so the final post still fits in one X post.
+    const hashtagText = seed.tags.slice(0, 2).map((tag) => `#${tag}`).join(' ')
+    const appended = [seed.callToAction?.trim(), hashtagText].filter(Boolean)
+    const reserved = appended.reduce((total, part) => total + 2 + (part?.length ?? 0), 0)
+    const body = [seed.title, seed.sourceText].filter(Boolean).join(' — ')
+    return truncate(body, Math.max(0, X_POST_LIMIT - reserved))
   },
   youtube: (seed) => {
-    return [seed.title, seed.sourceText, keyPoints(seed), seed.callToAction, hashtags(seed)].filter(Boolean).join('\n\n')
+    return [seed.sourceText, keyPoints(seed)].filter(Boolean).join('\n\n')
   },
   note: (seed) => {
-    return [seed.title, seed.sourceText, keyPoints(seed), seed.callToAction].filter(Boolean).join('\n\n')
+    return [seed.sourceText, keyPoints(seed)].filter(Boolean).join('\n\n')
   },
   threads: (seed, _tone, length) => {
     const sourceLimit = length === 'short' ? 180 : length === 'medium' ? 360 : 700
-    return [seed.title, truncate(seed.sourceText ?? '', sourceLimit), seed.callToAction].filter(Boolean).join('\n\n')
+    return [seed.title, truncate(seed.sourceText ?? '', sourceLimit)].filter(Boolean).join('\n\n')
   },
   tiktok: (seed) => {
-    return [seed.title, truncate(seed.sourceText ?? '', 180), seed.callToAction, hashtags(seed, 4)]
-      .filter(Boolean)
-      .join('\n\n')
+    return [seed.title, truncate(seed.sourceText ?? '', 180)].filter(Boolean).join('\n\n')
   },
   facebook: (seed, _tone, length) => {
     const sourceLimit = length === 'short' ? 180 : length === 'medium' ? 500 : 1200
-    return [seed.title, truncate(seed.sourceText ?? '', sourceLimit), seed.callToAction].filter(Boolean).join('\n\n')
+    return [truncate(seed.sourceText ?? '', sourceLimit)].filter(Boolean).join('\n\n')
   },
   website: (seed) => {
-    return [seed.title, seed.sourceText, keyPoints(seed), seed.callToAction].filter(Boolean).join('\n\n')
+    return [seed.sourceText, keyPoints(seed)].filter(Boolean).join('\n\n')
   },
   // LINE is a messaging platform, never a publishing channel — this entry only
   // satisfies the exhaustive Record<PublishingChannel, …> and is never reached
   // via the Seed channel picker (CORE_PUBLISHING_CHANNELS excludes it).
   line: (seed) => {
-    return [seed.title, seed.sourceText, seed.callToAction].filter(Boolean).join('\n\n')
+    return [seed.title, seed.sourceText].filter(Boolean).join('\n\n')
   },
 }
 
@@ -77,7 +83,9 @@ export class TemplateDraftGeneratorService implements DraftGeneratorService {
       channel,
       title: seed.title,
       draftText: CHANNEL_TEMPLATES[channel](seed, tone, length),
-      hashtags: [...seed.tags],
+      // X's handoff appends every hashtag on the draft, and the body was sized
+      // for two — keep the two in agreement.
+      hashtags: channel === 'x' ? seed.tags.slice(0, 2) : [...seed.tags],
       cta: seed.callToAction,
       // Deterministic templates never guess — there is nothing to flag.
       assumptions: [],

@@ -17,7 +17,7 @@ const PRIORITY_LABELS: Record<'high' | 'normal' | 'low', string> = {
 const PRIORITY_STYLES: Record<'high' | 'normal' | 'low', string> = {
   high: 'border-rose-200 bg-rose-50 text-rose-700',
   normal: 'border-sky-200 bg-sky-50 text-sky-700',
-  low: 'border-stone-200 bg-stone-50 text-stone-500',
+  low: 'border-stone-200 bg-stone-50 text-muted',
 }
 
 function formatJst(value: string): string {
@@ -240,16 +240,16 @@ export default function ConciergeReplyPanel({ item }: { item: InboxItem }) {
 
       {item.aiSummary ? (
         <div className="mt-3">
-          <p className="text-xs font-semibold text-gray-500">この方はこう仰っています</p>
+          <p className="text-xs font-semibold text-muted">この方はこう仰っています</p>
           <p className="mt-1 text-sm leading-6 text-gray-700">{item.aiSummary}</p>
           {item.aiPriority && (
-            <span className={`mt-2 inline-flex items-center rounded-full border px-2.5 py-0.5 text-[11px] font-medium ${PRIORITY_STYLES[item.aiPriority]}`}>
+            <span className={`mt-2 inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-medium ${PRIORITY_STYLES[item.aiPriority]}`}>
               {PRIORITY_LABELS[item.aiPriority]}
             </span>
           )}
         </div>
       ) : (
-        <p className="mt-3 text-sm text-gray-500">
+        <p className="mt-3 text-sm text-default">
           {canReply ? 'AIに要約と返信案を作ってもらいましょう。' : 'AIによる要約・返信案はまだありません。'}
         </p>
       )}
@@ -276,8 +276,8 @@ export default function ConciergeReplyPanel({ item }: { item: InboxItem }) {
       {suggestion && canCompose && (
         <div className="mt-4">
           <div className="flex items-center justify-between gap-2">
-            <p className="text-xs font-semibold text-gray-500">おすすめの返信</p>
-            <span className="text-[11px] text-gray-400">
+            <p className="text-xs font-semibold text-muted">おすすめの返信</p>
+            <span className="text-xs text-muted">
               {suggestion.source === 'ai' ? `AI提案${suggestion.tone ? `・${suggestion.tone}` : ''}` : '定型文'}
             </span>
           </div>
@@ -290,7 +290,7 @@ export default function ConciergeReplyPanel({ item }: { item: InboxItem }) {
             }}
             rows={4}
             disabled={!canReply}
-            className="mt-2 w-full rounded-2xl border border-stone-200 bg-white px-4 py-3 text-sm leading-6 focus:outline-none focus:ring-2 focus:ring-violet-300 disabled:bg-stone-50 disabled:text-gray-500"
+            className="mt-2 w-full rounded-2xl border border-stone-200 bg-white px-4 py-3 text-sm leading-6 focus:outline-none focus:ring-2 focus:ring-violet-500 disabled:bg-stone-50 disabled:text-gray-500"
             placeholder="返信内容を編集できます…"
           />
 
@@ -327,7 +327,7 @@ export default function ConciergeReplyPanel({ item }: { item: InboxItem }) {
                   {busy === 'send' ? '送信中…' : '承認して送信'}
                 </button>
               </div>
-              <p className="mt-2 text-[11px] text-gray-400">
+              <p className="mt-2 text-xs leading-5 text-muted">
                 {timing === 'recommended'
                   ? `相手の生活時間に合わせた時刻を予約します（深夜は避けます）。${REPLY_WORKER_DELAY_JA}`
                   : 'すぐに送信します。'}
@@ -336,12 +336,12 @@ export default function ConciergeReplyPanel({ item }: { item: InboxItem }) {
           )}
 
           {canReply && isInstagram && (
-            <p className="mt-3 rounded-xl border border-stone-200 bg-white px-3 py-2 text-xs text-gray-500">
+            <p className="mt-3 rounded-xl border border-stone-200 bg-white px-3 py-2 text-xs leading-5 text-muted">
               Instagram DMは現在<strong>受信のみ</strong>対応です（送信はMetaのメッセージ送信権限と審査が必要なため、今後対応予定）。要約と返信案の作成まではご利用いただけます。
             </p>
           )}
           {canReply && !sendSupported && !isInstagram && (
-            <p className="mt-3 rounded-xl border border-stone-200 bg-white px-3 py-2 text-xs text-gray-500">
+            <p className="mt-3 rounded-xl border border-stone-200 bg-white px-3 py-2 text-xs leading-5 text-muted">
               この媒体への返信送信は現在未対応です（Phase 1で送信できるのはLINEのみです）。
             </p>
           )}
@@ -419,12 +419,12 @@ export default function ConciergeReplyPanel({ item }: { item: InboxItem }) {
                   <div className="flex items-start justify-between gap-3">
                     <div className="min-w-0">
                       <p className="text-sm font-medium text-gray-800">{proposal.title}</p>
-                      <p className="mt-0.5 text-xs text-gray-500">
+                      <p className="mt-0.5 text-xs text-muted">
                         {proposal.allDay ? '終日' : formatJst(proposal.startsAt)}
                         {proposal.endsAt && !proposal.allDay ? ` 〜 ${formatJst(proposal.endsAt)}` : ''}
                         {proposal.location ? `・${proposal.location}` : ''}
                       </p>
-                      {proposal.note && <p className="mt-0.5 text-[11px] text-gray-400">{proposal.note}</p>}
+                      {proposal.note && <p className="mt-0.5 text-xs text-muted">{proposal.note}</p>}
                     </div>
                     {addedProposals.has(index) ? (
                       <span className="shrink-0 text-xs text-green-700">✓ 追加済み</span>
@@ -449,7 +449,7 @@ export default function ConciergeReplyPanel({ item }: { item: InboxItem }) {
         <div className="mt-4 flex items-start justify-between gap-3 rounded-2xl border border-stone-200 bg-white px-4 py-3">
           <div className="min-w-0">
             <p className="text-xs font-semibold text-gray-600">この相手への自動返信</p>
-            <p className="mt-0.5 text-[11px] leading-5 text-gray-400">
+            <p className="mt-0.5 text-xs leading-5 text-muted">
               {contact.autoSendEnabled
                 ? 'オン: AIが返信案を作成し、確認・取り消しできる余裕をもって自動で送信予約します。'
                 : 'オフ: これまで通り、承認してから送信します。'}

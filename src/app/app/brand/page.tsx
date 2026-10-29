@@ -23,7 +23,20 @@ export default function BrandProfilePage() {
   const [isSaving, setIsSaving] = useState(false)
 
   useEffect(() => {
-    if (!defaultBrandProfile) return
+    if (!defaultBrandProfile) {
+      // Switching to a workspace with no profile yet must not keep the previous
+      // workspace's values in the form (they could be saved into the wrong place).
+      setName('')
+      setDescription('')
+      setAudience('')
+      setVoiceTraits('')
+      setValues('')
+      setPreferredTerms('')
+      setAvoidedTerms('')
+      setDefaultCallToAction('')
+      setLanguage('ja')
+      return
+    }
     setName(defaultBrandProfile.name)
     setDescription(defaultBrandProfile.description ?? '')
     setAudience(defaultBrandProfile.audience ?? '')

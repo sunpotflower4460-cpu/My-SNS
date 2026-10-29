@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { Seed } from '@/lib/domain/types'
-import { buildDraftGenerationPrompt, calculateGenerationCost, parseDraftProposals } from './anthropic-draft'
+import { buildDraftGenerationPrompt, parseDraftProposals } from './llm-draft'
 
 const seed: Seed = {
   id: 'seed-1',
@@ -175,12 +175,6 @@ describe('parseDraftProposals', () => {
 
   it('throws when the tool input is not a drafts array at all', () => {
     expect(() => parseDraftProposals({ nope: true }, seed, ['youtube'], 'calm', 'medium')).toThrow(/drafts array/)
-  })
-})
-
-describe('calculateGenerationCost', () => {
-  it('returns 0 when no pricing environment variables are configured', () => {
-    expect(calculateGenerationCost(1_000_000, 1_000_000)).toBe(0)
   })
 })
 

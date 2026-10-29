@@ -1,5 +1,6 @@
 'use client'
 
+import { describeTooLarge, partitionUploadFiles } from '@/lib/seeds/upload-limits'
 import { useEffect, useRef, useState } from 'react'
 import Link from 'next/link'
 import { useParams } from 'next/navigation'
@@ -51,11 +52,14 @@ export default function SeedMediaPage() {
   const assetIdsKey = detail.assets.map((asset) => asset.id).join('|')
   const autoThumbAttemptedRef = useRef(false)
   const canUploadAssetsEarly = Boolean(currentMember && hasPermission(currentMember.role, 'upload_assets'))
+  // Depend on the id, not the workspace object: the object identity changes on
+  // every refreshWorkspaceData(), which would reset assignments and flicker.
+  const currentWorkspaceId = currentWorkspace?.id
 
   useEffect(() => {
     let active = true
 
-    if (!currentWorkspace || !seedId) {
+    if (!currentWorkspaceId || !seedId) {
       setPublishingAssignments({})
       setAssignmentLoadState('idle')
       setAssignmentLoadError('')
@@ -68,7 +72,7 @@ export default function SeedMediaPage() {
     setAssignmentLoadError('')
 
     void listSeedAssetPublishingAssignments({
-      workspaceId: currentWorkspace.id,
+      workspaceId: currentWorkspaceId,
       seedId,
       assetIds,
     }).then((assignments) => {
@@ -83,7 +87,7 @@ export default function SeedMediaPage() {
     })
 
     return () => { active = false }
-  }, [assetIdsKey, currentWorkspace, seedId])
+  }, [assetIdsKey, currentWorkspaceId, seedId])
 
   useEffect(() => {
     if (!currentWorkspace || !detail.seed) return
@@ -160,7 +164,15 @@ export default function SeedMediaPage() {
       setFeedback(`${saved.length}件の素材を追加しました。動画があれば文字入りサムネイルを自動作成します。`)
       setError('')
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : '素材を追加できませんでした。')
+      // Files are saved one after another, so some may already be in. Reload the
+      // list and clear the selection: retrying the same selection would upload
+      // those again.
+      await refreshWorkspaceData().catch(() => undefined)
+      // Some videos may already be saved; let the auto-thumbnail pass look at them.
+      autoThumbAttemptedRef.current = false
+      setSelectedFiles([])
+      if (inputRef.current) inputRef.current.value = ''
+      setError(`${cause instanceof Error ? cause.message : '素材を追加できませんでした。'} 一部のファイルは追加済みの可能性があります。素材の一覧を確認してから、残りを選び直してください。`)
       setFeedback('')
     } finally {
       setUploading(false)
@@ -336,7 +348,12 @@ export default function SeedMediaPage() {
                 multiple
                 accept="image/*,video/*,audio/*,.pdf,.txt,.md"
                 className="sr-only"
-                onChange={(event) => setSelectedFiles(Array.from(event.target.files ?? []))}
+                onChange={(event) => {
+                  const { accepted, tooLarge } = partitionUploadFiles(Array.from(event.target.files ?? []))
+                  setSelectedFiles(accepted)
+                  setError(describeTooLarge(tooLarge))
+                  setFeedback('')
+                }}
               />
             </label>
 

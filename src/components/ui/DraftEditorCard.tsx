@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useMemo, useState } from 'react'
+import { PUBLISHING_CHANNEL_CONFIG } from '@/lib/channels/config'
 import type { Asset, SocialAccount, SocialDraft } from '@/lib/domain/types'
 import { connectedAccountsForPlatform, isSocialPlatformChannel } from '@/lib/publish/account-target'
 import { mergeDraftPublishOptions, parseDraftPublishOptions } from '@/lib/publish/draft-publish-options'
@@ -43,11 +44,30 @@ export default function DraftEditorCard({
   // browser uses Asia/Tokyo, which would hydrate with a mismatched value.
   const [scheduleInput, setScheduleInput] = useState('')
 
+  // Re-sync only when the saved draft itself changes (its id, text, or
+  // updatedAt) — not on `draft.metadata` identity, which is a fresh object on
+  // every workspace refresh and would wipe an unsaved edit the user is typing.
   useEffect(() => {
     setText(draft.draftText)
     setMetadata(draft.metadata ?? {})
     setIsDirty(false)
-  }, [draft.draftText, draft.id, draft.metadata])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [draft.draftText, draft.id, draft.updatedAt])
+
+  // Thumbnails are chosen after the card is already on screen (generation runs
+  // in the background). Pick those two ids up without touching the text or the
+  // dirty flag, otherwise a later save/approve would send stale metadata and
+  // drop the thumbnail.
+  const incomingThumbnailId = typeof draft.metadata?.thumbnailAssetId === 'string' ? draft.metadata.thumbnailAssetId : undefined
+  const incomingCoverId = typeof draft.metadata?.coverAssetId === 'string' ? draft.metadata.coverAssetId : undefined
+  useEffect(() => {
+    setMetadata((current) => {
+      const patch: Parameters<typeof mergeDraftPublishOptions>[1] = {}
+      if (incomingThumbnailId && current.thumbnailAssetId !== incomingThumbnailId) patch.thumbnailAssetId = incomingThumbnailId
+      if (incomingCoverId && current.coverAssetId !== incomingCoverId) patch.coverAssetId = incomingCoverId
+      return Object.keys(patch).length === 0 ? current : mergeDraftPublishOptions(current, patch)
+    })
+  }, [incomingThumbnailId, incomingCoverId])
 
   useEffect(() => {
     setScheduleInput(clientScheduleInputValue())
@@ -90,11 +110,11 @@ export default function DraftEditorCard({
           : ''
 
   const updatePublishOptions = (patch: Parameters<typeof mergeDraftPublishOptions>[1]) => {
-    setMetadata((current) => {
-      const next = mergeDraftPublishOptions(current, { ...parseDraftPublishOptions(current), ...patch })
-      onLiveChange?.(draft.id, text, next)
-      return next
-    })
+    // Compute the next value here: calling the parent's onLiveChange from
+    // inside a state updater runs during render (and twice in Strict Mode).
+    const next = mergeDraftPublishOptions(metadata, { ...parseDraftPublishOptions(metadata), ...patch })
+    setMetadata(next)
+    onLiveChange?.(draft.id, text, next)
     setIsDirty(true)
   }
 
@@ -122,7 +142,7 @@ export default function DraftEditorCard({
       <div className="mb-3 flex flex-wrap items-center gap-2">
         <ChannelBadge channel={draft.channel} />
         <StatusBadge status={draft.status} />
-        <span className={`rounded-full px-2.5 py-1 text-[11px] font-semibold ${draft.source === 'ai' ? 'border border-[color:rgba(109,93,246,0.16)] bg-[color:var(--accent-soft)] text-[color:var(--accent)]' : 'border border-[color:var(--border-default)] bg-black/[0.03] text-[color:var(--text-muted)]'}`}>
+        <span className={`rounded-full px-2.5 py-1 text-xs font-semibold ${draft.source === 'ai' ? 'border border-[color:rgba(109,93,246,0.16)] bg-[color:var(--accent-soft)] text-[color:var(--accent)]' : 'border border-[color:var(--border-default)] bg-black/[0.03] text-[color:var(--text-muted)]'}`}>
           {draft.source === 'ai' ? 'AI提案' : 'テンプレート'}
         </span>
         <span className="ml-auto text-xs text-[color:var(--text-subtle)]">
@@ -136,8 +156,13 @@ export default function DraftEditorCard({
         value={text}
         onChange={(e) => handleChange(e.target.value)}
         rows={4}
+        aria-label={`${PUBLISHING_CHANNEL_CONFIG[draft.channel]?.label ?? draft.channel}の投稿本文`}
         className="ui-input w-full resize-none rounded-card p-3 text-sm text-[color:var(--text-default)] focus:outline-none"
       />
+
+      {draft.cta && (
+        <p className="mt-2 text-xs text-[color:var(--text-muted)]">CTA（投稿時に末尾へ追加）: {draft.cta}</p>
+      )}
 
       {draft.hashtags.length > 0 && (
         <p className="mt-2 text-xs text-[color:var(--text-subtle)]">{draft.hashtags.map((tag) => `#${tag}`).join(' ')}</p>
@@ -145,7 +170,7 @@ export default function DraftEditorCard({
 
       {draft.assumptions.length > 0 && (
         <div className="mt-3 rounded-card border border-amber-200/80 bg-amber-50/90 p-3">
-          <p className="text-[11px] font-semibold text-amber-700">確認が必要な前提</p>
+          <p className="text-sm font-semibold text-amber-700">確認が必要な前提</p>
           <ul className="mt-1.5 space-y-1 text-xs leading-5 text-amber-800">
             {draft.assumptions.map((assumption, index) => <li key={index}>• {assumption}</li>)}
           </ul>

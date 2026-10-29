@@ -77,7 +77,8 @@ BEGIN
   SELECT *
   INTO v_account
   FROM public.social_accounts
-  WHERE id = NEW.social_account_id;
+  WHERE id = NEW.social_account_id
+  FOR UPDATE;
 
   IF NOT FOUND THEN
     RAISE EXCEPTION 'Social account not found for shadow growth strategy.' USING ERRCODE = '23503';
@@ -99,6 +100,32 @@ CREATE TRIGGER guard_shadow_growth_strategy_account
   BEFORE INSERT ON public.shadow_growth_strategies
   FOR EACH ROW
   EXECUTE FUNCTION public.guard_shadow_growth_strategy_account();
+
+-- Account identity must remain stable while an immutable snapshot references it.
+-- The INSERT guard locks the parent row, so concurrent imports and updates
+-- cannot slip past each other's identity validation.
+CREATE OR REPLACE FUNCTION public.guard_shadow_social_account_identity()
+RETURNS TRIGGER
+LANGUAGE plpgsql
+SET search_path = ''
+AS $$
+BEGIN
+  IF (OLD.workspace_id IS DISTINCT FROM NEW.workspace_id
+      OR OLD.platform IS DISTINCT FROM NEW.platform)
+     AND EXISTS (
+       SELECT 1 FROM public.shadow_growth_strategies
+       WHERE social_account_id = OLD.id
+     ) THEN
+    RAISE EXCEPTION 'Cannot change social account identity while shadow strategies reference it.' USING ERRCODE = '23514';
+  END IF;
+  RETURN NEW;
+END;
+$$;
+
+CREATE TRIGGER guard_shadow_social_account_identity
+  BEFORE UPDATE OF workspace_id, platform ON public.social_accounts
+  FOR EACH ROW
+  EXECUTE FUNCTION public.guard_shadow_social_account_identity();
 
 CREATE OR REPLACE FUNCTION public.forbid_shadow_growth_strategy_update()
 RETURNS TRIGGER

@@ -10,8 +10,6 @@ export const SHADOW_STRATEGY_PLATFORMS = [
   'tiktok',
   'threads',
   'facebook',
-  'note',
-  'website',
 ] as const
 
 export const SHADOW_STRATEGY_DIMENSIONS = [

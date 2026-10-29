@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import type { SupabaseClient } from '@supabase/supabase-js'
+import { isBearerAuthorized } from '@/lib/api/timing-safe'
 import { createServiceClient } from '@/lib/supabase/service'
 import { processReplyJob } from '@/lib/services/reply-worker'
 
@@ -29,7 +30,7 @@ export async function GET(request: NextRequest) {
   if (!cronSecret) {
     return NextResponse.json({ error: 'Worker is not configured (CRON_SECRET unset).' }, { status: 503 })
   }
-  if (request.headers.get('authorization') !== `Bearer ${cronSecret}`) {
+  if (!isBearerAuthorized(request.headers.get('authorization'), cronSecret)) {
     return NextResponse.json({ error: 'Not authorized.' }, { status: 401 })
   }
 

@@ -21,15 +21,19 @@ import {
 
 type LoadState =
   | { status: 'idle' }
-  | { status: 'loading' }
-  | { status: 'loaded'; latest: ShadowGrowthStrategy | null }
-  | { status: 'error'; message: string }
+  | { status: 'loading'; workspaceId: string; socialAccountId: string }
+  | { status: 'loaded'; workspaceId: string; socialAccountId: string; latest: ShadowGrowthStrategy | null }
+  | { status: 'error'; workspaceId: string; socialAccountId: string; message: string }
 
 export default function ShadowStrategySection() {
   const { currentWorkspace, currentMember, socialAccounts } = useApp()
   const canView = canViewShadowStrategy(currentMember?.role)
   const canManage = canManageShadowStrategy(currentMember?.role)
-  const accounts = useMemo(() => selectShadowSocialAccounts(socialAccounts), [socialAccounts])
+  const workspaceId = currentWorkspace?.id ?? null
+  const accounts = useMemo(
+    () => selectShadowSocialAccounts(socialAccounts.filter((account) => account.workspaceId === workspaceId)),
+    [socialAccounts, workspaceId],
+  )
   const [selectedSocialAccountId, setSelectedSocialAccountId] = useState<string | null>(null)
   const [loadState, setLoadState] = useState<LoadState>({ status: 'idle' })
   const [importOpen, setImportOpen] = useState(false)
@@ -37,35 +41,46 @@ export default function ShadowStrategySection() {
   const [importError, setImportError] = useState<string | null>(null)
   const [importing, setImporting] = useState(false)
 
-  const selectedId = selectedSocialAccountId ?? defaultSelectedSocialAccountId(accounts)
+  const selectedId = accounts.some((account) => account.id === selectedSocialAccountId)
+    ? selectedSocialAccountId
+    : defaultSelectedSocialAccountId(accounts)
   const selectedAccount = accounts.find((account) => account.id === selectedId) ?? null
-  const latest = loadState.status === 'loaded' ? loadState.latest : null
+  const visibleLoadState: LoadState = loadState.status !== 'idle'
+    && loadState.workspaceId === workspaceId
+    && loadState.socialAccountId === selectedId
+    ? loadState
+    : { status: 'idle' }
+  const latest = visibleLoadState.status === 'loaded' ? visibleLoadState.latest : null
   const view = presentShadowStrategy(latest)
 
-  const loadStrategy = useCallback(async (workspaceId: string, socialAccountId: string) => {
-    setLoadState({ status: 'loading' })
+  const loadStrategy = useCallback(async (workspaceId: string, socialAccountId: string, signal: AbortSignal) => {
+    setLoadState({ status: 'loading', workspaceId, socialAccountId })
     try {
       const response = await fetch(
         `/api/internal/shadow-strategy?workspaceId=${encodeURIComponent(workspaceId)}&socialAccountId=${encodeURIComponent(socialAccountId)}`,
+        { signal },
       )
       const body = (await response.json().catch(() => null)) as { latest?: ShadowGrowthStrategy | null; error?: string } | null
+      if (signal.aborted) return
       if (!response.ok) {
-        setLoadState({ status: 'error', message: body?.error ?? 'Shadow Strategy を読み込めませんでした。' })
+        setLoadState({ status: 'error', workspaceId, socialAccountId, message: body?.error ?? 'Shadow Strategy を読み込めませんでした。' })
         return
       }
-      setLoadState({ status: 'loaded', latest: body?.latest ?? null })
+      setLoadState({ status: 'loaded', workspaceId, socialAccountId, latest: body?.latest ?? null })
     } catch {
-      setLoadState({ status: 'error', message: 'Shadow Strategy を読み込めませんでした。' })
+      if (!signal.aborted) setLoadState({ status: 'error', workspaceId, socialAccountId, message: 'Shadow Strategy を読み込めませんでした。' })
     }
   }, [])
 
   useEffect(() => {
-    if (!canView || !currentWorkspace?.id || !selectedId) {
+    if (!canView || !workspaceId || !selectedId) {
       setLoadState({ status: 'idle' })
       return
     }
-    void loadStrategy(currentWorkspace.id, selectedId)
-  }, [canView, currentWorkspace?.id, loadStrategy, selectedId])
+    const controller = new AbortController()
+    void loadStrategy(workspaceId, selectedId, controller.signal)
+    return () => controller.abort()
+  }, [canView, workspaceId, loadStrategy, selectedId])
 
   if (!canView) return null
 
@@ -99,7 +114,7 @@ export default function ShadowStrategySection() {
       }
       setImportText('')
       setImportOpen(false)
-      setLoadState({ status: 'loaded', latest: body?.strategy ?? null })
+      setLoadState({ status: 'loaded', workspaceId: currentWorkspace.id, socialAccountId: selectedId, latest: body?.strategy ?? null })
     } catch {
       setImportError('取り込みに失敗しました。')
     } finally {
@@ -146,15 +161,15 @@ export default function ShadowStrategySection() {
               </label>
             )}
 
-            {loadState.status === 'loading' && <p className="text-sm text-gray-500">読み込み中です…</p>}
-            {loadState.status === 'error' && <InlineAlert tone="error">{loadState.message}</InlineAlert>}
-            {loadState.status === 'loaded' && view.empty && (
+            {visibleLoadState.status === 'loading' && <p className="text-sm text-gray-500">読み込み中です…</p>}
+            {visibleLoadState.status === 'error' && <InlineAlert tone="error">{visibleLoadState.message}</InlineAlert>}
+            {visibleLoadState.status === 'loaded' && view.empty && (
               <EmptyState
                 title="まだ Shadow Strategy がありません"
                 description="Owner / Admin が Bridge の Explicit Link と Strategy を手動で読み込むと、ここに表示されます。生成や公開には使いません。"
               />
             )}
-            {loadState.status === 'loaded' && latest && selectedAccount && (
+            {visibleLoadState.status === 'loaded' && latest && selectedAccount && (
               <div className="space-y-4">
                 <div className="flex flex-wrap items-center gap-3">
                   <ChannelBadge channel={latest.platform} />

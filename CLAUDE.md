@@ -19,7 +19,7 @@
 
 | 領域 | ファイル |
 |---|---|
-| Draft生成の抽象 | `src/lib/services/interfaces.ts`（`DraftGeneratorService`）/ 実装は `src/lib/services/ai-draft.ts` |
+| Draft生成の抽象 | `src/lib/services/interfaces.ts`（`DraftGeneratorService`）/ テンプレートは `src/lib/services/ai-draft.ts`、LLMは `llm-draft.ts`（プロバイダ切替は `llm-provider.ts`：既定DeepSeek、Anthropicも可） |
 | AI修正の記憶 | `src/lib/services/draft-style-learning.ts`（生成時スナップショット凍結、few-shot例、傾向メモ）。次回生成への受け渡しは `DraftGenerationContext.styleExamples` |
 | 投稿コネクタの抽象 | `src/lib/services/interfaces.ts`（`SocialConnectorAdapter`）/ 実装は `src/lib/services/social-connector.ts`（未実装時は fail-closed） |
 | チャンネル定義 | `src/lib/domain/types.ts`（`PublishingChannel`, `CORE_PUBLISHING_CHANNELS`）/ 表示設定は `src/lib/channels/config.ts` |
@@ -41,6 +41,9 @@
 - 日本語UI対応 — マージ済み。
 - 信頼性ハードニング（#74〜#76）— マージ済み。
 - 公開経路の拡張（サムネイル／カバー実ファイル、予約時刻でのYouTube・TikTok自動実行、16:9/9:16バリアント、同一媒体の複数アカウント）— 実装済み。下書き作成または素材ページで、動画から静止画を切り出し巨大な日本語フック（3〜8文字）を焼き込んだ1280×720サムネイルを2〜3枚自動生成する。YouTube案には一番強い候補が選ばれ、スタジオで切り替えられる。TikTokも同じWorkerで自動実行するが、監査前はSELF_ONLYのまま。カスタムサムネイルにはYouTube再接続（`youtube.force-ssl`）が必要な場合がある。CronはVercel Hobby制約で1日1回（`vercel.json`）。急ぎはQueueの「今すぐ公開」。
+- 実用化パス（2026-09）— 実装済み（#97〜#102）。ローカルSupabase＋メール/パスワードログイン、初回のワークスペース作成、設定画面（`#connections`）での媒体別の接続案内（`/api/social/status`、不足の環境変数・Redirect URI・開発者コンソール。`platform-setup.ts`）。**手動投稿モード（既定）では、SNS接続なしで「まとめて送る」「公開予定に追加」が使える**（アカウントは自動投稿=`api-first`のときだけ必須）。監査で見つかった不具合（未保存AI提案の重複保存、承認後の編集で古い承認版が予約される、公開オプションの消失、サインアウト後の状態残り、アップロード上限・タイムアウト、AI生成の`maxDuration`、再接続時の予約ジョブ付け替え）を修正済み。
+  - 未対応として把握している点: Worker時間予算はYouTube/TikTokの最悪ケースをやや低く見積もる／`social_accounts`の直接書き込みRLS／LINE・Notion・TimeTreeの環境変数トークンは全ワークスペースで共有／プロバイダのエラー文言が他メンバーに見える／`oauth_states`の削除と切断時のトークン失効／CSPに`default-src`がない／一覧の1000行超のページング／`datetime-local`は非JSTブラウザで時刻がずれる／承認済み下書きを編集・再承認しても既存の予約ジョブは古いRevisionのまま／権限別UIの表示の取りこぼし。
+  - 本番のSupabaseには `supabase/migrations/20260829000000_repoint_jobs_on_reconnect.sql`（公開ジョブのガード復元を含む）の適用が必要（本人操作）。
 - 次: PR8 公式サイト／作品母艦との統合（実サイトの詳細が必要なため、ユーザーとの要件確認が前提）
 
 ## 最後にまとめて行う本人操作

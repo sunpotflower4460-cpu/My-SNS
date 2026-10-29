@@ -18,8 +18,8 @@ export function inferAssetType(name: string, mimeType?: string): AssetType {
   if (mimeType?.startsWith('audio/')) return 'audio'
 
   const extension = name.split('.').pop()?.toLowerCase()
-  if (extension && ['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg', 'avif'].includes(extension)) return 'image'
-  if (extension && ['mp4', 'mov', 'webm', 'm4v'].includes(extension)) return 'video'
+  if (extension && ['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg', 'avif', 'heic', 'heif'].includes(extension)) return 'image'
+  if (extension && ['mp4', 'mov', 'webm', 'm4v', 'mkv', '3gp'].includes(extension)) return 'video'
   if (extension && ['mp3', 'wav', 'aac', 'm4a', 'flac'].includes(extension)) return 'audio'
   return 'document'
 }

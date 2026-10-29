@@ -35,7 +35,7 @@ export async function POST(request: NextRequest) {
 
   const { data: job, error: jobError } = await supabase
     .from('publish_jobs')
-    .select('id, channel')
+    .select('id, channel, social_account_id')
     .eq('id', jobId)
     .eq('workspace_id', workspaceId)
     .maybeSingle()
@@ -79,7 +79,11 @@ export async function POST(request: NextRequest) {
 
   let credentials
   try {
-    credentials = await resolveCredentials(serviceClient, workspaceId, job.channel)
+    // Use the account the job actually published with. Without it, a
+    // workspace with several connected accounts on this platform fails closed
+    // (ambiguous account) or would read another account's metrics.
+    const accountId = await resolveMetricsAccountId(serviceClient, workspaceId, job.social_account_id ?? undefined)
+    credentials = await resolveCredentials(serviceClient, workspaceId, job.channel, accountId)
   } catch (cause) {
     console.error(`Failed to resolve ${job.channel} credentials for metrics:`, cause)
     return NextResponse.json(
@@ -114,4 +118,41 @@ export async function POST(request: NextRequest) {
         : '指標を取得できませんでした。接続状態と通信状況を確認してから再試行してください。'
     return NextResponse.json({ error: safeMessage }, { status: 502 })
   }
+}
+
+/**
+ * A published job keeps the social_accounts row it posted with. After the
+ * creator reconnects that account the old row is retired (disconnected), and
+ * asking for its credentials fails even though the same account is connected.
+ * Follow it to the connected row for the same account; if there is none, let
+ * resolveCredentials fall back (it succeeds only when exactly one account is
+ * connected for the platform).
+ */
+async function resolveMetricsAccountId(
+  serviceClient: SupabaseClient,
+  workspaceId: string,
+  accountId: string | undefined,
+): Promise<string | undefined> {
+  if (!accountId) return undefined
+
+  const { data: account } = await serviceClient
+    .from('social_accounts')
+    .select('id, platform, external_account_id, handle, connected')
+    .eq('id', accountId)
+    .eq('workspace_id', workspaceId)
+    .maybeSingle()
+  if (!account) return undefined
+  if (account.connected) return account.id
+
+  let successor = serviceClient
+    .from('social_accounts')
+    .select('id')
+    .eq('workspace_id', workspaceId)
+    .eq('platform', account.platform)
+    .eq('connected', true)
+  successor = account.external_account_id
+    ? successor.eq('external_account_id', account.external_account_id)
+    : successor.eq('handle', account.handle)
+  const { data: replacement } = await successor.limit(1).maybeSingle()
+  return replacement?.id ?? undefined
 }

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { BrandProfile } from '@/lib/domain/types'
-import { buildReplyGenerationPrompt, parseReplyProposal } from './anthropic-reply'
+import { buildReplyGenerationPrompt, parseReplyProposal } from './llm-reply'
 
 const brandProfile: BrandProfile = {
   id: 'brand-1',

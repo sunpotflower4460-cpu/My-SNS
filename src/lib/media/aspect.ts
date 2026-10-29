@@ -49,18 +49,23 @@ export async function detectFileAspectRatio(file: File): Promise<AssetAspectRati
   return null
 }
 
+// Unknown is an acceptable answer (the file is saved with no aspect ratio); a
+// hang is not — this runs inside the upload, so a file the browser cannot decode
+// (HEIC, an exotic codec) must not stall it.
+const DIMENSION_TIMEOUT_MS = 10_000
+
 function loadImageDimensions(file: File): Promise<{ width: number; height: number } | null> {
   return new Promise((resolve) => {
     const url = URL.createObjectURL(file)
     const image = new Image()
-    image.onload = () => {
+    const finish = (result: { width: number; height: number } | null) => {
+      window.clearTimeout(timer)
       URL.revokeObjectURL(url)
-      resolve({ width: image.naturalWidth, height: image.naturalHeight })
+      resolve(result)
     }
-    image.onerror = () => {
-      URL.revokeObjectURL(url)
-      resolve(null)
-    }
+    const timer = window.setTimeout(() => finish(null), DIMENSION_TIMEOUT_MS)
+    image.onload = () => finish({ width: image.naturalWidth, height: image.naturalHeight })
+    image.onerror = () => finish(null)
     image.src = url
   })
 }
@@ -69,15 +74,15 @@ function loadVideoDimensions(file: File): Promise<{ width: number; height: numbe
   return new Promise((resolve) => {
     const url = URL.createObjectURL(file)
     const video = document.createElement('video')
+    const finish = (result: { width: number; height: number } | null) => {
+      window.clearTimeout(timer)
+      URL.revokeObjectURL(url)
+      resolve(result)
+    }
+    const timer = window.setTimeout(() => finish(null), DIMENSION_TIMEOUT_MS)
     video.preload = 'metadata'
-    video.onloadedmetadata = () => {
-      URL.revokeObjectURL(url)
-      resolve({ width: video.videoWidth, height: video.videoHeight })
-    }
-    video.onerror = () => {
-      URL.revokeObjectURL(url)
-      resolve(null)
-    }
+    video.onloadedmetadata = () => finish({ width: video.videoWidth, height: video.videoHeight })
+    video.onerror = () => finish(null)
     video.src = url
   })
 }

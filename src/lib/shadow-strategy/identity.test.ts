@@ -95,4 +95,21 @@ describe('shadow strategy identity', () => {
     expect(isConflictingStrategy(projected, { ...projected, platform: 'instagram' })).toBe(true)
     expect(isConflictingStrategy(projected, projected)).toBe(false)
   })
+
+  it('rejects changed immutable fields even when the digest and link are reused', () => {
+    const projected = projectShadowGrowthStrategy({ payload: parsed(), importedAt: '2026-09-07T00:00:00.000Z' })
+    expect(isExactDuplicate(projected, { ...projected, importedAt: '2026-09-08T00:00:00.000Z' })).toBe(true)
+    const changed = [
+      { ...projected, generatedAt: '2026-09-08T00:00:00.000Z' },
+      { ...projected, sampleSize: projected.sampleSize + 1 },
+      { ...projected, overallScore: projected.overallScore + 1 },
+      { ...projected, status: 'insufficient-evidence' as const },
+      { ...projected, sourceWindow: { ...projected.sourceWindow, strategyWindowDays: 15 } },
+      { ...projected, preferred: projected.preferred.map((pattern) => ({ ...pattern, rationale: 'changed' })) },
+      { ...projected, avoid: projected.avoid.map((pattern) => ({ ...pattern, evidencePostIds: ['changed'] })) },
+    ]
+    for (const candidate of changed) {
+      expect(isExactDuplicate(projected, candidate)).toBe(false)
+    }
+  })
 })

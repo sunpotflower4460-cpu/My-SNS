@@ -1,5 +1,6 @@
 import type { SocialAccount, WorkspaceRole } from '@/lib/domain/types'
 import { hasPermission } from '@/lib/permissions'
+import { SHADOW_STRATEGY_PLATFORMS } from '@/lib/shadow-strategy/constants'
 import type { ShadowGrowthStrategy, ShadowStrategyDimension, ShadowStrategyPattern } from '@/lib/shadow-strategy/types'
 
 export const SHADOW_WARNING =
@@ -40,7 +41,7 @@ export function formatLift(value: number): string {
 }
 
 export function selectShadowSocialAccounts(accounts: SocialAccount[]): SocialAccount[] {
-  return [...accounts].sort((left, right) => {
+  return accounts.filter((account) => (SHADOW_STRATEGY_PLATFORMS as readonly string[]).includes(account.platform)).sort((left, right) => {
     if (left.platform !== right.platform) return left.platform.localeCompare(right.platform)
     return left.handle.localeCompare(right.handle) || left.id.localeCompare(right.id)
   })

@@ -105,6 +105,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     await supabase.auth.signOut()
     setUser(null)
     setProfileError(null)
+    try {
+      localStorage.removeItem('activeWorkspaceId')
+    } catch {
+      // Blocked storage: the workspace provider also clears state on sign-out.
+    }
   }
 
   return (

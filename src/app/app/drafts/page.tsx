@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import Link from 'next/link'
 import { useRouter, useSearchParams } from 'next/navigation'
 import SendAllPanel from '@/components/compose/SendAllPanel'
@@ -8,11 +8,11 @@ import ChannelBadge from '@/components/ui/ChannelBadge'
 import DraftEditorCard from '@/components/ui/DraftEditorCard'
 import EmptyState from '@/components/ui/EmptyState'
 import PageHeader from '@/components/ui/PageHeader'
-import { PUBLISHING_CHANNEL_CONFIG } from '@/lib/channels/config'
+import { PUBLISHING_CHANNEL_CONFIG, getPublishingStrategy } from '@/lib/channels/config'
 import { useApp } from '@/lib/app/app-provider'
 import { CORE_PUBLISHING_CHANNELS, type PublishingChannel, type SocialDraft } from '@/lib/domain/types'
 import { hasPermission } from '@/lib/permissions'
-import { mergeDraftPublishOptions } from '@/lib/publish/draft-publish-options'
+import { mergeDraftPublishOptions, parseDraftPublishOptions } from '@/lib/publish/draft-publish-options'
 import { type SendAllPlan } from '@/lib/presentation/send-plan'
 import { resetTemplateDraft } from '@/lib/services/ai-draft'
 import { generatePerformanceThumbnailsForSeed } from '@/lib/media/thumbnail-pipeline'
@@ -33,6 +33,9 @@ function isUnsavedGeneratedId(id: string): boolean {
 }
 
 export default function DraftsPage() {
+  const publishingStrategy = getPublishingStrategy()
+  // The Seed currently shown, readable from async work that outlives a render.
+  const activeSeedIdRef = useRef<string | null>(null)
   const router = useRouter()
   const searchParams = useSearchParams()
   const {
@@ -68,9 +71,13 @@ export default function DraftsPage() {
   const [warning, setWarning] = useState('')
   const [error, setError] = useState('')
   const [thumbFeedback, setThumbFeedback] = useState('')
+  // Thumbnails are made in the background; a second run started meanwhile would
+  // not see the first one's images yet and would create duplicates.
+  const [thumbBusy, setThumbBusy] = useState(false)
   const [liveEdits, setLiveEdits] = useState<Record<string, { text: string; metadata: Record<string, unknown> }>>({})
 
   const selectedSeed = useMemo(() => seeds.find((seed) => seed.id === seedId) ?? null, [seedId, seeds])
+  activeSeedIdRef.current = selectedSeed?.id ?? null
   const selectedSeedAssets = selectedSeed ? getSeedDetail(selectedSeed.id).assets : []
   const existingDrafts = useMemo(() => seedId ? getDraftsForSeed(seedId) : drafts, [drafts, getDraftsForSeed, seedId])
   const draftsByChannel = useMemo(
@@ -130,28 +137,65 @@ export default function DraftsPage() {
     try {
       const result = await generateChannelDrafts(selectedSeed.id, channels, tone, length)
       const usageWarning = (result as typeof result & { usageWarning?: string }).usageWarning
-      let nextDrafts = result.drafts
+      // Show the proposals right away. Thumbnail stills need the whole video in
+      // memory and can take a long time (or never finish on an unsupported
+      // codec); the drafts are already generated and paid for, so they must not
+      // wait for it.
+      setGeneratedDrafts(result.drafts)
       if (currentWorkspace) {
-        try {
-          const thumbs = await generatePerformanceThumbnailsForSeed({
-            workspaceId: currentWorkspace.id,
-            seedId: selectedSeed.id,
-            seedTitle: selectedSeed.title,
-            assets: getSeedDetail(selectedSeed.id).assets,
-            drafts: nextDrafts,
-          })
-          nextDrafts = thumbs.drafts
-          setThumbFeedback(thumbs.message)
-          if (thumbs.assets.length > 0) await refreshWorkspaceData()
-        } catch (cause) {
-          setThumbFeedback(
-            cause instanceof Error
-              ? cause.message
-              : '文字入りサムネイルの作成に失敗しました。PNG/JPGをアップロードしてください。',
-          )
-        }
+        const requestedSeedId = selectedSeed.id
+        setThumbBusy(true)
+        void (async () => {
+          try {
+            const thumbs = await generatePerformanceThumbnailsForSeed({
+              workspaceId: currentWorkspace.id,
+              seedId: requestedSeedId,
+              seedTitle: selectedSeed.title,
+              assets: getSeedDetail(requestedSeedId).assets,
+              drafts: result.drafts,
+            })
+            // The new images exist whatever Seed is on screen now, so reload first.
+            if (thumbs.assets.length > 0) await refreshWorkspaceData()
+            // The user may have moved to another Seed while this ran.
+            if (activeSeedIdRef.current !== requestedSeedId) return
+            const byId = new Map(thumbs.drafts.map((entry) => [entry.id, parseDraftPublishOptions(entry.metadata)]))
+            setGeneratedDrafts((current) => current.map((entry) => {
+              const options = byId.get(entry.id)
+              if (!options) return entry
+              // Only the images the pipeline chose; anything the user changed in
+              // the meantime (account, Shorts flag, …) is left as it is.
+              const patch: Parameters<typeof mergeDraftPublishOptions>[1] = {}
+              if (options.thumbnailAssetId) patch.thumbnailAssetId = options.thumbnailAssetId
+              if (options.coverAssetId) patch.coverAssetId = options.coverAssetId
+              return { ...entry, metadata: mergeDraftPublishOptions(entry.metadata, patch) }
+            }))
+            // A card the user already touched keeps its own copy of the metadata
+            // in liveEdits; give it the chosen images too.
+            setLiveEdits((current) => {
+              const next = { ...current }
+              for (const [id, options] of byId) {
+                const edit = next[id]
+                if (!edit) continue
+                const patch: Parameters<typeof mergeDraftPublishOptions>[1] = {}
+                if (options.thumbnailAssetId) patch.thumbnailAssetId = options.thumbnailAssetId
+                if (options.coverAssetId) patch.coverAssetId = options.coverAssetId
+                next[id] = { ...edit, metadata: mergeDraftPublishOptions(edit.metadata, patch) }
+              }
+              return next
+            })
+            setThumbFeedback(thumbs.message)
+          } catch (cause) {
+            if (activeSeedIdRef.current !== requestedSeedId) return
+            setThumbFeedback(
+              cause instanceof Error
+                ? cause.message
+                : '文字入りサムネイルの作成に失敗しました。PNG/JPGをアップロードしてください。',
+            )
+          } finally {
+            setThumbBusy(false)
+          }
+        })()
       }
-      setGeneratedDrafts(nextDrafts)
       setWarning(usageWarning ?? '')
       setFeedback(
         result.source === 'ai'
@@ -205,10 +249,42 @@ export default function DraftsPage() {
     aiOriginalSnapshot: draft.aiOriginalSnapshot,
   })
 
-  const persistDraft = async (draft: SocialDraft) => saveDraft(toDraftInput(draft))
+  // A generated proposal that has never been saved is always inserted as a plain
+  // draft: approval is a separate step (approve_social_draft) that also writes
+  // the Revision, and inserting 'approved' directly would skip it.
+  const persistDraft = async (draft: SocialDraft) => saveDraft({
+    ...toDraftInput(draft),
+    ...(isUnsavedGeneratedId(draft.id) ? { status: 'draft' as const } : {}),
+  })
 
+  // Once a generated proposal has been saved or approved, the saved row
+  // (with its real id) shows under 保存済み. Keeping the unsaved card would
+  // insert a duplicate on the next save.
   const rememberLive = (id: string, text: string, metadata: Record<string, unknown>) => {
     setLiveEdits((current) => ({ ...current, [id]: { text, metadata } }))
+  }
+
+  const clearLive = (id: string) => {
+    setLiveEdits((current) => {
+      if (!(id in current)) return current
+      const rest = { ...current }
+      delete rest[id]
+      return rest
+    })
+  }
+
+  const dropGenerated = (id: string) => {
+    setGeneratedDrafts((current) => current.filter((entry) => entry.id !== id))
+    clearLive(id)
+  }
+
+  // A second click on 保存/承認 for the same unsaved card before the first call
+  // returns would insert another row.
+  const inFlightDrafts = useRef(new Set<string>())
+  const runOncePerDraft = (id: string, action: () => Promise<unknown>, successMessage: string) => {
+    if (inFlightDrafts.current.has(id)) return
+    inFlightDrafts.current.add(id)
+    void runDraftAction(action, successMessage).finally(() => inFlightDrafts.current.delete(id))
   }
 
   const runDraftAction = async (action: () => Promise<unknown>, successMessage: string) => {
@@ -238,7 +314,12 @@ export default function DraftsPage() {
       }
 
       try {
-        const metadata = mergeDraftPublishOptions(draft.metadata, { socialAccountId: target.selectedAccountId })
+        // Only write the account when the panel actually chose one; otherwise keep
+        // whatever the card already stored.
+        const metadata = mergeDraftPublishOptions(
+          draft.metadata,
+          target.selectedAccountId ? { socialAccountId: target.selectedAccountId } : {},
+        )
         const withAccount = { ...draft, metadata }
         const approved = await saveAndApproveDraft(toDraftInput(withAccount))
 
@@ -249,7 +330,7 @@ export default function DraftsPage() {
           : new Date().toISOString()
         const job = await scheduleDraft(approved.id, scheduledAt)
 
-        if (plan.timing === 'now' && !target.noteHandoff) {
+        if (plan.timing === 'now' && !target.noteHandoff && publishingStrategy === 'api-first') {
           try {
             await triggerPublishJob(job.id)
           } catch (cause) {
@@ -270,9 +351,11 @@ export default function DraftsPage() {
     }
 
     if (sent.length > 0) {
-      const timingNote = plan.timing === 'now'
-        ? '今すぐ公開を試みました。noteはコピー用として公開予定に残します。'
-        : '予約しました。公開予定から確認できます。'
+      const timingNote = plan.timing === 'scheduled'
+        ? '予約しました。公開予定から確認できます。'
+        : publishingStrategy === 'api-first'
+          ? '今すぐ公開を試みました。noteはコピー用として公開予定に残します。'
+          : '公開予定に追加しました。公開予定から各SNSの投稿画面を開いて投稿し、「投稿済みにする」を押してください。'
       setFeedback(`${sent.join('、')}を受け付けました。${timingNote}`)
     } else {
       setFeedback('')
@@ -307,7 +390,7 @@ export default function DraftsPage() {
 
           <div className="mt-4"><label className="mb-2 block text-sm font-medium text-gray-700">このシードの媒体</label><div className="flex flex-wrap gap-2">{CORE_PUBLISHING_CHANNELS.map((channel) => <button key={channel} type="button" onClick={() => toggleChannel(channel)} className={`rounded-full transition ${selectedChannels.includes(channel) ? 'ring-2 ring-violet-400 ring-offset-2' : 'opacity-50 hover:opacity-80'}`}><ChannelBadge channel={channel} /></button>)}</div></div>
           {selectedChannels.includes('note') && <p className="mt-3 text-xs text-emerald-700">noteは引き続き「確認してコピー」のみに対応しています。このアプリが自動投稿を行うことはありません。</p>}
-          <button onClick={() => void handleGenerate()} disabled={!canCreateDrafts || loading || selectedChannels.length === 0 || !selectedSeed} className="mt-5 rounded-2xl bg-violet-600 px-5 py-2.5 text-sm font-medium text-white transition hover:bg-violet-700 disabled:opacity-50">{loading ? '作成中…' : canCreateDrafts ? '下書きを作成' : '作成権限がありません'}</button>
+          <button onClick={() => void handleGenerate()} disabled={!canCreateDrafts || loading || thumbBusy || selectedChannels.length === 0 || !selectedSeed} className="mt-5 rounded-2xl bg-violet-600 px-5 py-2.5 text-sm font-medium text-white transition hover:bg-violet-700 disabled:opacity-50">{loading ? '作成中…' : thumbBusy ? 'サムネイルを作成中…' : canCreateDrafts ? '下書きを作成' : '作成権限がありません'}</button>
           {thumbFeedback && <p className="mt-3 text-xs leading-5 text-gray-600">{thumbFeedback}</p>}
         </div>
       )}
@@ -326,22 +409,26 @@ export default function DraftsPage() {
                 onLiveChange={rememberLive}
                 onEdit={canEditDrafts ? (id, text, metadata) => {
                   const target = generatedDrafts.find((entry) => entry.id === id)
-                  setGeneratedDrafts((current) => current.map((entry) => entry.id === id ? { ...entry, draftText: text, metadata, updatedAt: new Date().toISOString() } : entry))
-                  if (target) void runDraftAction(() => persistDraft({ ...target, draftText: text, metadata }), `${PUBLISHING_CHANNEL_CONFIG[target.channel].label}の下書きを保存しました。`)
+                  if (target) runOncePerDraft(id, async () => {
+                    await persistDraft({ ...target, draftText: text, metadata })
+                    dropGenerated(id)
+                  }, `${PUBLISHING_CHANNEL_CONFIG[target.channel].label}の下書きを保存しました。`)
                 } : undefined}
                 onApprove={canApprove ? (id, text, metadata) => {
                   const target = generatedDrafts.find((entry) => entry.id === id)
                   if (!target) return
-                  void runDraftAction(
+                  runOncePerDraft(
+                    id,
                     async () => {
                       await saveAndApproveDraft(toDraftInput({ ...target, draftText: text, metadata }))
-                      setGeneratedDrafts((current) => current.map((entry) => entry.id === id ? { ...entry, draftText: text, metadata, status: 'approved' } : entry))
+                      dropGenerated(id)
                     },
                     `${PUBLISHING_CHANNEL_CONFIG[target.channel].label}の下書きを承認し、承認版（Revision）として記録しました。`,
                   )
                 } : undefined}
                 onRegenerate={canEditDrafts ? (id) => {
                   if (!selectedSeed) return
+                  clearLive(id)
                   setGeneratedDrafts((current) => current.map((entry) => entry.id === id ? { ...entry, draftText: resetTemplateDraft(entry, selectedSeed), updatedAt: new Date().toISOString() } : entry))
                   setFeedback('この下書きを元のテンプレートに戻しました。')
                 } : undefined}
@@ -393,7 +480,10 @@ export default function DraftsPage() {
                       onRegenerate={canEditDrafts ? (id) => {
                         if (!selectedSeed) return
                         const target = existingDrafts.find((entry) => entry.id === id)
-                        if (target) void runDraftAction(() => persistDraft({ ...target, draftText: resetTemplateDraft(target, selectedSeed) }), '元のテンプレートに戻して保存しました。')
+                        if (target) {
+                          clearLive(id)
+                          void runDraftAction(() => persistDraft({ ...target, draftText: resetTemplateDraft(target, selectedSeed) }), '元のテンプレートに戻して保存しました。')
+                        }
                       } : undefined}
                       onSchedule={canManageQueue ? (id, scheduledAt, metadata) => {
                         void runDraftAction(async () => {

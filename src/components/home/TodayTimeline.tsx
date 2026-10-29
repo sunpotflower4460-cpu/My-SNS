@@ -28,7 +28,7 @@ export default function TodayTimeline({ items }: { items: TimelineItem[] }) {
       </div>
 
       {items.length === 0 ? (
-        <p className="rounded-card bg-stone-50 px-4 py-6 text-center text-sm text-gray-500">
+        <p className="rounded-card bg-stone-50 px-4 py-6 text-center text-sm text-default">
           今日の予定はありません。ゆっくりいきましょう。
         </p>
       ) : (
@@ -42,15 +42,15 @@ export default function TodayTimeline({ items }: { items: TimelineItem[] }) {
                   href={item.href}
                   className="flex items-center gap-3 rounded-card px-2 py-2 transition hover:bg-stone-50"
                 >
-                  <span className="w-12 shrink-0 text-right text-xs font-medium tabular-nums text-gray-500">
+                  <span className="w-12 shrink-0 text-right text-xs font-medium tabular-nums text-muted">
                     {formatTime(item)}
                   </span>
                   <Icon aria-hidden className={`h-4 w-4 shrink-0 ${kind.tint}`} />
                   <div className="min-w-0 flex-1">
                     <p className="truncate text-sm font-medium text-gray-800">{item.title}</p>
-                    {item.detail && <p className="truncate text-xs text-gray-500">{item.detail}</p>}
+                    {item.detail && <p className="truncate text-xs text-muted">{item.detail}</p>}
                   </div>
-                  <span className="shrink-0 text-[11px] text-gray-400">{kind.label}</span>
+                  <span className="shrink-0 text-sm font-medium text-muted">{kind.label}</span>
                 </Link>
               </li>
             )

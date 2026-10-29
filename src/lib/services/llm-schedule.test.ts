@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { parseScheduleProposals } from './anthropic-schedule'
+import { parseScheduleProposals } from './llm-schedule'
 
 describe('parseScheduleProposals', () => {
   it('parses events and normalizes +09:00 starts to UTC ISO', () => {

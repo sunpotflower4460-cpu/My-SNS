@@ -35,7 +35,7 @@ export default function Sheet({ open, onClose, title, children, footer }: SheetP
         aria-label={title}
         tabIndex={-1}
         className={cn(
-          'ui-floating relative flex max-h-[85vh] w-full flex-col overflow-hidden',
+          'ui-floating relative flex max-h-[85dvh] w-full flex-col overflow-hidden',
           'rounded-t-container border-t-0 sm:h-full sm:max-h-none sm:max-w-md sm:rounded-none sm:border-r-0 sm:border-t-0',
         )}
       >

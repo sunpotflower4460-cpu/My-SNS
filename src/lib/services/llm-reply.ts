@@ -1,11 +1,9 @@
-import Anthropic from '@anthropic-ai/sdk'
 import type { ReplyGenerationContext, ReplyGeneratorService, ReplyProposal } from './interfaces'
-import { resolveAnthropicModel } from './anthropic-draft'
+import { LlmOutputError, runStructuredCompletion, type LlmUsage } from './llm-provider'
 
-// Server-only. Never import from a client component — it reads ANTHROPIC_API_KEY
-// and talks to the Anthropic API. Reuses anthropic-draft's config/model/cost
-// helpers (isAnthropicConfigured/resolveAnthropicModel/calculateGenerationCost)
-// so there is one place that owns those; only the tool schema + prompt differ.
+// Server-only. Never import from a client component — it calls the configured
+// LLM provider through llm-provider.ts, which owns provider/model/cost config;
+// only the schema + prompt differ per feature.
 
 const PRIORITIES = ['high', 'normal', 'low'] as const
 type Priority = (typeof PRIORITIES)[number]
@@ -138,88 +136,64 @@ export function parseReplyProposal(toolInput: unknown): ReplyProposal {
   }
 }
 
-export interface AnthropicReplyResult {
+export interface AiReplyResult {
   proposal: ReplyProposal
   model: string
   inputTokens: number
   outputTokens: number
 }
 
-export interface AnthropicUsage {
-  model: string
-  inputTokens: number
-  outputTokens: number
-}
-
 /**
- * Thrown when the Anthropic call succeeded (and was billed) but the response
+ * Thrown when the provider call succeeded (and was billed) but the response
  * could not be turned into a valid proposal. Carries `usage` so the caller can
  * still record what was actually spent instead of losing it — mirrors
- * anthropic-draft's AnthropicGenerationError.
+ * llm-draft's AiDraftGenerationError.
  */
-export class AnthropicReplyGenerationError extends Error {
-  usage: AnthropicUsage
+export class AiReplyGenerationError extends Error {
+  usage: LlmUsage
 
-  constructor(message: string, usage: AnthropicUsage) {
+  constructor(message: string, usage: LlmUsage) {
     super(message)
-    this.name = 'AnthropicReplyGenerationError'
+    this.name = 'AiReplyGenerationError'
     this.usage = usage
   }
 }
 
-export async function generateReplyWithAnthropic(
+export async function generateReplyWithAi(
   inboundText: string,
   context?: ReplyGenerationContext,
-): Promise<AnthropicReplyResult> {
-  const apiKey = process.env.ANTHROPIC_API_KEY?.trim()
-  if (!apiKey) {
-    throw new Error('ANTHROPIC_API_KEY is not configured.')
-  }
-
-  const model = resolveAnthropicModel()
+): Promise<AiReplyResult> {
   const { system, user } = buildReplyGenerationPrompt(inboundText, context)
-  const client = new Anthropic({ apiKey })
 
-  const response = await client.messages.create({
-    model,
-    max_tokens: 2048,
-    system,
-    messages: [{ role: 'user', content: user }],
-    tools: [
-      {
-        name: REPLY_PROPOSAL_TOOL_NAME,
-        description: 'Submit the proposed reply.',
-        input_schema: REPLY_PROPOSAL_TOOL_SCHEMA,
-      },
-    ],
-    tool_choice: { type: 'tool', name: REPLY_PROPOSAL_TOOL_NAME },
-  })
-
-  const usage: AnthropicUsage = {
-    model,
-    inputTokens: response.usage.input_tokens,
-    outputTokens: response.usage.output_tokens,
-  }
-
-  const toolUse = response.content.find((block) => block.type === 'tool_use')
-  if (!toolUse || toolUse.type !== 'tool_use') {
-    throw new AnthropicReplyGenerationError('The model did not call the reply tool.', usage)
+  let result
+  try {
+    result = await runStructuredCompletion({
+      system,
+      user,
+      toolName: REPLY_PROPOSAL_TOOL_NAME,
+      toolDescription: 'Submit the proposed reply.',
+      schema: REPLY_PROPOSAL_TOOL_SCHEMA,
+      maxTokens: 2048,
+    })
+  } catch (cause) {
+    if (cause instanceof LlmOutputError) throw new AiReplyGenerationError(cause.message, cause.usage)
+    throw cause
   }
 
   let proposal: ReplyProposal
   try {
-    proposal = parseReplyProposal(toolUse.input)
+    proposal = parseReplyProposal(result.output)
   } catch (cause) {
     const message = cause instanceof Error ? cause.message : 'The model returned an unusable response.'
-    throw new AnthropicReplyGenerationError(message, usage)
+    throw new AiReplyGenerationError(message, result.usage)
   }
 
-  return { proposal, ...usage }
+  return { proposal, ...result.usage }
 }
 
-export class AnthropicReplyGeneratorService implements ReplyGeneratorService {
+export class AiReplyGeneratorService implements ReplyGeneratorService {
   async generateReply(inboundText: string, context?: ReplyGenerationContext): Promise<ReplyProposal> {
-    const result = await generateReplyWithAnthropic(inboundText, context)
+    const result = await generateReplyWithAi(inboundText, context)
     return result.proposal
   }
 }

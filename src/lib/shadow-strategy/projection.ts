@@ -1,5 +1,5 @@
 import type { PublishingChannel, SocialAccount } from '@/lib/domain/types'
-import type { ShadowGrowthStrategy, ShadowStrategyImportPayload, ValidatedAccountLink, ValidatedGrowthStrategy } from './types'
+import type { ShadowGrowthStrategy, ShadowStrategyImportPayload, ShadowStrategyPattern, ValidatedAccountLink, ValidatedGrowthStrategy } from './types'
 
 export function assertRequestMatchesLink(input: {
   workspaceId: string
@@ -65,15 +65,47 @@ export function projectShadowGrowthStrategy(input: {
   }
 }
 
-export function isExactDuplicate(
-  existing: Pick<ShadowGrowthStrategy, 'workspaceId' | 'strategyId' | 'inputsDigest' | 'linkId'>,
-  candidate: Pick<ShadowGrowthStrategy, 'workspaceId' | 'strategyId' | 'inputsDigest' | 'linkId'>,
-): boolean {
+function samePatterns(left: ShadowStrategyPattern[], right: ShadowStrategyPattern[]): boolean {
+  return left.length === right.length && left.every((pattern, index) => {
+    const other = right[index]
+    return pattern.dimension === other.dimension
+      && pattern.value === other.value
+      && pattern.sampleSize === other.sampleSize
+      && pattern.averageScore === other.averageScore
+      && pattern.lift === other.lift
+      && pattern.confidence === other.confidence
+      && pattern.rationale === other.rationale
+      && pattern.evidencePostIds.length === other.evidencePostIds.length
+      && pattern.evidencePostIds.every((id, i) => id === other.evidencePostIds[i])
+  })
+}
+
+function sameInstant(left: string, right: string): boolean {
+  return Date.parse(left) === Date.parse(right)
+}
+
+export function isExactDuplicate(existing: ShadowGrowthStrategy, candidate: ShadowGrowthStrategy): boolean {
   return (
     existing.workspaceId === candidate.workspaceId
     && existing.strategyId === candidate.strategyId
+    && existing.socialAccountId === candidate.socialAccountId
+    && existing.snsAiAccountId === candidate.snsAiAccountId
     && existing.inputsDigest === candidate.inputsDigest
     && existing.linkId === candidate.linkId
+    && existing.platform === candidate.platform
+    && existing.strategyVersion === candidate.strategyVersion
+    && existing.status === candidate.status
+    && sameInstant(existing.generatedAt, candidate.generatedAt)
+    && sameInstant(existing.sourceWindow.from, candidate.sourceWindow.from)
+    && sameInstant(existing.sourceWindow.to, candidate.sourceWindow.to)
+    && existing.sourceWindow.strategyWindowDays === candidate.sourceWindow.strategyWindowDays
+    && existing.sourceWindow.matureCheckpointMinutes === candidate.sourceWindow.matureCheckpointMinutes
+    && existing.sampleSize === candidate.sampleSize
+    && existing.overallScore === candidate.overallScore
+    && existing.confidence === candidate.confidence
+    && existing.exploreRate === candidate.exploreRate
+    && samePatterns(existing.preferred, candidate.preferred)
+    && samePatterns(existing.avoid, candidate.avoid)
   )
 }
 

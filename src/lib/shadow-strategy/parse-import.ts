@@ -35,7 +35,8 @@ function finiteNumber(value: unknown): number | null {
 
 function nonNegativeInt(value: unknown): number | null {
   const n = finiteNumber(value)
-  return n !== null && Number.isInteger(n) && n >= 0 ? n : null
+  // PostgreSQL INTEGER (used for counts and source-window settings) is signed 32-bit.
+  return n !== null && Number.isInteger(n) && n >= 0 && n <= 2147483647 ? n : null
 }
 
 function positiveInt(value: unknown): number | null {

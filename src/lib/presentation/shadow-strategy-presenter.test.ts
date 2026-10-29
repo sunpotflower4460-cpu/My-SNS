@@ -8,6 +8,7 @@ import {
   clientImportPayloadError,
   defaultSelectedSocialAccountId,
   presentShadowStrategy,
+  selectShadowSocialAccounts,
 } from './shadow-strategy-presenter'
 
 const account = (over: Partial<SocialAccount> = {}): SocialAccount => ({
@@ -112,6 +113,13 @@ describe('shadow strategy presenter', () => {
     const first = account({ id: 'aaaaaaa1-1111-4111-8111-111111111111', handle: 'zeta', platform: 'instagram' })
     const second = account({ id: 'bbbbbbb2-2222-4222-8222-222222222222', handle: 'alpha', platform: 'x' })
     expect(defaultSelectedSocialAccountId([first, second])).toBe(first.id)
+  })
+
+  it('offers only supported social accounts and never an unimportable LINE account', () => {
+    const x = account({ id: 'aaaaaaa1-1111-4111-8111-111111111111', platform: 'x' })
+    const line = account({ id: 'bbbbbbb2-2222-4222-8222-222222222222', platform: 'line' })
+    expect(selectShadowSocialAccounts([line, x])).toEqual([x])
+    expect(defaultSelectedSocialAccountId([line])).toBeNull()
   })
 
   it('only checks JSON syntax on the client', () => {

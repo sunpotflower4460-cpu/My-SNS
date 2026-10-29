@@ -11,7 +11,8 @@ function read(relativePath: string): string {
 const GENERATION_FILES = [
   'src/lib/app/app-provider.tsx',
   'src/app/api/drafts/generate/route.ts',
-  'src/lib/services/anthropic-draft.ts',
+  'src/lib/services/llm-draft.ts',
+  'src/lib/services/llm-provider.ts',
   'src/lib/services/ai-draft.ts',
   'src/lib/services/interfaces.ts',
 ]

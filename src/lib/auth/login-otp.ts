@@ -1,12 +1,11 @@
-export const OTP_COOLDOWN_MS = 60_000
-export const OTP_COOLDOWN_STORAGE_PREFIX = 'my-sns:login-otp-cooldown:'
-
 export const LOGIN_EMAIL_RATE_LIMIT_MESSAGE =
-  'メールの送信上限に達しました。標準では1時間に数通までです。受信箱の前のリンクがまだ使えることがあります。'
+  '確認メールの送信上限に達しました。しばらく待ってから、もう一度お試しください。'
 
-export const LOGIN_OTP_SENT_MESSAGE = 'メールをご確認ください。マジックリンクをお送りしました。'
+export const LOGIN_RATE_LIMIT_MESSAGE =
+  '試行回数が多すぎます。しばらく待ってから、もう一度お試しください。'
 
-export const LOGIN_OTP_ALREADY_SENT_MESSAGE = '送信済みです。メールを確認してください。'
+export const LOGIN_INVALID_CREDENTIALS_MESSAGE =
+  'メールアドレスまたはパスワードが違います。初めての方は「アカウント作成」から始めてください。'
 
 const FALLBACK_AUTH_ERROR_MESSAGE = 'ログインに失敗しました。もう一度お試しください。'
 const MAX_FALLBACK_MESSAGE_LENGTH = 180
@@ -27,56 +26,29 @@ export function mapLoginAuthError(error: LoginAuthErrorLike | null | undefined):
   const status = error?.status
   const haystack = `${code} ${message}`.toLowerCase()
 
-  if (
-    Number(status) === 429 ||
-    haystack.includes('over_email_send_rate_limit') ||
-    haystack.includes('email rate limit exceeded') ||
-    /\b429\b/.test(haystack)
-  ) {
+  // Sending a confirmation email is limited separately from password attempts;
+  // only claim the email limit when GoTrue says it is the email limit.
+  if (haystack.includes('over_email_send_rate_limit') || haystack.includes('email rate limit exceeded')) {
     return LOGIN_EMAIL_RATE_LIMIT_MESSAGE
   }
 
+  if (Number(status) === 429 || haystack.includes('over_request_rate_limit') || /\b429\b/.test(haystack)) {
+    return LOGIN_RATE_LIMIT_MESSAGE
+  }
+
+  if (
+    haystack.includes('invalid_credentials') ||
+    haystack.includes('invalid login credentials') ||
+    haystack.includes('invalid email or password')
+  ) {
+    return LOGIN_INVALID_CREDENTIALS_MESSAGE
+  }
+
+  if (haystack.includes('user_already_exists') || haystack.includes('already been registered')) {
+    return 'このメールアドレスはすでに登録されています。ログインしてください。'
+  }
+
   return sanitizeAuthErrorMessage(message) || FALLBACK_AUTH_ERROR_MESSAGE
-}
-
-export function otpCooldownStorageKey(email: string): string {
-  return `${OTP_COOLDOWN_STORAGE_PREFIX}${normalizeLoginEmail(email)}`
-}
-
-export function getOtpCooldownUntil(email: string, now = Date.now(), storage = getSessionStorage()): number | null {
-  const normalized = normalizeLoginEmail(email)
-  if (!normalized || !storage) return null
-
-  try {
-    const raw = storage.getItem(otpCooldownStorageKey(normalized))
-    if (!raw) return null
-    const until = Number(raw)
-    if (!Number.isFinite(until) || until <= now) {
-      storage.removeItem(otpCooldownStorageKey(normalized))
-      return null
-    }
-    return until
-  } catch {
-    return null
-  }
-}
-
-export function isOtpCooldownActive(email: string, now = Date.now(), storage = getSessionStorage()): boolean {
-  return getOtpCooldownUntil(email, now, storage) !== null
-}
-
-export function markOtpSent(email: string, now = Date.now(), storage = getSessionStorage()): number {
-  const until = now + OTP_COOLDOWN_MS
-  const normalized = normalizeLoginEmail(email)
-  if (!normalized || !storage) return until
-
-  try {
-    storage.setItem(otpCooldownStorageKey(normalized), String(until))
-  } catch {
-    // Private mode / blocked storage must not break the success path.
-  }
-
-  return until
 }
 
 function sanitizeAuthErrorMessage(message: string): string {
@@ -89,13 +61,4 @@ function sanitizeAuthErrorMessage(message: string): string {
   if (!stripped) return ''
   if (stripped.length <= MAX_FALLBACK_MESSAGE_LENGTH) return stripped
   return `${stripped.slice(0, MAX_FALLBACK_MESSAGE_LENGTH).trim()}…`
-}
-
-function getSessionStorage(): Storage | null {
-  try {
-    if (typeof globalThis.sessionStorage === 'undefined') return null
-    return globalThis.sessionStorage
-  } catch {
-    return null
-  }
 }

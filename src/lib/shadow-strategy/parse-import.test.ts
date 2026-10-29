@@ -220,6 +220,30 @@ describe('parseShadowStrategyImportPayload', () => {
     expect(parsed.code).toBe('invalid-pattern')
   })
 
+  it('rejects 32-bit PostgreSQL INTEGER overflow before attempting a database insert', () => {
+    const aboveInt4 = 2147483648
+    const invalidCases = [
+      validActiveStrategy({ sampleSize: aboveInt4 }),
+      validActiveStrategy({ preferred: [validPattern({ sampleSize: aboveInt4 })] }),
+      validActiveStrategy({ sourceWindow: { ...validActiveStrategy().sourceWindow, strategyWindowDays: aboveInt4 } }),
+      validActiveStrategy({ sourceWindow: { ...validActiveStrategy().sourceWindow, matureCheckpointMinutes: aboveInt4 } }),
+    ]
+    for (const strategy of invalidCases) {
+      expect(parseShadowStrategyImportPayload(validImportPayload({ strategy })).ok).toBe(false)
+    }
+  })
+
+  it('does not accept channels which cannot have a SocialAccount identity', () => {
+    for (const platform of ['note', 'website']) {
+      const parsed = parseShadowStrategyImportPayload(validImportPayload({
+        link: validLink({ platform }),
+        strategy: validActiveStrategy({ platform }),
+      }))
+      expect(parsed.ok).toBe(false)
+      if (!parsed.ok) expect(parsed.code).toBe('invalid-platform')
+    }
+  })
+
   it('rejects an unknown dimension', () => {
     const parsed = parseShadowStrategyImportPayload(validImportPayload({
       strategy: validActiveStrategy({ preferred: [validPattern({ dimension: 'language' })] }),
@@ -317,5 +341,13 @@ describe('shadow strategy migration', () => {
       /BEFORE DELETE/.test(sql) || sql.includes('forbid_shadow_growth_strategy_delete')
     expect(hasParentCascade).toBe(true)
     expect(rejectsChildDeleteUnconditionally).toBe(false)
+  })
+
+  it('serializes imports with account identity updates and locks identity while snapshots exist', () => {
+    expect(sql).toMatch(/WHERE id = NEW\.social_account_id\s+FOR UPDATE/)
+    expect(sql).toMatch(/BEFORE UPDATE OF workspace_id, platform ON public\.social_accounts/)
+    expect(sql).toContain('OLD.platform IS DISTINCT FROM NEW.platform')
+    expect(sql).toContain('OLD.workspace_id IS DISTINCT FROM NEW.workspace_id')
+    expect(sql).toContain('WHERE social_account_id = OLD.id')
   })
 })
