@@ -70,6 +70,18 @@ export const PLATFORM_SETUP_GUIDES: Record<ConnectablePlatform, PlatformSetupGui
     ],
     caveat: '審査前のアプリは「自分だけ（SELF_ONLY）」の非公開投稿になります。公開投稿にはTikTokの監査が必要です。',
   },
+  threads: {
+    platform: 'threads',
+    consoleUrl: 'https://developers.facebook.com/apps/',
+    consoleLabel: 'Meta for Developers',
+    envVars: ['THREADS_CLIENT_ID', 'THREADS_CLIENT_SECRET'],
+    steps: [
+      'Meta for Developers で Threads API のアプリを作成し、Threads のログインと投稿権限を設定します。',
+      '下の Redirect URI を Threads アプリの有効な OAuth リダイレクトURIに登録します。',
+      'Threads アプリの ID / シークレットを .env.local に設定します。Instagram用のMeta IDとは別です。',
+    ],
+    caveat: '未審査のアプリで接続できるアカウントには制限があります。Threadsでの返信・受信箱取得はこの連携の対象外です。',
+  },
 }
 
 /** The exact redirect URI to register in the platform's developer console. */

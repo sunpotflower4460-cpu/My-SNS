@@ -50,10 +50,10 @@ describe('getExtraConnectedAccounts', () => {
     const accounts = [
       account({ platform: 'x' }), // connectable → excluded
       account({ platform: 'line' }), // LINE → excluded (own section)
-      account({ platform: 'threads' }), // not connectable, connected → included
-      account({ platform: 'facebook', connected: false }), // disconnected → excluded
+      account({ platform: 'facebook' }), // not connectable, connected → included
+      account({ platform: 'youtube', connected: false }), // disconnected → excluded
     ]
-    expect(getExtraConnectedAccounts(accounts).map((a) => a.platform)).toEqual(['threads'])
+    expect(getExtraConnectedAccounts(accounts).map((a) => a.platform)).toEqual(['facebook'])
   })
 
   it('is empty when everything is connectable or LINE', () => {

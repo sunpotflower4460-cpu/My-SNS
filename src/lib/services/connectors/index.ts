@@ -5,6 +5,7 @@ import { XConnectorAdapter, buildXAuthorizeUrl } from './x-connector'
 import { InstagramConnectorAdapter, buildInstagramAuthorizeUrl } from './instagram-connector'
 import { YouTubeConnectorAdapter, buildYouTubeAuthorizeUrl } from './youtube-connector'
 import { TikTokConnectorAdapter, buildTikTokAuthorizeUrl } from './tiktok-connector'
+import { ThreadsConnectorAdapter, buildThreadsAuthorizeUrl } from './threads-connector'
 import { LineConnectorAdapter } from './line-connector'
 import type { ConnectablePlatform } from './platforms'
 
@@ -30,6 +31,8 @@ export function buildAuthorizeUrl(
       return { url: buildInstagramAuthorizeUrl(state, redirectUri) }
     case 'youtube':
       return { url: buildYouTubeAuthorizeUrl(state, redirectUri) }
+    case 'threads':
+      return { url: buildThreadsAuthorizeUrl(state, redirectUri) }
   }
 }
 
@@ -44,6 +47,8 @@ export function getConnectorAdapter(platform: SocialPlatform): SocialConnectorAd
       return new YouTubeConnectorAdapter()
     case 'tiktok':
       return new TikTokConnectorAdapter()
+    case 'threads':
+      return new ThreadsConnectorAdapter()
     case 'line':
       return new LineConnectorAdapter()
     default:

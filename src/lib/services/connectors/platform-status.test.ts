@@ -6,6 +6,7 @@ import { isXConfigured } from './x-connector'
 import { isInstagramConfigured } from './instagram-connector'
 import { isYouTubeConfigured } from './youtube-connector'
 import { isTikTokConfigured } from './tiktok-connector'
+import { isThreadsConfigured } from './threads-connector'
 
 describe('getPlatformSetupStatus', () => {
   it('lists every missing env var by name', () => {
@@ -20,6 +21,13 @@ describe('getPlatformSetupStatus', () => {
 
   it('treats whitespace-only values as unset', () => {
     expect(getPlatformSetupStatus('tiktok', { TIKTOK_CLIENT_KEY: '  ', TIKTOK_CLIENT_SECRET: 's' }).missingEnv).toEqual(['TIKTOK_CLIENT_KEY'])
+  })
+
+  it('requires the dedicated Threads client id and secret together', () => {
+    expect(getPlatformSetupStatus('threads', { THREADS_CLIENT_ID: 'id' })).toEqual({
+      configured: false,
+      missingEnv: ['THREADS_CLIENT_SECRET'],
+    })
   })
 
   it('is configured when every var is present, and never returns values', () => {
@@ -50,6 +58,7 @@ describe('setup guides stay in sync with the connectors', () => {
     ['instagram', isInstagramConfigured],
     ['youtube', isYouTubeConfigured],
     ['tiktok', isTikTokConfigured],
+    ['threads', isThreadsConfigured],
   ] as const
 
   it.each(cases)('%s: every guide env var is set => the connector agrees it is configured', (platform, isConfigured) => {
