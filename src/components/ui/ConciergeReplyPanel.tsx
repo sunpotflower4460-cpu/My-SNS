@@ -6,6 +6,8 @@ import type { InboxItem } from '@/lib/domain/types'
 import type { ScheduleProposal } from '@/lib/services/interfaces'
 import { useApp } from '@/lib/app/app-provider'
 import { hasPermission } from '@/lib/permissions'
+import { canSendReply } from '@/lib/channels/reply-capability'
+import { PUBLISHING_CHANNEL_CONFIG } from '@/lib/channels/config'
 import { REPLY_WORKER_DELAY_JA } from '@/lib/presentation/cron-honesty'
 
 const PRIORITY_LABELS: Record<'high' | 'normal' | 'low', string> = {
@@ -62,13 +64,16 @@ export default function ConciergeReplyPanel({ item }: { item: InboxItem }) {
   const [seededFrom, setSeededFrom] = useState<string | null>(suggestion?.id ?? null)
 
   const canReply = Boolean(currentMember && hasPermission(currentMember.role, 'reply_inbox'))
-  const lineConnected = useMemo(
-    () => socialAccounts.some((account) => account.platform === 'line' && account.connected),
-    [socialAccounts],
+  const accountConnected = useMemo(
+    () => socialAccounts.some((account) => account.platform === item.platform && account.connected
+      && (item.kind === 'dm' || account.id === item.socialAccountId)),
+    [socialAccounts, item.platform, item.kind, item.socialAccountId],
   )
 
-  const sendSupported = item.platform === 'line'
-  const isInstagram = item.platform === 'instagram'
+  const sendSupported = canSendReply(item.platform, item.kind)
+  const isDm = item.kind === 'dm'
+  const isUnsupportedInstagramDm = item.platform === 'instagram' && item.kind === 'dm'
+  const platformLabel = PUBLISHING_CHANNEL_CONFIG[item.platform]?.label ?? item.platform
   const canManageCalendar = Boolean(currentMember && hasPermission(currentMember.role, 'manage_calendar'))
   const replyResultUnknown = Boolean(
     replyJob?.status === 'failed' && replyJob.errorMessage?.startsWith('EXTERNAL_RESULT_UNKNOWN:'),
@@ -122,7 +127,10 @@ export default function ConciergeReplyPanel({ item }: { item: InboxItem }) {
         inboxItemId: item.id,
         replyText: replyText.trim(),
         suggestionId: suggestion?.id,
-        sendNow: timing === 'now',
+        // Public comment/mention replies have no recipient-timing concept
+        // (no "quiet hours" for a public reply) — always send immediately.
+        // Only a DM offers the recommended-time / now choice.
+        sendNow: isDm ? timing === 'now' : true,
       })
       if (result.status === 'sent') setNotice('返信を送信しました。')
       else if (result.status === 'scheduled') setNotice('相手に適した時刻に送信予約しました。')
@@ -296,53 +304,59 @@ export default function ConciergeReplyPanel({ item }: { item: InboxItem }) {
 
           {canReply && sendSupported && (
             <>
-              {!lineConnected && (
+              {!accountConnected && (
                 <p className="mt-2 text-xs text-amber-700">
-                  LINE公式アカウントが未接続です。
+                  {item.kind !== 'dm' && !item.socialAccountId
+                    ? 'この受信項目には送信元アカウントが記録されていません。アカウントを接続して再同期してください。'
+                    : `${platformLabel}アカウントが未接続です。`}
                   <Link href="/app/settings" className="ml-1 font-medium text-violet-700 hover:text-violet-900">
                     設定から接続 →
                   </Link>
                 </p>
               )}
               <div className="mt-3 flex flex-wrap items-center gap-2">
-                <div className="inline-flex rounded-full border border-stone-200 bg-white p-0.5 text-xs">
-                  <button
-                    onClick={() => setTiming('recommended')}
-                    className={`rounded-full px-3 py-1.5 font-medium transition ${timing === 'recommended' ? 'bg-violet-600 text-white' : 'text-gray-600 hover:text-gray-900'}`}
-                  >
-                    おすすめの時刻
-                  </button>
-                  <button
-                    onClick={() => setTiming('now')}
-                    className={`rounded-full px-3 py-1.5 font-medium transition ${timing === 'now' ? 'bg-violet-600 text-white' : 'text-gray-600 hover:text-gray-900'}`}
-                  >
-                    今すぐ
-                  </button>
-                </div>
+                {isDm && (
+                  <div className="inline-flex rounded-full border border-stone-200 bg-white p-0.5 text-xs">
+                    <button
+                      onClick={() => setTiming('recommended')}
+                      className={`rounded-full px-3 py-1.5 font-medium transition ${timing === 'recommended' ? 'bg-violet-600 text-white' : 'text-gray-600 hover:text-gray-900'}`}
+                    >
+                      おすすめの時刻
+                    </button>
+                    <button
+                      onClick={() => setTiming('now')}
+                      className={`rounded-full px-3 py-1.5 font-medium transition ${timing === 'now' ? 'bg-violet-600 text-white' : 'text-gray-600 hover:text-gray-900'}`}
+                    >
+                      今すぐ
+                    </button>
+                  </div>
+                )}
                 <button
                   onClick={handleApproveAndSend}
-                  disabled={busy === 'send' || !lineConnected}
+                  disabled={busy === 'send' || !accountConnected}
                   className="rounded-full bg-gray-900 px-4 py-2 text-sm font-medium text-white hover:bg-gray-700 disabled:opacity-50"
                 >
                   {busy === 'send' ? '送信中…' : '承認して送信'}
                 </button>
               </div>
               <p className="mt-2 text-xs leading-5 text-muted">
-                {timing === 'recommended'
-                  ? `相手の生活時間に合わせた時刻を予約します（深夜は避けます）。${REPLY_WORKER_DELAY_JA}`
-                  : 'すぐに送信します。'}
+                {!isDm
+                  ? 'このメッセージへの公開返信としてすぐに送信します。'
+                  : timing === 'recommended'
+                    ? `相手の生活時間に合わせた時刻を予約します（深夜は避けます）。${REPLY_WORKER_DELAY_JA}`
+                    : 'すぐに送信します。'}
               </p>
             </>
           )}
 
-          {canReply && isInstagram && (
-            <p className="mt-3 rounded-xl border border-stone-200 bg-white px-3 py-2 text-xs leading-5 text-muted">
+          {canReply && isUnsupportedInstagramDm && (
+            <p className="mt-3 rounded-xl border border-stone-200 bg-white px-3 py-2 text-xs text-gray-500">
               Instagram DMは現在<strong>受信のみ</strong>対応です（送信はMetaのメッセージ送信権限と審査が必要なため、今後対応予定）。要約と返信案の作成まではご利用いただけます。
             </p>
           )}
-          {canReply && !sendSupported && !isInstagram && (
-            <p className="mt-3 rounded-xl border border-stone-200 bg-white px-3 py-2 text-xs leading-5 text-muted">
-              この媒体への返信送信は現在未対応です（Phase 1で送信できるのはLINEのみです）。
+          {canReply && !sendSupported && !isUnsupportedInstagramDm && (
+            <p className="mt-3 rounded-xl border border-stone-200 bg-white px-3 py-2 text-xs text-gray-500">
+              {platformLabel}への返信送信は現在未対応です。
             </p>
           )}
         </div>
@@ -377,7 +391,7 @@ export default function ConciergeReplyPanel({ item }: { item: InboxItem }) {
                   <span className="text-rose-700">✗ 送信失敗{replyErrorText ? `: ${replyErrorText}` : ''}</span>
                   {canReply && sendSupported && (
                     <div className="ml-auto flex items-center gap-2">
-                      {!replyResultUnknown && (
+                      {!replyResultUnknown && item.platform === 'line' && (
                         <button onClick={handleTrigger} disabled={busy === 'trigger'} className="rounded-full border border-stone-200 px-3 py-1 text-xs text-gray-600 hover:bg-stone-50 disabled:opacity-50">
                           再送
                         </button>
@@ -390,7 +404,7 @@ export default function ConciergeReplyPanel({ item }: { item: InboxItem }) {
                 </div>
                 {replyResultUnknown && (
                   <p className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs leading-5 text-amber-800">
-                    LINE側では送信済みの可能性があります。二重送信を防ぐため自動再送は停止しています。まずLINEの会話を確認し、届いていなければこのジョブを閉じてから新しい返信として作成してください。
+                    {platformLabel}側では送信済みの可能性があります。二重送信を防ぐため再送は停止しています。まず媒体上の返信を確認してください。
                   </p>
                 )}
               </div>

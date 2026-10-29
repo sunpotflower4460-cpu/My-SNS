@@ -75,7 +75,7 @@ export async function POST(request: NextRequest) {
         handle: credentials.handle,
       })
     },
-    ingest: (events) => upsertInboxItems(serviceClient, workspaceId, events),
+    ingest: (events, account) => upsertInboxItems(serviceClient, workspaceId, events, undefined, account.id),
     onError: (account, cause) => {
       console.error(`Inbox sync failed for ${platform} account ${account.id}:`, cause)
     },

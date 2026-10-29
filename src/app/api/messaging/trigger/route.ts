@@ -8,7 +8,8 @@ import { isLineResultUnknownError } from '@/lib/services/connectors/line-connect
 
 // Sends one reply job right now, regardless of scheduled_at — the messaging-side
 // twin of /api/publish/trigger. Used for "Send now" on an already-scheduled
-// reply and for retrying a failed send. Only LINE sends in Phase 1.
+// reply and for retrying a failed LINE send. Public replies are never retried
+// after an ambiguous API result (the providers have no idempotent send key).
 
 export const maxDuration = 60
 
@@ -56,18 +57,31 @@ export async function POST(request: NextRequest) {
   if (!job) {
     return NextResponse.json({ error: '返信ジョブが見つかりません。' }, { status: 404 })
   }
-  if (job.platform !== 'line') {
+  if (!['line', 'instagram', 'youtube', 'x'].includes(job.platform)) {
     return NextResponse.json({ error: `${job.platform}への送信は未対応です。` }, { status: 409 })
+  }
+  let socialAccountId: string | null = null
+  if (job.platform !== 'line') {
+    const { data: sender, error: senderError } = await supabase
+      .from('reply_jobs')
+      .select('social_account_id')
+      .eq('id', job.id)
+      .eq('workspace_id', workspaceId)
+      .maybeSingle()
+    if (senderError || !sender?.social_account_id) {
+      return NextResponse.json({ error: 'この返信は送信元アカウントを特定できないため送信できません。' }, { status: 409 })
+    }
+    socialAccountId = sender.social_account_id
   }
   if (job.status !== 'scheduled' && job.status !== 'failed') {
     return NextResponse.json({ error: `この返信はすでに${job.status}の状態です。` }, { status: 400 })
   }
 
-  if (job.status === 'failed' && isLineResultUnknownError(job.error_message)) {
+  if (job.status === 'failed' && (job.platform !== 'line' || isLineResultUnknownError(job.error_message))) {
     return NextResponse.json(
       {
         error:
-          '前回のLINE送信は「相手に届いたか判定できない」状態です。二重送信を防ぐため自動再送は停止しています。LINE側・相手との会話を確認してから、必要なら新しい返信として明示的に作成してください。',
+          'この返信は再送できません。すでに相手に届いている可能性があります。送信先の媒体で確認してください。',
       },
       { status: 409 },
     )
@@ -89,11 +103,12 @@ export async function POST(request: NextRequest) {
     result = await processReplyJob(serviceClient, {
       id: job.id,
       workspaceId: job.workspace_id,
-      platform: 'line',
+      platform: job.platform,
       inboxItemId: job.inbox_item_id,
       sendTarget: job.send_target,
       replyText: job.reply_text,
       createdBy: job.created_by,
+      socialAccountId: socialAccountId ?? undefined,
     })
   } catch (cause) {
     console.error(`Unhandled reply trigger error for job ${job.id}:`, cause)

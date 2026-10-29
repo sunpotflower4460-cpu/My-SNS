@@ -195,3 +195,35 @@ describe('XConnectorAdapter.fetchMetrics (PR7)', () => {
     await expect(new XConnectorAdapter().fetchMetrics({ platform: 'x', accessToken: 'token', postId: 'missing' })).rejects.toThrow(/404/)
   })
 })
+
+describe('XConnectorAdapter.sendMessage', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  it('posts a reply tweet using in_reply_to_tweet_id, not a DM', async () => {
+    const fetchMock = vi.fn().mockResolvedValueOnce(mockResponse({ ok: true, status: 200, body: { data: { id: 'reply-tweet-1', text: 'thanks!' } } }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    const result = await new XConnectorAdapter().sendMessage({
+      platform: 'x',
+      accessToken: 'token',
+      target: 'mentioning-tweet-1',
+      text: 'thanks!',
+    })
+
+    expect(result).toEqual({ externalMessageId: 'reply-tweet-1' })
+    const [, init] = fetchMock.mock.calls[0]
+    const body = JSON.parse(init?.body as string)
+    expect(body.reply).toEqual({ in_reply_to_tweet_id: 'mentioning-tweet-1' })
+    expect(body.text).toBe('thanks!')
+  })
+
+  it('classifies a lost response as EXTERNAL_RESULT_UNKNOWN to block automatic retry', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockRejectedValueOnce(new Error('network reset')))
+
+    await expect(
+      new XConnectorAdapter().sendMessage({ platform: 'x', accessToken: 'token', target: 'tweet-1', text: 'text' }),
+    ).rejects.toThrow(/EXTERNAL_RESULT_UNKNOWN/)
+  })
+})

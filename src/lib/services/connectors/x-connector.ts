@@ -6,6 +6,7 @@ import type {
   PublishRequest,
   PublishResult,
   RefreshedCredentials,
+  SendMessageRequest,
   SendMessageResult,
   SocialConnectorAdapter,
 } from '../interfaces'
@@ -187,8 +188,17 @@ export class XConnectorAdapter implements SocialConnectorAdapter {
     }
   }
 
-  async sendMessage(): Promise<SendMessageResult> {
-    throw new Error('X DMの送信は有料APIティア（Basic以上、dm.write）が必要なため未対応です。')
+  /**
+   * Reply-to-tweet only — NOT X DM (DMs need a paid API tier, `dm.write`).
+   * `request.target` must be the id of the tweet/mention being replied to
+   * (InboxItem.externalId). This itself only needs the free-tier `tweet.write`
+   * scope this app already requests — but note X inbox ingestion (fetchMentions
+   * below) needs a paid tier, so in practice no X inbox item exists to route
+   * here until that's set up. See docs/master-plan.md and .env.example.
+   */
+  async sendMessage(request: SendMessageRequest): Promise<SendMessageResult> {
+    const payload = await postTweetWithRetry(request.text, request.target, request.accessToken)
+    return { externalMessageId: payload.data.id }
   }
 
   private readonly readAccessGap =

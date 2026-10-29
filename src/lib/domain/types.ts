@@ -293,6 +293,8 @@ export interface InboxItem {
   aiPriority?: 'high' | 'normal' | 'low'
   /** The platform-native id (e.g. an Instagram comment id) — set for items ingested from a webhook or a sync, absent for anything else. */
   externalId?: string
+  /** Connected account that actually received this event; required for safe public replies. */
+  socialAccountId?: string
   receivedAt: string
   isRead: boolean
   needsAction: boolean
@@ -401,6 +403,8 @@ export interface ReplyJob {
   platform: SocialPlatform
   replyText: string
   sendTarget: string
+  /** Pinned sender account; never silently switch to another account on reconnect. */
+  socialAccountId?: string
   replyMode: ReplySendMode
   status: ReplyJobStatus
   scheduledAt: string

@@ -10,13 +10,15 @@
 
 ## 1. Supabase（ホスト版）
 
-1. **マイグレーションを適用**する（最新は `20260829000000_repoint_jobs_on_reconnect.sql`）。
+1. **マイグレーションを適用**する（最新は `20260908000000_public_reply_account_binding.sql`）。
    ```bash
    npx supabase login
    npx supabase link --project-ref dcllyoaujhdgjjqokwkq
    npx supabase db push
    ```
    途中でDBパスワードを聞かれる。押す前に `npx supabase db push --dry-run` で内容を確認できる。
+   - 公開コメントへの返信機能は、この移行が済むまでは送信できない設計。既存のLINE返信と受信は移行前でも継続できる。
+   - 移行後は接続済みアカウントから受信箱を再同期するか、署名済みWebhookを再受信し、各コメントに受信元アカウントを紐付けてから送信する。古い項目を別アカウントから返信しないための確認。
 2. **Authentication > URL Configuration**
    - Site URL: `https://my-sns-yoshirouself.vercel.app`
    - Redirect URLs に `https://my-sns-yoshirouself.vercel.app/**` を追加。
@@ -55,10 +57,13 @@ Redirect URI は次の形。設定画面の各媒体の「手順を見る」に�
 - Instagram（Meta）: `…/api/social/instagram/callback`（Webhook: `…/api/webhooks/meta`）
 - YouTube（Google）: `…/api/social/youtube/callback`
 - TikTok: `…/api/social/tiktok/callback`
+- Threads: `…/api/social/threads/callback`（Instagramとは別のThreadsアプリID/シークレット）
 
 Instagram と TikTok は HTTPS の公開URLが必要なので、ローカルではなくこの本番URLで登録する。手動投稿モードのままなら、ここは不要。
 
 Vercel の Hobby プランの Cron は1日1回まで（`vercel.json`）。急ぎの投稿はキューの「今すぐ公開」を使う。
+
+公開返信はInstagramとYouTubeのコメント、およびXの返信/メンションに限定する。Instagram DM送信には未対応で、Xのメンション取得には別途APIの読取権限が必要。送信結果が不明な場合、二重送信を防ぐため再送を止めて媒体側での確認を求める。
 
 ## 5. 独自ドメインにする（任意）
 

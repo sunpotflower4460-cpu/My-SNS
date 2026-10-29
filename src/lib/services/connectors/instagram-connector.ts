@@ -4,6 +4,7 @@ import type {
   ConnectOptions,
   PublishRequest,
   PublishResult,
+  SendMessageRequest,
   SendMessageResult,
   SocialConnectorAdapter,
 } from '../interfaces'
@@ -17,7 +18,15 @@ import { assertTrustedPublishMediaUrl } from '@/lib/security/trusted-publish-med
 const GRAPH_VERSION = 'v21.0'
 const GRAPH_URL = `https://graph.facebook.com/${GRAPH_VERSION}`
 const AUTHORIZE_URL = 'https://www.facebook.com/v21.0/dialog/oauth'
-const SCOPES = ['instagram_basic', 'instagram_content_publish', 'pages_show_list', 'pages_read_engagement', 'business_management']
+const SCOPES = [
+  'instagram_basic',
+  'instagram_content_publish',
+  // Required to reply to public comments (sendMessage below) — see PR-C.
+  'instagram_manage_comments',
+  'pages_show_list',
+  'pages_read_engagement',
+  'business_management',
+]
 const GRAPH_REQUEST_TIMEOUT_MS = 30_000
 
 // Instagram enforces a rolling publish quota per account surfaced via this
@@ -127,6 +136,34 @@ async function publishInstagramContainer(
   }
 
   return { id }
+}
+
+/** A public comment reply is irreversible and has no provider retry key. */
+async function postInstagramCommentReply(commentId: string, message: string, accessToken: string): Promise<string> {
+  let response: Response
+  try {
+    response = await fetch(`${GRAPH_URL}/${encodeURIComponent(commentId)}/replies`, {
+      method: 'POST',
+      body: new URLSearchParams({ access_token: accessToken, message }),
+      signal: AbortSignal.timeout(GRAPH_REQUEST_TIMEOUT_MS),
+    })
+  } catch {
+    throw new Error('EXTERNAL_RESULT_UNKNOWN: Instagram comment reply response was lost. The reply may already be public.')
+  }
+
+  const payload = await response.json().catch(() => null)
+  if (!response.ok) {
+    const detail = (payload as { error?: { message?: string } } | null)?.error?.message ?? 'unknown error'
+    if (response.status >= 500) {
+      throw new Error(`EXTERNAL_RESULT_UNKNOWN: Instagram comment reply returned ${response.status}. Delivery is uncertain: ${detail}`)
+    }
+    throw new Error(`Instagram Graph API error (${response.status}): ${detail}`)
+  }
+  const id = (payload as { id?: unknown } | null)?.id
+  if (typeof id !== 'string' || !id) {
+    throw new Error('EXTERNAL_RESULT_UNKNOWN: Instagram comment reply succeeded without a usable id. The reply may already be public.')
+  }
+  return id
 }
 
 async function waitForReelContainerReady(containerId: string, accessToken: string): Promise<void> {
@@ -313,8 +350,16 @@ export class InstagramConnectorAdapter implements SocialConnectorAdapter {
     }
   }
 
-  async sendMessage(): Promise<SendMessageResult> {
-    throw new Error('Instagram DMの送信はMessaging権限（pages_messaging等）とMeta App Reviewが必要なため未対応です。Phase 1は受信のみ対応です。')
+  /**
+   * Public comment replies only — NOT Instagram DM. `request.target` must be
+   * the id of the comment being replied under (InboxItem.externalId), never a
+   * PSID. The caller (the inbox approve route) is responsible for only
+   * routing comment-kind inbox items here; DM sending still needs Meta's
+   * messaging permission + App Review, which this app does not have.
+   */
+  async sendMessage(request: SendMessageRequest): Promise<SendMessageResult> {
+    const id = await postInstagramCommentReply(request.target, request.text, request.accessToken)
+    return { externalMessageId: id }
   }
 
   async fetchInbox(): Promise<InboundInboxEvent[]> {

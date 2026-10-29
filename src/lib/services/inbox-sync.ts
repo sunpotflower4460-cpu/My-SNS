@@ -36,7 +36,7 @@ export function toSafeInboxSyncMessage(cause: unknown): string {
 export async function syncInboxForAccounts(params: {
   accounts: Array<Pick<SocialAccount, 'id' | 'handle'>>
   syncAccount: (account: Pick<SocialAccount, 'id' | 'handle'>) => Promise<InboundInboxEvent[] | null>
-  ingest: (events: InboundInboxEvent[]) => Promise<number>
+  ingest: (events: InboundInboxEvent[], account: Pick<SocialAccount, 'id' | 'handle'>) => Promise<number>
   onError?: (account: Pick<SocialAccount, 'id' | 'handle'>, cause: unknown) => void
 }): Promise<InboxSyncResult> {
   let ingested = 0
@@ -46,7 +46,7 @@ export async function syncInboxForAccounts(params: {
   for (const account of params.accounts) {
     try {
       const events = await params.syncAccount(account)
-      if (events) ingested += await params.ingest(events)
+      if (events) ingested += await params.ingest(events, account)
       succeededAccounts += 1
     } catch (cause) {
       params.onError?.(account, cause)

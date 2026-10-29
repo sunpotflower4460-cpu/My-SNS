@@ -111,3 +111,51 @@ describe('InstagramConnectorAdapter.publish', () => {
     expect(fetchMock).toHaveBeenCalledTimes(1)
   })
 })
+
+describe('InstagramConnectorAdapter.sendMessage', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  it('replies to the given comment id, not a DM target', async () => {
+    const fetchMock = vi.fn().mockResolvedValueOnce(response(true, 200, { id: 'reply-1' }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    const result = await new InstagramConnectorAdapter().sendMessage({
+      platform: 'instagram',
+      accessToken: 'token',
+      target: 'comment-123',
+      text: 'ありがとうございます！',
+    })
+
+    expect(result).toEqual({ externalMessageId: 'reply-1' })
+    const [url, init] = fetchMock.mock.calls[0]
+    expect(url as string).toContain('/comment-123/replies')
+    const body = init?.body as URLSearchParams
+    expect(body.get('message')).toBe('ありがとうございます！')
+  })
+
+  it('surfaces a Graph API error instead of a false success', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValueOnce(response(false, 400, { error: { message: 'comment not found' } })))
+
+    await expect(
+      new InstagramConnectorAdapter().sendMessage({
+        platform: 'instagram',
+        accessToken: 'token',
+        target: 'missing-comment',
+        text: 'text',
+      }),
+    ).rejects.toThrow(/comment not found/)
+  })
+
+  it.each([
+    ['network response lost', () => Promise.reject(new Error('timeout'))],
+    ['provider 5xx', () => Promise.resolve(response(false, 503, { error: { message: 'unavailable' } }))],
+    ['id-less successful response', () => Promise.resolve(response(true, 200, {}))],
+  ])('blocks an unsafe retry when %s', async (_, answer) => {
+    vi.stubGlobal('fetch', vi.fn().mockImplementation(answer))
+    await expect(new InstagramConnectorAdapter().sendMessage({
+      platform: 'instagram', accessToken: 'token', target: 'comment-123', text: 'hello',
+    })).rejects.toThrow(/^EXTERNAL_RESULT_UNKNOWN:/)
+  })
+})

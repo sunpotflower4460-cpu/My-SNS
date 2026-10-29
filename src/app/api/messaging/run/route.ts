@@ -62,10 +62,24 @@ export async function GET(request: NextRequest) {
   let skipped = 0
 
   for (const rawJob of (dueJobs ?? []) as unknown as DueReplyRow[]) {
-    // Current DB guards only permit LINE sends, but service-role code must also
-    // defend against legacy rows created before those guards existed. Never
-    // reinterpret another platform's recipient id as a LINE user id.
+    let socialAccountId: string | null = null
     if (rawJob.platform !== 'line') {
+      const { data: sender, error: senderError } = await supabase
+        .from('reply_jobs')
+        .select('social_account_id')
+        .eq('id', rawJob.id)
+        .maybeSingle()
+      if (senderError) {
+        failed += 1
+        console.error(`Cannot verify sender for public reply job ${rawJob.id}:`, senderError)
+        continue
+      }
+      socialAccountId = sender?.social_account_id ?? null
+    }
+    // Legacy jobs without a verified account must never be sent through a
+    // newly connected account. The insert migration also guards this, but
+    // service-role code explicitly quarantines pre-migration rows.
+    if (rawJob.platform !== 'line' && (!['instagram', 'youtube', 'x'].includes(rawJob.platform) || !socialAccountId)) {
       failed += 1
       const errorMessage = `Unsupported reply platform in worker: ${rawJob.platform}`
       const { error: quarantineError } = await supabase
@@ -85,11 +99,12 @@ export async function GET(request: NextRequest) {
       const result = await processReplyJob(supabase, {
         id: rawJob.id,
         workspaceId: rawJob.workspace_id,
-        platform: 'line',
+        platform: rawJob.platform as import('@/lib/domain/types').SocialPlatform,
         inboxItemId: rawJob.inbox_item_id,
         sendTarget: rawJob.send_target,
         replyText: rawJob.reply_text,
         createdBy: rawJob.created_by,
+        socialAccountId: socialAccountId ?? undefined,
       })
 
       if (result.skipped) skipped += 1

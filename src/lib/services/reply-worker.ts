@@ -1,10 +1,11 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
-import type { WorkspaceRole } from '@/lib/domain/types'
+import type { SocialPlatform, WorkspaceRole } from '@/lib/domain/types'
 import { recordReplyAttempt } from '@/lib/repositories/supabase/reply-attempts'
 import { createNotifications } from '@/lib/repositories/supabase/notifications'
 import { getConnectorAdapter } from '@/lib/services/connectors'
 import { classifyFailure, resolveCredentials } from '@/lib/services/publish-worker'
 import { hasPermission } from '@/lib/permissions'
+import { PUBLISHING_CHANNEL_CONFIG } from '@/lib/channels/config'
 
 // The messaging-side twin of publish-worker.ts. Shared with the publish side:
 // resolveCredentials (decrypts the connected account's token, refreshes if
@@ -34,14 +35,19 @@ function reclaimableClaimFilter(): string {
  * overwrite the newer claim. Claims older than the provider retry-key window
  * are deliberately not reclaimed automatically.
  */
-async function claimReplyJob(supabase: SupabaseClient, jobId: string): Promise<string | null> {
+export async function claimReplyJob(supabase: SupabaseClient, jobId: string, platform: SocialPlatform): Promise<string | null> {
   const claimToken = crypto.randomUUID()
-  const { data, error } = await supabase
+  const query = supabase
     .from('reply_jobs')
     .update({ claimed_at: new Date().toISOString(), claim_token: claimToken })
     .eq('id', jobId)
-    .in('status', ['scheduled', 'failed'])
-    .or(reclaimableClaimFilter())
+  // LINE has a provider-enforced retry key, so a safe failed send / recent
+  // stale claim can be resumed. Public comment APIs have no such protection:
+  // never retry failed sends or reclaim an abandoned in-flight public reply.
+  const eligible = platform === 'line'
+    ? query.or('status.eq.scheduled,and(status.eq.failed,error_message.not.like.EXTERNAL_RESULT_UNKNOWN:%)').or(reclaimableClaimFilter())
+    : query.eq('status', 'scheduled').is('claimed_at', null)
+  const { data, error } = await eligible
     .select('id')
     .maybeSingle()
 
@@ -117,11 +123,26 @@ async function notifyReplyFailure(supabase: SupabaseClient, job: ReplyableJob, e
 export interface ReplyableJob {
   id: string
   workspaceId: string
-  platform: 'line' // Phase 1 only LINE actually sends; IG DM is deferred at the approve gate.
+  // Which platforms/kinds actually reach this Worker is decided by
+  // canSendReply() at the approve gate (src/lib/channels/reply-capability.ts):
+  // LINE (DM), Instagram/YouTube (comment reply), X (reply-to-tweet).
+  platform: SocialPlatform
   inboxItemId: string
   sendTarget: string
   replyText: string
   createdBy: string
+  socialAccountId?: string
+}
+
+const ACCOUNT_NOT_CONNECTED_PREFIX = '接続済みの'
+const ACCOUNT_NOT_CONNECTED_SUFFIX = 'アカウントがありません。設定から接続してください。'
+
+function accountNotConnectedMessage(platform: SocialPlatform): string {
+  return `${ACCOUNT_NOT_CONNECTED_PREFIX}${PUBLISHING_CHANNEL_CONFIG[platform].label}${ACCOUNT_NOT_CONNECTED_SUFFIX}`
+}
+
+function isAccountNotConnectedMessage(message: string): boolean {
+  return message.startsWith(ACCOUNT_NOT_CONNECTED_PREFIX) && message.endsWith(ACCOUNT_NOT_CONNECTED_SUFFIX)
 }
 
 export interface ProcessReplyResult {
@@ -141,7 +162,7 @@ type ConfirmedReplyResult = {
  * rest of the due jobs in the same run.
  */
 export async function processReplyJob(supabase: SupabaseClient, job: ReplyableJob): Promise<ProcessReplyResult> {
-  const claimToken = await claimReplyJob(supabase, job.id)
+  const claimToken = await claimReplyJob(supabase, job.id, job.platform)
   if (!claimToken) {
     // Someone else (another "Send now", or an overlapping Worker tick) is
     // already actively sending this — or this is an old ambiguous claim outside
@@ -164,9 +185,13 @@ export async function processReplyJob(supabase: SupabaseClient, job: ReplyableJo
       return { success: true }
     }
 
-    const credentials = await resolveCredentials(supabase, job.workspaceId, job.platform)
+    if (job.platform !== 'line' && (!['instagram', 'youtube', 'x'].includes(job.platform) || !job.socialAccountId)) {
+      throw new Error('Public reply is missing its verified sender account. Resending through a different account is forbidden.')
+    }
+
+    const credentials = await resolveCredentials(supabase, job.workspaceId, job.platform, job.socialAccountId)
     if (!credentials) {
-      throw new Error(`接続済みのLINEアカウントがありません。設定から接続してください。`)
+      throw new Error(accountNotConnectedMessage(job.platform))
     }
 
     const adapter = getConnectorAdapter(job.platform)
@@ -230,7 +255,7 @@ export async function processReplyJob(supabase: SupabaseClient, job: ReplyableJo
         // Leave a durable unsafe marker so cancel cannot open a new send with a
         // fresh job UUID / LINE retry key while this push may already exist.
         const unknownMessage =
-          'EXTERNAL_RESULT_UNKNOWN: LINE may already have accepted this reply, but local bookkeeping failed. Inspect LINE before sending again.'
+          `EXTERNAL_RESULT_UNKNOWN: ${job.platform} may already have accepted this reply, but local bookkeeping failed. Inspect the platform before sending again.`
         try {
           await releaseReplyJobClaim(supabase, job.id, claimToken, {
             status: 'failed',
@@ -244,9 +269,9 @@ export async function processReplyJob(supabase: SupabaseClient, job: ReplyableJo
     }
 
     const message = cause instanceof Error ? cause.message : '返信の送信に失敗しました。'
-    // Our own "接続済みのLINEアカウントがありません" wording is a connection
-    // problem → classify as auth, not the generic validation fallback.
-    const failureReason = message.startsWith('接続済みのLINEアカウントがありません') ? 'auth' : classifyFailure(message)
+    // Our own accountNotConnectedMessage() wording is a connection problem →
+    // classify as auth, not the generic validation fallback.
+    const failureReason = isAccountNotConnectedMessage(message) ? 'auth' : classifyFailure(message)
 
     try {
       await recordReplyAttempt(supabase, {
