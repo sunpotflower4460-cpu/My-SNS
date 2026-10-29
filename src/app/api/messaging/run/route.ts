@@ -1,12 +1,14 @@
 import { NextRequest, NextResponse } from 'next/server'
 import type { SupabaseClient } from '@supabase/supabase-js'
+import { isBearerAuthorized } from '@/lib/api/timing-safe'
 import { createServiceClient } from '@/lib/supabase/service'
 import { processReplyJob } from '@/lib/services/reply-worker'
 
 // Scheduled reply Worker — the messaging-side twin of /api/publish/run. Invoked
-// on a schedule (see vercel.json) to send due reply_jobs whose recipient-
-// appropriate time has arrived. Vercel Cron calls this via GET with an
-// Authorization header set from CRON_SECRET.
+// on a schedule (see vercel.json: daily at 01:00 UTC). Vercel Hobby allows at
+// most one cron run per path per day, so a recipient-timed send may wait until
+// the next daily tick. Inbox「今すぐ」remains the immediate path. Vercel Cron
+// calls this via GET with an Authorization header set from CRON_SECRET.
 // https://vercel.com/docs/cron-jobs/manage-cron-jobs#securing-cron-jobs
 
 const BATCH_SIZE = 20
@@ -28,7 +30,7 @@ export async function GET(request: NextRequest) {
   if (!cronSecret) {
     return NextResponse.json({ error: 'Worker is not configured (CRON_SECRET unset).' }, { status: 503 })
   }
-  if (request.headers.get('authorization') !== `Bearer ${cronSecret}`) {
+  if (!isBearerAuthorized(request.headers.get('authorization'), cronSecret)) {
     return NextResponse.json({ error: 'Not authorized.' }, { status: 401 })
   }
 

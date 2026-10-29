@@ -23,7 +23,20 @@ export default function BrandProfilePage() {
   const [isSaving, setIsSaving] = useState(false)
 
   useEffect(() => {
-    if (!defaultBrandProfile) return
+    if (!defaultBrandProfile) {
+      // Switching to a workspace with no profile yet must not keep the previous
+      // workspace's values in the form (they could be saved into the wrong place).
+      setName('')
+      setDescription('')
+      setAudience('')
+      setVoiceTraits('')
+      setValues('')
+      setPreferredTerms('')
+      setAvoidedTerms('')
+      setDefaultCallToAction('')
+      setLanguage('ja')
+      return
+    }
     setName(defaultBrandProfile.name)
     setDescription(defaultBrandProfile.description ?? '')
     setAudience(defaultBrandProfile.audience ?? '')
@@ -123,6 +136,7 @@ export default function BrandProfilePage() {
               <li>• すべてのシードで、コピーせずそのまま再利用されます</li>
               <li>• AIの下書き・返信提案の口調や表現の境界線として使われます</li>
               <li>• AIはここで示した「避けたい表現」を尊重し、推測した箇所は承認前に明示します</li>
+              <li>• 下書きスタジオで直して承認した内容は Brand Profile を上書きせず、同じ媒体の次回提案の参考例になります</li>
             </ul>
           </Card>
         </aside>

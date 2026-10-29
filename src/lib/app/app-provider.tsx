@@ -1,6 +1,6 @@
 'use client'
 
-import { createContext, useContext, useEffect, useMemo, useState, useCallback } from 'react'
+import { createContext, useContext, useEffect, useMemo, useRef, useState, useCallback } from 'react'
 import type {
   AiGeneration,
   AiReplySuggestion,
@@ -38,10 +38,15 @@ import type { ProviderSyncOutcome } from '@/lib/services/calendar-sync'
 import { useAuth } from '@/lib/auth/auth-provider'
 import { hasPermission } from '@/lib/permissions'
 import { derivePublishMode } from '@/lib/channels/config'
+import { parseDraftPublishOptions } from '@/lib/publish/draft-publish-options'
+import { selectSocialAccountForPublish } from '@/lib/publish/account-target'
 import * as workspacesRepo from '@/lib/repositories/supabase/workspaces'
 import * as socialAccountsRepo from '@/lib/repositories/supabase/social-accounts'
 import * as seedsRepo from '@/lib/repositories/supabase/seeds'
 import * as brandProfilesRepo from '@/lib/repositories/supabase/brand-profiles'
+import { detectFileAspectRatio, suggestedPublishingChannelsForAspect } from '@/lib/media/aspect'
+import { readJsonBody } from '@/lib/api/read-json'
+import { hasDraftContentChanged } from '@/lib/publish/draft-content'
 import * as draftsRepo from '@/lib/repositories/supabase/drafts'
 import * as draftRevisionsRepo from '@/lib/repositories/supabase/draft-revisions'
 import * as inboxRepo from '@/lib/repositories/supabase/inbox'
@@ -92,6 +97,9 @@ interface AppContextValue {
   workspaceDataError: string | null
   setActiveWorkspaceId: (workspaceId: string) => void
   refreshWorkspaceData: () => Promise<void>
+  /** Re-read the workspace list itself (the retry for a failed initial load). */
+  reloadWorkspaces: () => Promise<void>
+  createWorkspace: (name: string) => Promise<Workspace>
   createSeedItem: (input: {
     title: string
     sourceText: string
@@ -124,7 +132,7 @@ interface AppContextValue {
   saveWorkspaceSettings: (name: string, slug: string) => Promise<Workspace>
   disconnectSocialAccount: (accountId: string) => Promise<SocialAccount>
   connectLineAccount: () => Promise<void>
-  syncInboxFromPlatform: (platform: SocialPlatform) => Promise<{ ingested: number }>
+  syncInboxFromPlatform: (platform: SocialPlatform) => Promise<{ ingested: number; failures: { message: string }[] }>
   saveDefaultBrandProfile: (input: BrandProfileInput) => Promise<BrandProfile>
   toggleInboxRead: (inboxItemId: string) => Promise<InboxItem>
   toggleInboxStar: (inboxItemId: string) => Promise<InboxItem>
@@ -164,7 +172,7 @@ interface AppContextValue {
     channels: PublishingChannel[],
     tone: string,
     length: 'short' | 'medium' | 'long',
-  ) => Promise<{ source: 'ai' | 'template-fallback'; reason?: string; drafts: SocialDraft[] }>
+  ) => Promise<{ source: 'ai' | 'template-fallback'; reason?: string; styleExamplesUsed?: number; drafts: SocialDraft[] }>
 }
 
 const AppContext = createContext<AppContextValue | null>(null)
@@ -198,44 +206,108 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const [myCreatorStatus, setMyCreatorStatusState] = useState<CreatorStatus | null>(null)
   const [isReady, setIsReady] = useState(false)
   const [workspaceDataError, setWorkspaceDataError] = useState<string | null>(null)
+  // Bumped whenever the signed-in user changes. A load that started for the
+  // previous user must not write its (now foreign) result back after sign-out.
+  const sessionEpoch = useRef(0)
+  const lastUserId = useRef<string | null>(null)
+
+  // Drop everything that belongs to the previous user. Without this a sign-out
+  // followed by another sign-in in the same tab briefly shows (and, for a user
+  // with no workspace, keeps) the previous account's workspace and data.
+  const resetWorkspaceState = useCallback(() => {
+    setActiveWorkspaceId(null)
+    setWorkspaces([])
+    setCurrentWorkspace(null)
+    setCurrentMember(null)
+    setMembers([])
+    setInvitations([])
+    setSocialAccounts([])
+    setBrandProfiles([])
+    setSeeds([])
+    setWorkspaceAssets([])
+    setPublishJobs([])
+    setInboxItems([])
+    setInboxNotes([])
+    setAuditLogs([])
+    setDrafts([])
+    setDraftRevisions([])
+    setPublishAttempts([])
+    setAiGenerations([])
+    setNotifications([])
+    setMessagingContacts([])
+    setReplySuggestions([])
+    setReplyJobs([])
+    setCalendarEvents([])
+    setMyCreatorStatusState(null)
+    setWorkspaceDataError(null)
+    try {
+      localStorage.removeItem('activeWorkspaceId')
+    } catch {
+      // Storage can be blocked; the in-memory reset above is what matters.
+    }
+  }, [])
+
+  const loadWorkspaces = useCallback(async () => {
+    if (!currentUserId) return
+    const epoch = sessionEpoch.current
+    try {
+      const userWorkspaces = await workspacesRepo.getUserWorkspaces(currentUserId)
+      if (epoch !== sessionEpoch.current) return
+      setWorkspaces(userWorkspaces)
+      setWorkspaceDataError(null)
+
+      if (userWorkspaces.length > 0) {
+        const savedWorkspaceId = localStorage.getItem('activeWorkspaceId')
+        const validSavedWorkspace = savedWorkspaceId && userWorkspaces.find(w => w.id === savedWorkspaceId)
+        setActiveWorkspaceId(validSavedWorkspace ? savedWorkspaceId : userWorkspaces[0].id)
+      } else {
+        // No workspace: drop the stale id AND anything left over from a previous
+        // session, so the layout reaches its "create a workspace" screen.
+        resetWorkspaceState()
+      }
+    } catch (error) {
+      if (epoch !== sessionEpoch.current) return
+      console.error('Error loading workspaces:', error)
+      setWorkspaceDataError(
+        error instanceof Error
+          ? error.message
+          : 'ワークスペース一覧の読み込みに失敗しました。未所属として扱わず、再読み込みしてください。',
+      )
+    } finally {
+      if (epoch === sessionEpoch.current) setIsReady(true)
+    }
+  }, [currentUserId, resetWorkspaceState])
 
   // Load user workspaces
   useEffect(() => {
-    if (!authReady || !currentUserId) {
+    if (!authReady) {
       setIsReady(false)
       return
     }
 
-    async function loadWorkspaces() {
-      try {
-        const userWorkspaces = await workspacesRepo.getUserWorkspaces(currentUserId!)
-        setWorkspaces(userWorkspaces)
-        setWorkspaceDataError(null)
-
-        // Set active workspace
-        if (userWorkspaces.length > 0) {
-          const savedWorkspaceId = localStorage.getItem('activeWorkspaceId')
-          const validSavedWorkspace = savedWorkspaceId && userWorkspaces.find(w => w.id === savedWorkspaceId)
-          setActiveWorkspaceId(validSavedWorkspace ? savedWorkspaceId : userWorkspaces[0].id)
-        }
-      } catch (error) {
-        console.error('Error loading workspaces:', error)
-        setWorkspaceDataError(
-          error instanceof Error
-            ? error.message
-            : 'ワークスペース一覧の読み込みに失敗しました。未所属として扱わず、再読み込みしてください。',
-        )
-      } finally {
-        setIsReady(true)
-      }
+    const previousUserId = lastUserId.current
+    if (previousUserId !== currentUserId) {
+      lastUserId.current = currentUserId
+      sessionEpoch.current += 1
+      // A real sign-out or a switch to another user: forget the previous user's
+      // workspace and data. Not done for the very first null (app start with no
+      // session, e.g. offline with an expired token) so a saved workspace choice
+      // survives until the user is back.
+      if (previousUserId !== null) resetWorkspaceState()
     }
 
-    loadWorkspaces()
-  }, [authReady, currentUserId])
+    if (!currentUserId) {
+      setIsReady(false)
+      return
+    }
+
+    void loadWorkspaces()
+  }, [authReady, currentUserId, loadWorkspaces, resetWorkspaceState])
 
   // Load workspace data
   const refreshWorkspaceData = useCallback(async () => {
     if (!activeWorkspaceId || !currentUserId) return
+    const epoch = sessionEpoch.current
 
     try {
       const [
@@ -286,6 +358,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         getMyCreatorStatus(createClient(), activeWorkspaceId, currentUserId),
       ])
 
+      // The user signed out (or changed) while this was loading.
+      if (epoch !== sessionEpoch.current) return
+
       setCurrentWorkspace(workspace)
       setCurrentMember(member)
       setMembers(membersList)
@@ -310,6 +385,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       setMyCreatorStatusState(myCreatorStatusResult)
       setWorkspaceDataError(null)
     } catch (error) {
+      if (epoch !== sessionEpoch.current) return
       console.error('Error loading workspace data:', error)
       setWorkspaceDataError(
         error instanceof Error
@@ -320,11 +396,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }, [activeWorkspaceId, currentUserId])
 
   useEffect(() => {
-    if (activeWorkspaceId) {
+    if (activeWorkspaceId && currentUserId) {
       localStorage.setItem('activeWorkspaceId', activeWorkspaceId)
       refreshWorkspaceData()
     }
-  }, [activeWorkspaceId, refreshWorkspaceData])
+  }, [activeWorkspaceId, currentUserId, refreshWorkspaceData])
 
   const workspaceMemberships = useMemo(() => {
     // `members` is scoped to the active workspace. Never invent a fake
@@ -400,6 +476,33 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       workspaceDataError,
       setActiveWorkspaceId,
       refreshWorkspaceData,
+      reloadWorkspaces: loadWorkspaces,
+
+      createWorkspace: async (name: string) => {
+        if (!currentUserId) throw new Error('準備ができていません')
+        const trimmed = name.trim()
+        if (!trimmed) throw new Error('ワークスペース名を入力してください')
+
+        const baseSlug = trimmed
+          .toLowerCase()
+          .replace(/[^a-z0-9]+/g, '-')
+          .replace(/^-+|-+$/g, '')
+          .slice(0, 40)
+        const slug = `${baseSlug || 'workspace'}-${Date.now().toString(36)}`
+
+        const workspace = await workspacesRepo.createWorkspace({
+          name: trimmed,
+          slug,
+          ownerId: currentUserId,
+        })
+
+        // The activeWorkspaceId effect loads the workspace data; calling
+        // refreshWorkspaceData() here would use this render's stale closure
+        // (activeWorkspaceId still null) and return immediately.
+        setWorkspaces((current) => [...current, workspace])
+        setActiveWorkspaceId(workspace.id)
+        return workspace
+      },
 
       createSeedItem: async (input) => {
         if (!currentWorkspace || !currentUserId) throw new Error('準備ができていません')
@@ -436,11 +539,19 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           })
 
           for (const preparedAsset of preparedAssets) {
+            // Same as appendSeedAssets: without the aspect ratio a phone-shot
+            // vertical video is treated as a 16:9 master (wrong crops, offered
+            // to YouTube long-form) because no ratio means "unknown".
+            const aspectRatio = await detectFileAspectRatio(preparedAsset.file)
             await assetStorage.saveAssetMetadata({
               workspaceId: currentWorkspace.id,
               seedId: seed.id,
               uploadedBy: currentUserId,
-              preparedAsset,
+              preparedAsset: {
+                ...preparedAsset,
+                aspectRatio: aspectRatio ?? undefined,
+                publishingChannels: suggestedPublishingChannelsForAspect(aspectRatio, preparedAsset.type),
+              },
             })
           }
         }
@@ -590,10 +701,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ workspaceId: currentWorkspace.id, accountId }),
         })
-        const payload = await response.json()
+        const payload = await readJsonBody(response)
         if (!response.ok) throw new Error(payload.error ?? 'このアカウントの接続を解除できませんでした。')
 
         await refreshWorkspaceData()
+        if (!payload.account) throw new Error('接続解除の結果を受け取れませんでした。画面を再読み込みして確認してください。')
         return payload.account as SocialAccount
       },
 
@@ -610,7 +722,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ workspaceId: currentWorkspace.id }),
         })
-        const payload = await response.json()
+        const payload = await readJsonBody(response)
         if (!response.ok) throw new Error(payload.error ?? 'LINEの接続に失敗しました。')
 
         await refreshWorkspaceData()
@@ -630,11 +742,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ workspaceId: currentWorkspace.id, platform }),
         })
-        const payload = await response.json()
+        const payload = await readJsonBody(response)
         if (!response.ok) throw new Error(payload.error ?? '受信箱を同期できませんでした。')
 
         await refreshWorkspaceData()
-        return payload as { ingested: number }
+        return { ingested: payload.ingested ?? 0, failures: Array.isArray(payload.failures) ? payload.failures : [] }
       },
 
       saveDefaultBrandProfile: async (input) => {
@@ -783,8 +895,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ workspaceId: currentWorkspace.id, inboxItemId }),
         })
-        const payload = await response.json()
+        const payload = await readJsonBody(response)
         if (!response.ok) throw new Error(payload.error ?? '返信案を生成できませんでした。')
+        if (typeof payload.reply !== 'string') throw new Error('返信案を受け取れませんでした。もう一度お試しください。')
 
         await refreshWorkspaceData()
         return payload as {
@@ -816,7 +929,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ workspaceId: currentWorkspace.id, inboxItemId, replyText, suggestionId, sendNow }),
         })
-        const payload = await response.json()
+        const payload = await readJsonBody(response)
         if (!response.ok) throw new Error(payload.error ?? '返信を送信できませんでした。')
 
         await refreshWorkspaceData()
@@ -957,7 +1070,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ workspaceId: currentWorkspace.id, eventId }),
         })
-        const payload = await response.json()
+        const payload = await readJsonBody(response)
         if (!response.ok) throw new Error(payload.error ?? '外部カレンダーへの同期に失敗しました。')
 
         return (payload.outcomes ?? []) as ProviderSyncOutcome[]
@@ -974,11 +1087,12 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ workspaceId: currentWorkspace.id, inboxItemId }),
         })
-        const payload = await response.json()
+        const payload = await readJsonBody(response)
         if (!response.ok) throw new Error(payload.error ?? '予定を抽出できませんでした。')
 
         // Extraction doesn't write anything, so no refresh is needed here — the
         // caller approves individual proposals via createCalendarEvent.
+        if (!Array.isArray(payload.proposals)) throw new Error('予定の抽出結果を受け取れませんでした。もう一度お試しください。')
         return payload as { source: 'ai' | 'unavailable'; reason?: string; proposals: ScheduleProposal[] }
       },
 
@@ -1032,9 +1146,12 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           throw new Error('あなたの役割では公開予約ができません。')
         }
 
-        const draft = drafts.find((entry) => entry.id === draftId)
+        // Read the row from the database — in-memory `drafts` can lag one
+        // render behind saveAndApproveDraft, which is exactly the path the
+        // mobile "まとめて送る" flow uses (generate → approve → schedule).
+        const draft = await draftsRepo.getSocialDraft(currentWorkspace.id, draftId)
         if (!draft) throw new Error('下書きが見つかりません')
-        if (draft.status !== 'approved') throw new Error('承認済みの下書きのみ予約できます。')
+        if (draft.status !== 'approved') throw new Error('承認済みの下書きのみ予約できます。本文を編集した場合は、もう一度承認してください。')
 
         // Always the latest approval, not the (possibly since-edited) mutable
         // draft row — a schedule always publishes an immutable Revision.
@@ -1042,6 +1159,24 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         if (!revision) throw new Error('この下書きの承認版（Revision）が見つかりません。')
 
         const publishMode = derivePublishMode(draft.channel)
+        let socialAccountId: string | undefined
+        if (draft.channel !== 'note' && draft.channel !== 'website') {
+          const options = parseDraftPublishOptions({ ...revision.metadata, ...draft.metadata })
+          const selected = selectSocialAccountForPublish({
+            accounts: socialAccounts,
+            platform: draft.channel,
+            requestedAccountId: options.socialAccountId,
+          })
+          if (selected.ok) {
+            socialAccountId = selected.account.id
+          } else if (publishMode !== 'manual') {
+            // Only an automated publish needs an account to post with. A manual
+            // job is a handoff prepared here and finished by the human in the
+            // platform's own screen, so it never requires a connection.
+            throw new Error(selected.message)
+          }
+        }
+
         const job = await queueRepo.createPublishJob({
           workspaceId: currentWorkspace.id,
           seedId: draft.seedId,
@@ -1051,6 +1186,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           publishMode,
           scheduledAt,
           createdBy: currentUserId,
+          socialAccountId,
         })
 
         await auditRepo.appendAuditLog({
@@ -1122,9 +1258,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ workspaceId: currentWorkspace.id, jobId }),
         })
-        const payload = await response.json()
+        const payload = await readJsonBody(response)
         if (!response.ok) throw new Error(payload.error ?? 'この投稿の指標を取得できませんでした。')
 
+        if (Object.keys(payload).length === 0) throw new Error('指標を受け取れませんでした。もう一度お試しください。')
         return payload as PostMetrics
       },
 
@@ -1181,7 +1318,16 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         if (!currentWorkspace || !currentUserId) throw new Error('準備ができていません')
 
         const isFirstSave = !draft.id
-        const saved = await draftsRepo.upsertSocialDraft(currentWorkspace.id, draft)
+        // Changing the words of an approved draft makes the approved Revision
+        // stale: scheduling would still publish the old text. Send it back to
+        // 'draft' so it has to be approved again (which writes a new Revision).
+        // Metadata-only changes (e.g. picking an account) keep the approval.
+        const existing = draft.id ? drafts.find((entry) => entry.id === draft.id) : undefined
+        const contentChanged = existing ? hasDraftContentChanged(existing, draft) : false
+        const saved = await draftsRepo.upsertSocialDraft(
+          currentWorkspace.id,
+          existing?.status === 'approved' && contentChanged ? { ...draft, status: 'draft' } : draft,
+        )
 
         await auditRepo.appendAuditLog({
           workspaceId: currentWorkspace.id,
@@ -1241,12 +1387,15 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           body: JSON.stringify({ workspaceId: currentWorkspace.id, seedId, channels, tone, length }),
         })
 
-        const payload = await response.json()
+        const payload = await readJsonBody(response)
         if (!response.ok) {
-          throw new Error(payload.error ?? '下書きを生成できませんでした。')
+          throw new Error(payload.error ?? '下書きの生成に時間がかかっているか、失敗しました。少し待ってからもう一度お試しください。')
+        }
+        if (!Array.isArray(payload.drafts)) {
+          throw new Error('下書きを受け取れませんでした。もう一度お試しください。')
         }
 
-        return payload as { source: 'ai' | 'template-fallback'; reason?: string; drafts: SocialDraft[] }
+        return payload as { source: 'ai' | 'template-fallback'; reason?: string; styleExamplesUsed?: number; drafts: SocialDraft[] }
       },
     }
   }, [
@@ -1279,6 +1428,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     workspaceDataError,
     currentUserId,
     refreshWorkspaceData,
+    loadWorkspaces,
   ])
 
   return <AppContext.Provider value={value}>{children}</AppContext.Provider>

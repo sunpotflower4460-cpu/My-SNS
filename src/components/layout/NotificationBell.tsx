@@ -1,10 +1,11 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import Link from 'next/link'
 import { Bell } from 'lucide-react'
 import { useApp } from '@/lib/app/app-provider'
-import type { Notification } from '@/lib/domain/types'
+import type { Notification, SocialDraft } from '@/lib/domain/types'
 
 const TARGET_HREF: Record<string, string> = {
   social_draft: '/app/drafts',
@@ -12,7 +13,13 @@ const TARGET_HREF: Record<string, string> = {
   inbox_item: '/app/inbox',
 }
 
-function targetHref(notification: Notification): string {
+function targetHref(notification: Notification, drafts: SocialDraft[]): string {
+  // A draft notification points at the draft id; the drafts screen is keyed by
+  // seed, so resolve it when the draft is still loaded.
+  if (notification.targetType === 'social_draft' && notification.targetId) {
+    const seedId = drafts.find((draft) => draft.id === notification.targetId)?.seedId
+    if (seedId) return `/app/drafts?seed=${seedId}`
+  }
   return (notification.targetType && TARGET_HREF[notification.targetType]) ?? '/app/dashboard'
 }
 
@@ -26,9 +33,41 @@ function relativeTime(iso: string): string {
 }
 
 export default function NotificationBell() {
-  const { markAllNotificationsRead, markNotificationRead, notifications } = useApp()
+  const { drafts, markAllNotificationsRead, markNotificationRead, notifications } = useApp()
   const [isOpen, setIsOpen] = useState(false)
+  const buttonRef = useRef<HTMLButtonElement>(null)
+  const panelRef = useRef<HTMLDivElement>(null)
   const unreadCount = notifications.filter((n) => !n.isRead).length
+
+  // The panel is portalled to <body>, so it is not next to the button in tab
+  // order. Move focus into it on open so keyboard and screen-reader users land
+  // on it; Escape (below) hands focus back to the button.
+  useEffect(() => {
+    if (isOpen) panelRef.current?.focus()
+  }, [isOpen])
+
+  // Click-away + Escape. A document listener (not a full-screen overlay): the
+  // header's backdrop-blur makes it the containing block for `fixed` children,
+  // so an overlay rendered inside it would only cover the header.
+  useEffect(() => {
+    if (!isOpen) return
+    const onPointerDown = (event: PointerEvent) => {
+      const target = event.target as Node
+      if (panelRef.current?.contains(target) || buttonRef.current?.contains(target)) return
+      setIsOpen(false)
+    }
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape') return
+      setIsOpen(false)
+      buttonRef.current?.focus()
+    }
+    document.addEventListener('pointerdown', onPointerDown)
+    document.addEventListener('keydown', onKeyDown)
+    return () => {
+      document.removeEventListener('pointerdown', onPointerDown)
+      document.removeEventListener('keydown', onKeyDown)
+    }
+  }, [isOpen])
 
   const handleOpenNotification = (notification: Notification) => {
     setIsOpen(false)
@@ -38,8 +77,11 @@ export default function NotificationBell() {
   return (
     <div className="relative">
       <button
+        ref={buttonRef}
         onClick={() => setIsOpen((open) => !open)}
         aria-label="通知"
+        aria-expanded={isOpen}
+        aria-haspopup="true"
         className="relative rounded-full border border-[color:var(--border-default)] bg-white/84 p-2.5 text-[color:var(--text-default)] transition duration-200 ease-[var(--ease-out-premium)] hover:bg-white hover:text-[color:var(--text-strong)]"
       >
         <Bell aria-hidden className="h-[18px] w-[18px]" />
@@ -51,9 +93,14 @@ export default function NotificationBell() {
       </button>
 
       {isOpen && (
-        <>
-          <button aria-label="通知を閉じる" onClick={() => setIsOpen(false)} className="fixed inset-0 z-30 cursor-default" />
-          <div className="ui-floating absolute right-0 z-40 mt-2 w-80 max-w-[90vw] overflow-hidden rounded-[1.5rem]">
+        createPortal(
+          <div
+            ref={panelRef}
+            role="region"
+            aria-label="通知"
+            tabIndex={-1}
+            className="ui-floating fixed inset-x-4 top-[4.5rem] z-50 overflow-hidden focus:outline-none rounded-[1.5rem] sm:inset-x-auto sm:right-6 sm:w-80 lg:right-8"
+          >
             <div className="flex items-center justify-between border-b border-[color:var(--border-default)] px-4 py-3">
               <p className="text-sm font-semibold text-[color:var(--text-strong)]">通知</p>
               {unreadCount > 0 && (
@@ -62,14 +109,14 @@ export default function NotificationBell() {
                 </button>
               )}
             </div>
-            <div className="max-h-96 overflow-y-auto">
+            <div className="max-h-[min(24rem,calc(100dvh-9rem))] overflow-y-auto">
               {notifications.length === 0 ? (
                 <p className="px-4 py-8 text-center text-sm text-[color:var(--text-subtle)]">通知はまだありません。</p>
               ) : (
                 notifications.map((notification) => (
                   <Link
                     key={notification.id}
-                    href={targetHref(notification)}
+                    href={targetHref(notification, drafts)}
                     onClick={() => handleOpenNotification(notification)}
                     className={`block border-b border-black/[0.04] px-4 py-3 text-sm transition duration-200 ease-[var(--ease-out-premium)] hover:bg-black/[0.025] ${
                       notification.isRead ? 'text-[color:var(--text-muted)]' : 'bg-[color:rgba(109,93,246,0.06)] text-[color:var(--text-strong)]'
@@ -82,8 +129,9 @@ export default function NotificationBell() {
                 ))
               )}
             </div>
-          </div>
-        </>
+          </div>,
+          document.body,
+        )
       )}
     </div>
   )

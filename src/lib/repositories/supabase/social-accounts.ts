@@ -93,10 +93,10 @@ export async function upsertPendingSocialAccount(
 }
 
 /**
- * Atomically activates this credential-backed pending account and retires the
- * previously connected account for the same workspace/platform. The RPC is
- * owner/admin checked and enforces the same single-connected invariant as the
- * partial unique index in 20260826075000_single_connected_social_account.sql.
+ * Atomically activates this credential-backed pending account. A second
+ * account on the same platform stays connected; reconnecting the same
+ * external id still retires that previous row. Webhook platforms keep one
+ * workspace owner per real account.
  */
 export async function finalizeSocialAccountConnection(
   supabase: SupabaseClient,

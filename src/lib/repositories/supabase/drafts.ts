@@ -1,4 +1,6 @@
 import type { DraftSource, SocialDraft } from '@/lib/domain/types'
+import { keepFactualAssumptions } from '@/lib/services/draft-assumptions'
+import { snapshotForFirstAiSave } from '@/lib/services/draft-style-learning'
 import { createClient } from '@/lib/supabase/client'
 
 interface SocialDraftRow {
@@ -32,7 +34,7 @@ function mapDraft(row: SocialDraftRow): SocialDraft {
     draftText: row.draft_text,
     hashtags: row.hashtags ?? [],
     cta: row.cta ?? undefined,
-    assumptions: row.assumptions ?? [],
+    assumptions: keepFactualAssumptions(row.assumptions),
     metadata: row.metadata ?? {},
     source: row.source,
     tone: row.tone,
@@ -81,6 +83,20 @@ export async function listSeedDrafts(
   return (data ?? []).map((row) => mapDraft(row as SocialDraftRow))
 }
 
+export async function getSocialDraft(workspaceId: string, draftId: string): Promise<SocialDraft | null> {
+  const supabase = createClient()
+
+  const { data, error } = await supabase
+    .from('social_drafts')
+    .select('*')
+    .eq('workspace_id', workspaceId)
+    .eq('id', draftId)
+    .maybeSingle()
+
+  if (error) throw draftsReadError('下書き', error.message)
+  return data ? mapDraft(data as SocialDraftRow) : null
+}
+
 export async function upsertSocialDraft(
   workspaceId: string,
   draft: Omit<SocialDraft, 'id' | 'createdAt' | 'updatedAt'> & { id?: string }
@@ -101,10 +117,8 @@ export async function upsertSocialDraft(
   }
 
   // ai_original_snapshot is deliberately set only on first INSERT, never on
-  // a later UPDATE — see the column's migration comment. This is the
-  // earliest point the app can freeze "what the AI proposed" for later
-  // human-edit comparison (PR7's style learning); overwriting it on every
-  // edit would defeat the whole point.
+  // a later UPDATE. Prefer the generation-time copy when the client still
+  // has it, so a pre-save edit is not frozen as "AI original".
   const query = draft.id
     ? supabase
         .from('social_drafts')
@@ -119,10 +133,7 @@ export async function upsertSocialDraft(
           seed_id: draft.seedId,
           channel: draft.channel,
           created_by: draft.createdBy,
-          ai_original_snapshot:
-            draft.source === 'ai'
-              ? { title: draft.title?.trim() || undefined, body: draft.draftText, hashtags: draft.hashtags, cta: draft.cta?.trim() || undefined }
-              : null,
+          ai_original_snapshot: snapshotForFirstAiSave(draft),
         })
 
   const { data, error } = await query.select().single()

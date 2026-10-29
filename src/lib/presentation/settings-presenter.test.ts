@@ -30,6 +30,15 @@ describe('getPlatformConnection', () => {
     expect(conn.handle).toBe('未接続')
   })
 
+  it('summarizes multiple connected accounts without dropping them', () => {
+    const conn = getPlatformConnection('youtube', [
+      account({ platform: 'youtube', handle: 'Main' }),
+      account({ id: 'a-youtube-2', platform: 'youtube', handle: 'Second' }),
+    ])
+    expect(conn.connected).toBe(true)
+    expect(conn.handle).toContain('ほか1件')
+  })
+
   it('does not match a different platform', () => {
     const conn = getPlatformConnection('instagram', [account({ platform: 'x' })])
     expect(conn.connected).toBe(false)

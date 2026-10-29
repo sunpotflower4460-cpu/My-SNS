@@ -32,7 +32,7 @@ export default function SeedCard({ seed, onClick }: SeedCardProps) {
       <h2 className="line-clamp-2 text-base font-semibold text-gray-900 group-hover:text-violet-700">
         {seed.title}
       </h2>
-      <p className="mt-2 line-clamp-3 min-h-[3.75rem] text-sm leading-5 text-gray-500">
+      <p className="mt-2 line-clamp-3 min-h-[3.75rem] text-sm leading-5 text-default">
         {seed.sourceText || 'アセットのみのシードです。今すぐ文脈を追加するか、提案ステップで不足点を特定させましょう。'}
       </p>
 
@@ -41,13 +41,13 @@ export default function SeedCard({ seed, onClick }: SeedCardProps) {
           <ChannelBadge key={channel} channel={channel} />
         ))}
         {seed.targetChannels.length > 3 && (
-          <span className="rounded-full border border-stone-200 bg-stone-50 px-2.5 py-1 text-xs text-gray-500">
+          <span className="rounded-full border border-stone-200 bg-stone-50 px-2.5 py-1 text-xs text-muted">
             +{seed.targetChannels.length - 3}
           </span>
         )}
       </div>
 
-      <div className="mt-4 flex items-center justify-between border-t border-stone-100 pt-4 text-xs text-gray-400">
+      <div className="mt-4 flex items-center justify-between border-t border-stone-100 pt-4 text-xs text-muted">
         <span>{seed.brandProfile?.name ?? 'ブランドプロフィール未設定'}</span>
         <span>{new Date(seed.updatedAt).toLocaleDateString('ja-JP', { timeZone: 'Asia/Tokyo' })}</span>
       </div>

@@ -92,21 +92,27 @@ export async function POST(request: NextRequest) {
   // Need a connected LINE account (the send credential). Treat a database
   // read failure differently from a real "not connected" state — silently
   // collapsing the former into the latter can prompt needless reconnects.
-  const { data: account, error: accountError } = await supabase
+  const { data: lineAccounts, error: accountError } = await supabase
     .from('social_accounts')
     .select('id')
     .eq('workspace_id', workspaceId)
     .eq('platform', 'line')
     .eq('connected', true)
-    .maybeSingle()
+    .limit(2)
 
   if (accountError) {
     return NextResponse.json({ error: 'LINEの接続状態を確認できませんでした。少し後でもう一度お試しください。' }, { status: 502 })
   }
-  if (!account) {
+  if (!lineAccounts || lineAccounts.length === 0) {
     return NextResponse.json(
       { error: 'LINE公式アカウントが接続されていません。設定から接続してください。' },
       { status: 400 },
+    )
+  }
+  if (lineAccounts.length > 1) {
+    return NextResponse.json(
+      { error: 'LINE公式アカウントが複数接続されているため、返信先を特定できません。設定で1つに絞るか、不要な接続を解除してください。' },
+      { status: 409 },
     )
   }
 

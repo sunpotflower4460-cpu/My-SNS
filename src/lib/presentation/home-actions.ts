@@ -7,7 +7,7 @@ import type {
   SocialDraft,
   Seed,
 } from '@/lib/domain/types'
-import { PUBLISHING_CHANNEL_CONFIG } from '@/lib/channels/config'
+import { PUBLISHING_CHANNEL_CONFIG, type PublishingStrategy } from '@/lib/channels/config'
 
 // The home screen presenter (UI-PR1b). Pure functions only — no React, no
 // Date.now() inside (callers pass `now`) — so the "what should I do next" logic
@@ -41,6 +41,8 @@ export interface HomeSnapshot {
   drafts: SocialDraft[]
   seeds: Seed[]
   socialAccounts: SocialAccount[]
+  /** Defaults to 'zero-cost', matching getPublishingStrategy()'s own default. */
+  publishingStrategy?: PublishingStrategy
 }
 
 const PRIORITY_RANK: Record<NextActionPriority, number> = { critical: 0, high: 1, normal: 2 }
@@ -56,21 +58,21 @@ function channelLabel(channel: PublishJob['channel']): string {
  * everything else (normal). Stable within a priority tier (insertion order).
  */
 export function computeNextActions(snapshot: HomeSnapshot): NextAction[] {
-  const { publishJobs, replyJobs, inboxItems, drafts, seeds, socialAccounts } = snapshot
+  const { publishJobs, replyJobs, inboxItems, drafts, seeds, socialAccounts, publishingStrategy = 'zero-cost' } = snapshot
   const actions: NextAction[] = []
 
   // 1. Publishes that failed — the most urgent thing: something the creator
   //    expected to go out didn't.
   const failedPublishes = publishJobs.filter((job) => job.status === 'failed')
   if (failedPublishes.length > 0) {
-    const only = failedPublishes.length === 1 ? failedPublishes[0] : null
     actions.push({
       id: 'publish-failed',
       priority: 'critical',
       category: 'publish',
       title: `公開に失敗した投稿が${failedPublishes.length}件あります`,
       description: '原因を確認して、もう一度公開するか下書きに戻せます。',
-      href: only ? `/app/seeds/${only.seedId}` : '/app/queue',
+      // The failure reason and the retry controls live in the queue, not on the seed page.
+      href: '/app/queue',
       actionLabel: '確認する',
     })
   }
@@ -114,7 +116,7 @@ export function computeNextActions(snapshot: HomeSnapshot): NextAction[] {
       category: 'approval',
       title: `承認を待っている下書きが${pendingDrafts.length}件あります`,
       description: 'AIの提案を確認し、必要なら整えてから承認できます。',
-      href: only ? `/app/seeds/${only.seedId}` : '/app/seeds',
+      href: only ? `/app/drafts?seed=${only.seedId}` : '/app/drafts',
       actionLabel: '確認する',
     })
   }
@@ -136,17 +138,22 @@ export function computeNextActions(snapshot: HomeSnapshot): NextAction[] {
   }
 
   // 6. Setup gap: no connected account yet. Only shown when nothing is connected,
-  //    so it fades away once the creator is set up.
+  //    so it fades away once the creator is set up. In zero-cost mode connecting
+  //    is optional (posting is a manual handoff), so the copy says so instead of
+  //    implying publishing is blocked.
   const hasConnection = socialAccounts.some((account) => account.connected)
   if (!hasConnection) {
+    const manualMode = publishingStrategy === 'zero-cost'
     actions.push({
       id: 'setup-connect',
-      priority: 'normal',
+      priority: manualMode ? 'normal' : 'high',
       category: 'setup',
-      title: 'SNSアカウントを接続しましょう',
-      description: '接続すると、投稿の公開やメッセージの受信ができるようになります。',
-      href: '/app/settings',
-      actionLabel: '接続する',
+      title: manualMode ? '自動投稿したい媒体を接続できます' : 'SNSアカウントを接続しましょう',
+      description: manualMode
+        ? '接続しなくても、コピー・共有での手動投稿はそのまま使えます。自動投稿や受信箱の取り込みを使う場合に接続します。'
+        : '接続すると、投稿の公開やメッセージの受信ができるようになります。',
+      href: '/app/settings#connections',
+      actionLabel: manualMode ? '接続方法を見る' : '接続する',
     })
   }
 
@@ -250,11 +257,10 @@ export function buildTodayTimeline(snapshot: TimelineSnapshot, now: number): Tim
 /**
  * Scheduled publish jobs on a FUTURE (JST) day — the runway. Sorted soonest-
  * first and capped. Distinct from the timeline, which is today only, so nothing
- * overlaps. Strictly-future comparison also drops past-due jobs: an `assisted`
- * (YouTube) or `draft` (TikTok) job the Worker never auto-runs can sit in
- * `scheduled` with a past `scheduledAt` indefinitely, and must not surface at
- * the top of an "upcoming" list. JST date keys are ISO YYYY-MM-DD, so a string
- * `>` compares chronologically.
+ * overlaps. Strictly-future comparison also drops past-due jobs (a missed cron
+ * window or an older assisted/draft YouTube/TikTok job that never auto-ran)
+ * so they do not sit at the top of an "upcoming" list. JST date keys are ISO
+ * YYYY-MM-DD, so a string `>` compares chronologically.
  */
 export function getUpcomingPublishJobs(publishJobs: PublishJob[], now: number, limit = 5): PublishJob[] {
   const todayKey = new Date(now).toLocaleDateString('en-CA', { timeZone: JST })

@@ -1,8 +1,8 @@
 import { randomUUID } from 'node:crypto'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import type { BrandProfile } from '@/lib/domain/types'
-import { generateReplyWithAnthropic, AnthropicReplyGenerationError } from './anthropic-reply'
-import { calculateGenerationCost, isAnthropicConfigured } from './anthropic-draft'
+import { generateReplyWithAi, AiReplyGenerationError } from './llm-reply'
+import { calculateGenerationCost, isAiConfigured } from './llm-provider'
 import {
   claimInboxReplyGeneration,
   claimWorkspaceAiBudget,
@@ -88,11 +88,11 @@ async function loadWorkspaceContext(
   const usageIncidentSince = new Date(now.getTime() - AI_USAGE_INCIDENT_COOLDOWN_HOURS * 60 * 60 * 1000).toISOString()
   const [
     { data: owner, error: ownerError },
-    { data: account, error: accountError },
+    { data: lineAccounts, error: accountError },
     { data: usageIncident, error: usageIncidentError },
   ] = await Promise.all([
     supabase.from('workspace_members').select('user_id').eq('workspace_id', workspaceId).eq('role', 'owner').limit(1).maybeSingle(),
-    supabase.from('social_accounts').select('id').eq('workspace_id', workspaceId).eq('platform', 'line').eq('connected', true).limit(1).maybeSingle(),
+    supabase.from('social_accounts').select('id').eq('workspace_id', workspaceId).eq('platform', 'line').eq('connected', true).limit(2),
     supabase
       .from('audit_logs')
       .select('id')
@@ -124,7 +124,7 @@ async function loadWorkspaceContext(
 
   return {
     ownerId,
-    lineConnected: Boolean(account),
+    lineConnected: (lineAccounts ?? []).length === 1,
     brandProfile,
     creatorStatus,
     autoAiUsageBlocked: Boolean(usageIncident),
@@ -210,8 +210,8 @@ async function persistAutoReplyArtifacts(
 }
 
 export async function runAutoReplySweep(supabase: SupabaseClient, now: Date = new Date()): Promise<AutoReplySweepResult> {
-  if (!isAnthropicConfigured()) {
-    return { scheduled: 0, skipped: 0, reason: 'ANTHROPIC_API_KEY未設定のため自動返信は実行されません。' }
+  if (!isAiConfigured()) {
+    return { scheduled: 0, skipped: 0, reason: 'AIのAPIキー（DEEPSEEK_API_KEY）が未設定のため自動返信は実行されません。' }
   }
 
   const monthlyBudgetUsd = configuredMonthlyAiBudgetUsd()
@@ -343,7 +343,7 @@ export async function runAutoReplySweep(supabase: SupabaseClient, now: Date = ne
         continue
       }
       generationId = randomUUID()
-      const result = await generateReplyWithAnthropic(row.text, {
+      const result = await generateReplyWithAi(row.text, {
         brandProfile: context.brandProfile,
         contactDisplayName: contact.display_name ?? undefined,
         styleExamples,
@@ -448,7 +448,7 @@ export async function runAutoReplySweep(supabase: SupabaseClient, now: Date = ne
 
       scheduled += 1
     } catch (cause) {
-      if (cause instanceof AnthropicReplyGenerationError && generationId) {
+      if (cause instanceof AiReplyGenerationError && generationId) {
         try {
           await recordAiGeneration(supabase, {
             id: generationId,

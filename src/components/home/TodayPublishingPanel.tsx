@@ -18,9 +18,9 @@ export default function TodayPublishingPanel({ overview }: TodayPublishingPanelP
     <section aria-label="今日の投稿" className="space-y-4">
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
-          <p className="text-xs font-semibold tracking-[0.08em] text-violet-500">PUBLISHING</p>
+          <p className="text-xs font-semibold tracking-[0.08em] text-violet-500">今日の投稿</p>
           <h2 className="mt-1 text-xl font-semibold text-gray-900">今日投稿するパック</h2>
-          <p className="mt-1 text-sm text-gray-500">今日までに投稿するものを先に。終わったら次の1件へ進めます。</p>
+          <p className="mt-1 text-sm text-default">今日までに投稿するものを先に。終わったら次の1件へ進めます。</p>
         </div>
         <Link href="/app/packs" className="text-sm font-medium text-violet-700 hover:text-violet-800">
           投稿パックをすべて見る →
@@ -55,7 +55,7 @@ export default function TodayPublishingPanel({ overview }: TodayPublishingPanelP
                     <p className="truncate text-sm font-semibold text-gray-900">{pack.seed.title}</p>
                     <div className="mt-2 flex flex-wrap items-center gap-2">
                       {pack.channels.slice(0, 4).map((item) => <ChannelBadge key={item.channel} channel={item.channel} />)}
-                      <span className="text-xs text-gray-400">{pack.publishedCount}/{pack.totalCount} 投稿済み</span>
+                      <span className="text-xs text-muted">{pack.publishedCount}/{pack.totalCount} 投稿済み</span>
                     </div>
                   </div>
                   <Link
@@ -79,7 +79,7 @@ export default function TodayPublishingPanel({ overview }: TodayPublishingPanelP
         <Card size="container" tone="selected" className="flex flex-col justify-between">
           <div>
             <div className="flex items-center justify-between gap-3">
-              <p className="text-xs font-semibold tracking-[0.08em] text-violet-600">NEXT</p>
+              <p className="text-xs font-semibold tracking-[0.08em] text-violet-600">次にやること</p>
               <span className="text-xs text-violet-500">進行中 {activeCount}</span>
             </div>
             <h3 className="mt-2 text-base font-semibold text-gray-900">次にやること</h3>
