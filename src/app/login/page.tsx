@@ -6,6 +6,7 @@ import { useAuth } from '@/lib/auth/auth-provider'
 import { mapLoginAuthError, normalizeLoginEmail } from '@/lib/auth/login-otp'
 import { createClient } from '@/lib/supabase/client'
 import { museLoginReturn } from '@/lib/muse/links'
+import { museAuthorizationReturn } from '@/lib/muse/oauth-params'
 
 export const dynamic = 'force-dynamic'
 
@@ -14,8 +15,9 @@ type AuthMode = 'signin' | 'signup'
 export default function LoginPage() {
   const router = useRouter()
   const searchParams = useSearchParams()
+  const authorizationReturn = museAuthorizationReturn(searchParams.get('next'))
   const museReturn = museLoginReturn(searchParams.get('next'))
-  const destination = museReturn ?? '/app/dashboard'
+  const destination = authorizationReturn ?? museReturn ?? '/app/dashboard'
   const { user, isAuthenticated, isReady } = useAuth()
   const [mode, setMode] = useState<AuthMode>('signin')
   const [email, setEmail] = useState('')
@@ -104,7 +106,11 @@ export default function LoginPage() {
             </div>
             <h1 className="text-3xl font-semibold tracking-tight text-gray-900 sm:text-4xl">My-SNS</h1>
             <p className="mt-3 text-sm leading-6 text-gray-500">
-              {museReturn ? 'ログインすると、Muse から開いた My-SNS の画面へ進みます。' : 'メールアドレスとパスワードでログインします。'}
+              {authorizationReturn
+                ? 'ログインすると、Muse との接続を承認する画面へ進みます。'
+                : museReturn
+                  ? 'ログインすると、Muse から開いた My-SNS の画面へ進みます。'
+                  : 'メールアドレスとパスワードでログインします。'}
             </p>
           </div>
 

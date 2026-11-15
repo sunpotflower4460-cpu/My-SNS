@@ -20,6 +20,20 @@ export async function readJsonBodyWithLimit(
   request: Request,
   maxBytes: number,
 ): Promise<{ ok: true; value: unknown } | { ok: false; status: 400 | 413; message: string }> {
+  const body = await readTextBodyWithLimit(request, maxBytes)
+  if (!body.ok) return body
+
+  try {
+    return { ok: true, value: JSON.parse(body.text) as unknown }
+  } catch {
+    return { ok: false, status: 400, message: 'リクエストの形式が正しくありません。' }
+  }
+}
+
+export async function readTextBodyWithLimit(
+  request: Request,
+  maxBytes: number,
+): Promise<{ ok: true; text: string } | { ok: false; status: 400 | 413; message: string }> {
   const contentLength = request.headers.get('content-length')
   if (contentLength) {
     const declared = Number(contentLength)
@@ -50,16 +64,7 @@ export async function readJsonBodyWithLimit(
   if (bytes.byteLength === 0) {
     return { ok: false, status: 400, message: 'リクエスト本文が空です。' }
   }
-  if (bytes.byteLength > maxBytes) {
-    return { ok: false, status: 413, message: 'リクエスト本文が大きすぎます。' }
-  }
-
-  const text = new TextDecoder('utf-8', { fatal: false }).decode(bytes)
-  try {
-    return { ok: true, value: JSON.parse(text) as unknown }
-  } catch {
-    return { ok: false, status: 400, message: 'リクエストの形式が正しくありません。' }
-  }
+  return { ok: true, text: new TextDecoder().decode(bytes) }
 }
 
 function concatBytes(chunks: Uint8Array[], total: number): Uint8Array {
