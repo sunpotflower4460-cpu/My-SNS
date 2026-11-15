@@ -25,7 +25,8 @@ interface Tab {
 
 export default function MobileBottomNav({ onOpenMore, role }: MobileBottomNavProps) {
   const pathname = usePathname()
-  const hideFab = !canCreateSeed(role) || pathname === '/app/seeds/new' || pathname === '/app/drafts' || pathname.startsWith('/app/drafts/')
+  const hideFab = !canCreateSeed(role) || pathname === '/app/seeds/new'
+    || isNavActive(pathname, '/app/drafts') || isNavActive(pathname, '/app/muse')
 
   const tabs: Tab[] = [
     { label: 'ホーム', href: '/app/dashboard', icon: LayoutGrid },
@@ -47,7 +48,7 @@ export default function MobileBottomNav({ onOpenMore, role }: MobileBottomNavPro
         </Link>
       )}
 
-      <nav className="fixed inset-x-0 bottom-0 z-40 flex border-t border-[color:var(--border-default)] bg-white/82 pb-safe backdrop-blur-xl xl:hidden">
+      <nav className="fixed inset-x-0 bottom-0 z-40 flex border-t border-[color:var(--border-default)] bg-white/95 pb-safe backdrop-blur-xl xl:hidden">
         {tabs.map((tab) => {
           const active = tab.href ? isNavActive(pathname, tab.href) : false
           const Icon = tab.icon

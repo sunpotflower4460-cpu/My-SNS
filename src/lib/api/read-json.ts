@@ -15,3 +15,64 @@ export async function readJsonBody(response: Response): Promise<any> {
     return {}
   }
 }
+
+export async function readJsonBodyWithLimit(
+  request: Request,
+  maxBytes: number,
+): Promise<{ ok: true; value: unknown } | { ok: false; status: 400 | 413; message: string }> {
+  const body = await readTextBodyWithLimit(request, maxBytes)
+  if (!body.ok) return body
+
+  try {
+    return { ok: true, value: JSON.parse(body.text) as unknown }
+  } catch {
+    return { ok: false, status: 400, message: 'リクエストの形式が正しくありません。' }
+  }
+}
+
+export async function readTextBodyWithLimit(
+  request: Request,
+  maxBytes: number,
+): Promise<{ ok: true; text: string } | { ok: false; status: 400 | 413; message: string }> {
+  const contentLength = request.headers.get('content-length')
+  if (contentLength) {
+    const declared = Number(contentLength)
+    if (Number.isFinite(declared) && declared > maxBytes) {
+      return { ok: false, status: 413, message: 'リクエスト本文が大きすぎます。' }
+    }
+  }
+
+  const reader = request.body?.getReader()
+  if (!reader) {
+    return { ok: false, status: 400, message: 'リクエスト本文が空です。' }
+  }
+
+  const chunks: Uint8Array[] = []
+  let total = 0
+  while (true) {
+    const { done, value } = await reader.read()
+    if (done) break
+    total += value.byteLength
+    if (total > maxBytes) {
+      await reader.cancel()
+      return { ok: false, status: 413, message: 'リクエスト本文が大きすぎます。' }
+    }
+    chunks.push(value)
+  }
+
+  const bytes = concatBytes(chunks, total)
+  if (bytes.byteLength === 0) {
+    return { ok: false, status: 400, message: 'リクエスト本文が空です。' }
+  }
+  return { ok: true, text: new TextDecoder().decode(bytes) }
+}
+
+function concatBytes(chunks: Uint8Array[], total: number): Uint8Array {
+  const bytes = new Uint8Array(total)
+  let offset = 0
+  for (const chunk of chunks) {
+    bytes.set(chunk, offset)
+    offset += chunk.byteLength
+  }
+  return bytes
+}

@@ -1,7 +1,7 @@
 'use client'
 
 import Link from 'next/link'
-import { Plus } from 'lucide-react'
+import { Plus, Sparkles } from 'lucide-react'
 import PageHeader from '@/components/ui/PageHeader'
 import NextActionList from '@/components/home/NextActionList'
 import TodayTimeline from '@/components/home/TodayTimeline'
@@ -16,6 +16,8 @@ import { buildTodayPublishingOverview } from '@/lib/presentation/today-publishin
 import { useApp } from '@/lib/app/app-provider'
 import { canCreateSeed } from '@/components/layout/nav-items'
 import { getPublishingStrategy } from '@/lib/channels/config'
+import { hasPermission } from '@/lib/permissions'
+import { buttonClassName } from '@/components/ui/kit/Button'
 
 export default function DashboardPage() {
   const {
@@ -57,13 +59,14 @@ export default function DashboardPage() {
         title="ホーム"
         description={`${currentWorkspace?.name ?? 'ワークスペース'}の今日の投稿と、次に進める1件を最初に確認できます。新しい発信は写真や動画を入れて、提案を直して送れます。`}
         actions={
-          canCreate ? <Link
-            href="/app/seeds/new"
-            className="inline-flex min-h-control items-center gap-2 rounded-full bg-gray-900 px-4 text-sm font-medium text-white transition hover:bg-gray-700"
-          >
-            <Plus aria-hidden className="h-4 w-4" />
-            新しい発信
-          </Link> : undefined
+          <>
+            {canCreate && <Link href="/app/seeds/new" className={buttonClassName({ variant: 'primary' })}>
+              <Plus aria-hidden className="h-4 w-4" />新しい発信
+            </Link>}
+            {currentMember && hasPermission(currentMember.role, 'edit_settings') && (
+              <Link href="/app/muse" className={buttonClassName({})}><Sparkles aria-hidden className="h-4 w-4" />Muse 連携</Link>
+            )}
+          </>
         }
       />
 

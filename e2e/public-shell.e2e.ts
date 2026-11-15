@@ -57,6 +57,54 @@ test('signed-out visitors are redirected away from protected app routes', async 
   await expect(page.getByRole('heading', { name: 'My-SNS', exact: true })).toBeVisible()
 })
 
+test('a link from Muse keeps its workspace and source note through the mobile login screen', async ({ page }) => {
+  await page.setViewportSize({ width: 375, height: 812 })
+  const museLink = '/app/muse/open?workspace=10000000-0000-0000-0000-000000000001&view=seed&seed=20000000-0000-0000-0000-000000000002'
+  await page.goto(museLink)
+  await expect(page.getByRole('button', { name: 'ログイン' })).toBeVisible()
+  expect(new URL(page.url()).pathname).toBe('/login')
+  expect(new URL(page.url()).searchParams.get('next')).toBe(museLink)
+  await expect(page.getByText('ログインすると、Muse から開いた My-SNS の画面へ進みます。')).toBeVisible()
+})
+
+test('Muse can discover the API from the host the user opens, without a session or key', async ({ request }) => {
+  const spec = await request.get('/api/muse/v1/openapi')
+  expect(spec.ok()).toBe(true)
+  expect(await spec.json()).toMatchObject({
+    servers: [{ url: new URL('/api/muse/v1', spec.url()).href }],
+    paths: { '/status': { get: expect.any(Object) }, '/seeds': { post: expect.any(Object) } },
+  })
+  expect((await request.get('/api/muse/v1/status')).status()).toBe(401)
+})
+
+test('Muse discovers the OAuth server and returns to the authorization request after login', async ({ page, request }) => {
+  const mcp = await request.get('/api/muse/mcp')
+  expect(mcp.status()).toBe(401)
+  const origin = new URL(mcp.url()).origin
+  const metadataUrl = `${origin}/.well-known/oauth-protected-resource/api/muse/mcp`
+  expect(mcp.headers()['www-authenticate']).toContain(`resource_metadata="${metadataUrl}"`)
+  const resource = await request.get(metadataUrl)
+  expect(await resource.json()).toMatchObject({ resource: `${origin}/api/muse/mcp`, authorization_servers: [origin] })
+
+  const server = await request.get('/.well-known/oauth-authorization-server')
+  expect(await server.json()).toMatchObject({ authorization_endpoint: `${origin}/muse/connect`, code_challenge_methods_supported: ['S256'] })
+
+  const params = new URLSearchParams({
+    client_id: 'my-sns-muse',
+    response_type: 'code',
+    redirect_uri: 'https://muse.ai/api/hatch/oauth/callback',
+    code_challenge: 'A'.repeat(43),
+    code_challenge_method: 'S256',
+    scope: 'muse:read muse:capture',
+    state: 'from-muse',
+    resource: `${origin}/api/muse/mcp`,
+  })
+  await page.setViewportSize({ width: 375, height: 812 })
+  await page.goto(`/muse/connect?${params}`)
+  await expect(page.getByText('ログインすると、Muse との接続を承認する画面へ進みます。')).toBeVisible()
+  expect(new URL(page.url()).searchParams.get('next')).toBe(`/muse/connect?${params}`)
+})
+
 test('PWA manifest is linked and launches into the publishing dashboard', async ({ page }) => {
   await page.goto('/login')
 
