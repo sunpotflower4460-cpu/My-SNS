@@ -10,6 +10,7 @@ import {
   Users,
   Settings2,
   Smartphone,
+  Sparkles,
   type LucideIcon,
 } from 'lucide-react'
 import type { WorkspaceRole } from '@/lib/domain/types'
@@ -59,6 +60,7 @@ export const NAV_GROUPS: NavGroup[] = [
       { label: '発信スタイル', href: '/app/brand', icon: Palette },
       { label: 'チーム', href: '/app/team', icon: Users },
       { label: '接続と設定', href: '/app/settings', icon: Settings2, permission: 'view_settings' },
+      { label: 'Muse 連携', href: '/app/muse', icon: Sparkles, permission: 'view_settings' },
       { label: 'スマホ共有診断', href: '/app/share-diagnostics', icon: Smartphone },
     ],
   },

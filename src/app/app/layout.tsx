@@ -6,6 +6,7 @@ import AppShell from '@/components/layout/AppShell'
 import EmptyState from '@/components/ui/EmptyState'
 import { useApp } from '@/lib/app/app-provider'
 import { useAuth } from '@/lib/auth/auth-provider'
+import { museLoginReturn } from '@/lib/muse/links'
 
 export default function AppLayout({ children }: { children: React.ReactNode }) {
   const router = useRouter()
@@ -26,7 +27,8 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     if (sessionReady && !isAuthenticated) {
-      router.replace('/login')
+      const returnTo = museLoginReturn(window.location.pathname + window.location.search)
+      router.replace(returnTo ? `/login?next=${encodeURIComponent(returnTo)}` : '/login')
     }
   }, [isAuthenticated, router, sessionReady])
 

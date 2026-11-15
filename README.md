@@ -2,6 +2,8 @@
 
 A calm, workspace-centric Creator OS for capturing one source Seed, preserving a reusable Brand Profile, preparing channel drafts, triaging inbox activity, and coordinating publishing.
 
+For mobile use with Meta's Muse app, see [スマホの Muse から My-SNS を使う](docs/muse-connector.md).
+
 ## Phase 2A + PR0-PR5 — MVP complete ✅
 
 The app is now backed by **real Supabase infrastructure** while preserving the existing UI and architecture. PR5 closes out the MVP defined in `docs/master-plan.md` §4: a Seed can flow all the way from one-time capture through AI proposal, human approval, scheduling, and a real connector attempt for all five core channels (X, Instagram, YouTube, TikTok, note) — with the two structural gaps below (media attachment, developer-account setup) intentionally left as the honest, explicitly-documented boundary of what code alone can finish.

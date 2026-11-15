@@ -18,7 +18,7 @@ const VARIANTS: Record<ButtonVariant, string> = {
 
 const SIZES: Record<ButtonSize, string> = {
   sm: 'px-3.5 py-2 text-xs gap-1.5',
-  md: 'px-4.5 py-2.5 text-sm gap-2 sm:min-h-control min-h-touch',
+  md: 'px-4 py-2.5 text-sm gap-2 sm:min-h-control min-h-touch',
 }
 
 export interface ButtonProps extends React.ButtonHTMLAttributes<HTMLButtonElement> {

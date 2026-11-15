@@ -57,6 +57,26 @@ test('signed-out visitors are redirected away from protected app routes', async 
   await expect(page.getByRole('heading', { name: 'My-SNS', exact: true })).toBeVisible()
 })
 
+test('a link from Muse keeps its workspace and source note through the mobile login screen', async ({ page }) => {
+  await page.setViewportSize({ width: 375, height: 812 })
+  const museLink = '/app/muse/open?workspace=10000000-0000-0000-0000-000000000001&view=seed&seed=20000000-0000-0000-0000-000000000002'
+  await page.goto(museLink)
+  await expect(page.getByRole('button', { name: 'ログイン' })).toBeVisible()
+  expect(new URL(page.url()).pathname).toBe('/login')
+  expect(new URL(page.url()).searchParams.get('next')).toBe(museLink)
+  await expect(page.getByText('ログインすると、Muse から開いた My-SNS の画面へ進みます。')).toBeVisible()
+})
+
+test('Muse can discover the API from the host the user opens, without a session or key', async ({ request }) => {
+  const spec = await request.get('/api/muse/v1/openapi')
+  expect(spec.ok()).toBe(true)
+  expect(await spec.json()).toMatchObject({
+    servers: [{ url: new URL('/api/muse/v1', spec.url()).href }],
+    paths: { '/status': { get: expect.any(Object) }, '/seeds': { post: expect.any(Object) } },
+  })
+  expect((await request.get('/api/muse/v1/status')).status()).toBe(401)
+})
+
 test('PWA manifest is linked and launches into the publishing dashboard', async ({ page }) => {
   await page.goto('/login')
 

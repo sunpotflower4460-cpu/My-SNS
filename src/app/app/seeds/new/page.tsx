@@ -241,11 +241,11 @@ export default function NewSeedPage() {
           <div className="mt-4 grid gap-3">
             <label className="block">
               <span className="mb-1.5 block text-sm font-medium text-[color:var(--text-strong)]">タイトル</span>
-              <input value={title} onChange={(event) => setTitle(event.target.value)} placeholder="この発信の名前" className="ui-input w-full rounded-card px-4 py-3 text-sm focus:outline-none" />
+              <input value={title} onChange={(event) => setTitle(event.target.value)} placeholder="この発信の名前" className="ui-input w-full rounded-card px-4 py-3 text-base focus:outline-none sm:text-sm" />
             </label>
             <label className="block">
-              <span className="mb-1.5 block text-sm font-medium text-[color:var(--text-strong)]">ひとこと</span>
-              <textarea value={sourceText} onChange={(event) => setSourceText(event.target.value)} rows={4} placeholder="伝えたいことをラフに。素材だけでも保存できます。" className="ui-input w-full rounded-card px-4 py-3 text-sm leading-6 focus:outline-none" />
+              <span className="mb-1.5 block text-sm font-medium text-[color:var(--text-strong)]">メモ・文章・リンク</span>
+              <textarea id="seed-source" value={sourceText} onChange={(event) => setSourceText(event.target.value)} rows={4} placeholder="伝えたいことをラフに。素材だけでも保存できます。" className="ui-input w-full scroll-mt-5 rounded-card px-4 py-3 text-base leading-6 focus:outline-none sm:text-sm" />
             </label>
           </div>
         </section>

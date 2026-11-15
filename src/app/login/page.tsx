@@ -1,10 +1,11 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { useRouter } from 'next/navigation'
+import { useRouter, useSearchParams } from 'next/navigation'
 import { useAuth } from '@/lib/auth/auth-provider'
 import { mapLoginAuthError, normalizeLoginEmail } from '@/lib/auth/login-otp'
 import { createClient } from '@/lib/supabase/client'
+import { museLoginReturn } from '@/lib/muse/links'
 
 export const dynamic = 'force-dynamic'
 
@@ -12,6 +13,9 @@ type AuthMode = 'signin' | 'signup'
 
 export default function LoginPage() {
   const router = useRouter()
+  const searchParams = useSearchParams()
+  const museReturn = museLoginReturn(searchParams.get('next'))
+  const destination = museReturn ?? '/app/dashboard'
   const { user, isAuthenticated, isReady } = useAuth()
   const [mode, setMode] = useState<AuthMode>('signin')
   const [email, setEmail] = useState('')
@@ -22,9 +26,9 @@ export default function LoginPage() {
 
   useEffect(() => {
     if (isReady && isAuthenticated) {
-      router.replace('/app/dashboard')
+      router.replace(destination)
     }
-  }, [isAuthenticated, isReady, router])
+  }, [destination, isAuthenticated, isReady, router])
 
   if (!isReady) {
     return <div className="flex min-h-screen items-center justify-center bg-stone-50 text-sm text-gray-500">読み込み中…</div>
@@ -51,6 +55,7 @@ export default function LoginPage() {
     setIsLoading(true)
     setError('')
     setNotice('')
+    let waitingForSession = false
 
     try {
       const supabase = createClient()
@@ -77,12 +82,15 @@ export default function LoginPage() {
         return
       }
 
-      router.replace('/app/dashboard')
+      // Navigate in the auth-state effect, after the provider sees the session.
+      // Going to a protected deep link early can send the user back to login.
+      waitingForSession = Boolean(result.data.session)
+      if (!waitingForSession) setError('ログイン状態を確認できませんでした。もう一度お試しください。')
     } catch (err) {
       setError('予期しないエラーが発生しました。もう一度お試しください。')
       console.error('Sign in error:', err)
     } finally {
-      setIsLoading(false)
+      if (!waitingForSession) setIsLoading(false)
     }
   }
 
@@ -96,7 +104,7 @@ export default function LoginPage() {
             </div>
             <h1 className="text-3xl font-semibold tracking-tight text-gray-900 sm:text-4xl">My-SNS</h1>
             <p className="mt-3 text-sm leading-6 text-gray-500">
-              メールアドレスとパスワードでログインします。
+              {museReturn ? 'ログインすると、Muse から開いた My-SNS の画面へ進みます。' : 'メールアドレスとパスワードでログインします。'}
             </p>
           </div>
 
@@ -122,7 +130,7 @@ export default function LoginPage() {
               placeholder="you@example.com"
               disabled={isLoading}
               autoComplete="email"
-              className="mb-4 w-full rounded-2xl border border-stone-200 bg-white px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-violet-300 disabled:opacity-50"
+              className="mb-4 w-full rounded-2xl border border-stone-200 bg-white px-4 py-3 text-base focus:outline-none focus:ring-2 focus:ring-violet-300 disabled:opacity-50 sm:text-sm"
             />
             <label htmlFor="password" className="mb-2 block text-sm font-medium text-gray-700">
               パスワード
@@ -135,7 +143,7 @@ export default function LoginPage() {
               placeholder="6文字以上"
               disabled={isLoading}
               autoComplete={mode === 'signup' ? 'new-password' : 'current-password'}
-              className="mb-4 w-full rounded-2xl border border-stone-200 bg-white px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-violet-300 disabled:opacity-50"
+              className="mb-4 w-full rounded-2xl border border-stone-200 bg-white px-4 py-3 text-base focus:outline-none focus:ring-2 focus:ring-violet-300 disabled:opacity-50 sm:text-sm"
             />
             <button
               type="submit"
